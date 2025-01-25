@@ -3,14 +3,14 @@ package router
 import (
 	"time"
 
-	"github.com/Sport-Stride/ss-api-template/handlers"
-	"github.com/Sport-Stride/ss-api-template/services"
-	"github.com/Sport-Stride/ss-api-template/utils"
+	"mbv-common-template-api/handlers"
+	"mbv-common-template-api/services"
+	"mbv-common-template-api/utils"
+
 	"github.com/gin-gonic/gin"
 )
 
 func InitializeRouter(services *services.Services) *gin.Engine {
-
 	// Set the default gin router
 	r := gin.New()
 
@@ -23,7 +23,6 @@ func InitializeRouter(services *services.Services) *gin.Engine {
 	initializeRoutes(r, services)
 
 	return r
-
 }
 
 func initializeRoutes(r *gin.Engine, services *services.Services) {
@@ -33,6 +32,27 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	// health
 	untracedGroup.GET("/", handlers.GetHealth)
 	untracedGroup.GET("/health", handlers.GetHealth)
+
+	//auth endpoints
+	userGroup := r.Group("/user")
+	userGroup.POST("/signup", handlers.Register(services.AuthService))
+	userGroup.POST("/confirm", handlers.Confirm(services.AuthService))
+	userGroup.POST("/resend-confirm", handlers.ResendConfirmEmail(services.AuthService))
+	userGroup.POST("/login", handlers.Login(services.AuthService))
+	userGroup.POST("/reset-password/init", handlers.InitResetPassword(services.AuthService))
+	userGroup.POST("/reset-password/confirm", handlers.ConfirmResetPassword(services.AuthService))
+	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
+	userGroup.PUT("/update-user/:prefix",
+		AuthMiddleware(),
+		handlers.UpdateUser(services.AuthService))
+	userGroup.GET("/", handlers.GetAllUsersPag(services.AuthService))
+	userGroup.DELETE("/:prefix", handlers.DeleteUser(services.AuthService))
+	userGroup.POST("/",
+		AuthMiddleware(),
+		handlers.AddUser(services.AuthService))
+
+	userGroup.GET("/get-user-by-id/:prefix", handlers.GetUserById(services.AuthService))
+	userGroup.GET("/get-user/:prefix", handlers.GetUserByExternalId(services.AuthService))
 
 	// fallback
 	r.NoRoute(handlers.NoRoute)

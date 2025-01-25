@@ -9,15 +9,44 @@ import (
 var errors []error
 
 type AppConfig struct {
-	Port        int
-	Environment string
+	Port          int
+	Environment   string
+	MongoDB       MongoConfig
+	Notification  NotificationConfig
+	IdentifierAPI IdentifierAPIConfig
+}
+type MongoConfig struct {
+	MongoURI string
+}
+
+type NotificationConfig struct {
+	URL string
+}
+type TrackerAPIConfig struct {
+	URL string
+}
+type IdentifierAPIConfig struct {
+	URL string
+}
+type AccountingAPIConfig struct {
+	URL string
 }
 
 func LoadConfig() AppConfig {
 	viper.AutomaticEnv()
+	viper.BindEnv("Tracker_API_URL")
 	cfg := AppConfig{
-		Port:        getIntWithDefault("PORT", 8088),
+		Port:        getIntWithDefault("PORT", 8060),
 		Environment: getStringWithDefault("ENVIRONMENT", "development"),
+		MongoDB: MongoConfig{
+			MongoURI: getStringWithDefault("MONGODB_URI", "mongodb://localhost:27017"),
+		},
+		Notification: NotificationConfig{
+			URL: getStringWithDefault("Notification_URL", "http://localhost:8087"),
+		},
+		IdentifierAPI: IdentifierAPIConfig{
+			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+		},
 	}
 	if len(errors) != 0 {
 		errorReport := "errors in config :\n"

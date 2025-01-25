@@ -2,8 +2,10 @@ package router
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -12,17 +14,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sport-Stride/ss-api-template/utils"
+	jwt "github.com/golang-jwt/jwt/v4"
+
+	"mbv-common-template-api/utils"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 func initializeMiddlewares(r *gin.Engine) {
-
 	// add cors headers
 	r.Use(cors())
 	r.Use(RecoveryWithZap(utils.Logger, true))
-
 	// dump request in debug
 	if gin.Mode() == gin.DebugMode {
 		r.Use(requestLogger())
@@ -32,10 +35,17 @@ func initializeMiddlewares(r *gin.Engine) {
 
 func cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Add("Allow", "*")
-		c.Writer.Header().Add("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Add("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Add("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Referrer, User-Agent")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Referrer, User-Agent, Authorization")
+
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent) // 204 No Content
+			return
+		}
+		// Passer à la suite des middlewares/handlers
 		c.Next()
 	}
 }
@@ -89,7 +99,7 @@ func Ginzap(logger utils.LogWrapperObj, timeFormat string, utc bool, alwaysLog b
 					zap.String("path", path),
 					zap.String("query", query),
 					zap.String("ip", c.ClientIP()),
-					zap.String("user-agent", c.Request.UserAgent()),
+					zap.String("identifier-agent", c.Request.UserAgent()),
 					zap.String("time", end.Format(timeFormat)),
 					zap.Duration("latency", latency),
 				)
@@ -142,6 +152,58 @@ func RecoveryWithZap(logger utils.LogWrapperObj, stack bool) gin.HandlerFunc {
 				c.AbortWithStatus(http.StatusInternalServerError)
 			}
 		}()
+		c.Next()
+	}
+}
+
+// Middleware to validate the JWT token
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		secretKey := []byte("E3F9B6F9D7914B424E58DDF91AD86")
+
+		// Retrieve the token from the Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing"})
+			c.Abort()
+			return
+		}
+
+		// The expected format is "Bearer <token>"
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+			c.Abort()
+			return
+		}
+
+		// Extract the token
+		tokenString := parts[1]
+
+		// Validate the token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Check if the signing method is correct
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return secretKey, nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+		c.Set("AuthorizationToken", tokenString) // Set the token in context
+		log.Printf("Token set in context: %s", tokenString)
+
+		// Pass the user and token information in the context for use in the handlers
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+			c.Set("userID", claims["id"])
+			c.Set("userRole", claims["role"])
+		}
+
+		// Continue to the protected route
 		c.Next()
 	}
 }

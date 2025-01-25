@@ -1,19 +1,39 @@
 package services
 
 import (
-	"github.com/Sport-Stride/ss-api-template/utils"
+	"mbv-common-template-api/core"
+	"mbv-common-template-api/pkg/identifier"
+	"mbv-common-template-api/pkg/notification"
+	"mbv-common-template-api/repositories"
+	"mbv-common-template-api/utils"
+
+	jwt "github.com/appleboy/gin-jwt/v2"
 )
 
 type Services struct {
-	TemplateService *TemplateService
+	AuthService AuthService
 }
 
-func InitServices(config utils.AppConfig) *Services {
+func InitServices(config utils.AppConfig,
+	middleware *jwt.GinJWTMiddleware,
+	userRepo repositories.UserRepository,
+	pwChecker core.PasswordChecker,
+	activationManager core.ActivationManager,
+	identfier *identifier.IdentifierClient,
+	notification *notification.NotificationClient,
+) *Services {
 
-	template := &TemplateService{}
-
+	// Initialisez AuthServiceImpl avec les dépendances
+	authService := NewAuthService(
+		userRepo,
+		pwChecker,
+		middleware,
+		activationManager,
+		identfier,
+		notification,
+	)
 	return &Services{
-		TemplateService: template,
+		AuthService: authService,
 	}
 
 }
