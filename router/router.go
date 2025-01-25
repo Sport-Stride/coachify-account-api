@@ -3,9 +3,9 @@ package router
 import (
 	"time"
 
-	"mbv-common-template-api/handlers"
-	"mbv-common-template-api/services"
-	"mbv-common-template-api/utils"
+	"coachify-account-api/handlers"
+	"coachify-account-api/services"
+	"coachify-account-api/utils"
 
 	"github.com/gin-gonic/gin"
 )

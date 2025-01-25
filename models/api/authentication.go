@@ -1,7 +1,7 @@
 package api
 
 import (
-	"mbv-common-template-api/models/db"
+	"coachify-account-api/models/db"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"

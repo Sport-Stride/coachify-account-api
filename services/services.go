@@ -1,11 +1,11 @@
 package services
 
 import (
-	"mbv-common-template-api/core"
-	"mbv-common-template-api/pkg/identifier"
-	"mbv-common-template-api/pkg/notification"
-	"mbv-common-template-api/repositories"
-	"mbv-common-template-api/utils"
+	"coachify-account-api/core"
+	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/notification"
+	"coachify-account-api/repositories"
+	"coachify-account-api/utils"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 )

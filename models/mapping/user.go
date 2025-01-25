@@ -1,8 +1,8 @@
 package mapping
 
 import (
-	"mbv-common-template-api/models/api"
-	"mbv-common-template-api/models/db"
+	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
 	"time"
 )
 

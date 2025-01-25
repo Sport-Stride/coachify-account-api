@@ -2,11 +2,11 @@ package notification
 
 import (
 	"bytes"
+	"coachify-account-api/utils"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mbv-common-template-api/utils"
 	"net/http"
 	"time"
 )

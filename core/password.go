@@ -1,11 +1,11 @@
 package core
 
 import (
+	"coachify-account-api/models"
 	"fmt"
-	"golang.org/x/crypto/bcrypt"
-	"mbv-common-template-api/models"
 	"regexp"
 
+	"golang.org/x/crypto/bcrypt"
 )
 
 type PasswordChecker interface {

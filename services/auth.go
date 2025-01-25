@@ -1,25 +1,25 @@
 package services
 
 import (
+	"coachify-account-api/core"
+	"coachify-account-api/models"
+	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
+	"coachify-account-api/models/mapping"
+	"coachify-account-api/models/masks"
+	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/notification"
 	"context"
 	"errors"
 	"fmt"
 	"log"
-	"mbv-common-template-api/core"
-	"mbv-common-template-api/models"
-	"mbv-common-template-api/models/api"
-	"mbv-common-template-api/models/db"
-	"mbv-common-template-api/models/mapping"
-	"mbv-common-template-api/models/masks"
-	"mbv-common-template-api/pkg/identifier"
-	"mbv-common-template-api/pkg/notification"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"mbv-common-template-api/repositories"
-	"mbv-common-template-api/utils"
+	"coachify-account-api/repositories"
+	"coachify-account-api/utils"
 	"net/http"
 	"time"
 )

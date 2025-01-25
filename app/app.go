@@ -1,21 +1,21 @@
 package app
 
 import (
+	"coachify-account-api/core"
+	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/notification"
+	"coachify-account-api/repositories"
 	"context"
 	"fmt"
 	"log"
-	"mbv-common-template-api/core"
-	"mbv-common-template-api/pkg/identifier"
-	"mbv-common-template-api/pkg/notification"
-	"mbv-common-template-api/repositories"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"mbv-common-template-api/router"
-	"mbv-common-template-api/services"
-	"mbv-common-template-api/utils"
+	"coachify-account-api/router"
+	"coachify-account-api/services"
+	"coachify-account-api/utils"
 
 	"github.com/gin-gonic/gin"
 )

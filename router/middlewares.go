@@ -16,7 +16,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v4"
 
-	"mbv-common-template-api/utils"
+	"coachify-account-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

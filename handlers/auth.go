@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"mbv-common-template-api/models/api"
-	"mbv-common-template-api/models/mapping"
-	"mbv-common-template-api/services"
+	"coachify-account-api/models/api"
+	"coachify-account-api/models/mapping"
+	"coachify-account-api/services"
 	"net/http"
 	"strconv"
 

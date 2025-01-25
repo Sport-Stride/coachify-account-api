@@ -1,4 +1,4 @@
-module mbv-common-template-api
+module coachify-account-api
 
 go 1.21.0
 

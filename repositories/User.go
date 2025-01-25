@@ -1,18 +1,18 @@
 package repositories
 
 import (
+	"coachify-account-api/models/db"
+	"coachify-account-api/models/masks"
 	"context"
 	"errors"
 	"fmt"
-	"mbv-common-template-api/models/db"
-	"mbv-common-template-api/models/masks"
 
 	"net/http"
 	"strconv"
 	"time"
 
-	"mbv-common-template-api/models"
-	"mbv-common-template-api/utils"
+	"coachify-account-api/models"
+	"coachify-account-api/utils"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

@@ -1,11 +1,11 @@
 package masks
 
 import (
+	"coachify-account-api/models"
+	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
+	"coachify-account-api/models/mapping"
 	"fmt"
-	"mbv-common-template-api/models"
-	"mbv-common-template-api/models/api"
-	"mbv-common-template-api/models/db"
-	"mbv-common-template-api/models/mapping"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"mbv-common-template-api/app"
+	"coachify-account-api/app"
 	"os"
 	"os/signal"
 	"syscall"

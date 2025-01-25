@@ -1,10 +1,11 @@
 package utils
 
 import (
+	"coachify-account-api/models"
+	"coachify-account-api/models/db"
 	"fmt"
+
 	"github.com/golang-jwt/jwt/v4"
-	"mbv-common-template-api/models"
-	"mbv-common-template-api/models/db"
 
 	"time"
 )
