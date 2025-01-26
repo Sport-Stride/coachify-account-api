@@ -232,7 +232,6 @@ func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 			Status:                ctx.DefaultQuery("status", ""),
 			Gender:                ctx.DefaultQuery("gender", ""),
 			PhoneNumber:           ctx.DefaultQuery("phone_number", ""),
-			CoachExternalID:       ctx.DefaultQuery("organization_id", ""),
 			VerificationStatus:    verificationStatus,
 			VerificationStatusSet: verificationStatusSet,
 			ExternalID:            ctx.DefaultQuery("external_id", ""),

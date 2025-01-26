@@ -27,7 +27,6 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 		Autologin:              req.Autologin,
 		ExternalID:             id,
 		UserConfirmCode:        &confirmCode,
-		CoachExternalID:        req.CoachExternalID,
 	}
 }
 
@@ -63,7 +62,6 @@ func ToApiUser(dbUser *db.User) api.ApiUser {
 		RefreshToken:       dbUser.UserRefreshToken,
 		Token:              dbUser.Token,
 		LastLogin:          dbUser.UserLastLogin,
-		CoachExternalID:    dbUser.CoachExternalID,
 		ExternalID:         dbUser.ExternalID,
 		Autologin:          dbUser.Autologin,
 	}
@@ -89,12 +87,11 @@ func ToApiUserResponse(dbUser *db.UserResponse) api.ApiUserResponse {
 		CreatedAt:          dbUser.CreatedAt,
 		UpdatedAt:          dbUser.UpdatedAt,
 
-		RefreshToken:    dbUser.RefreshToken,
-		Token:           dbUser.Token,
-		LastLogin:       dbUser.LastLogin,
-		CoachExternalID: dbUser.CoachExternalID,
-		ExternalID:      dbUser.ExternalID,
-		Autologin:       dbUser.Autologin,
+		RefreshToken: dbUser.RefreshToken,
+		Token:        dbUser.Token,
+		LastLogin:    dbUser.LastLogin,
+		ExternalID:   dbUser.ExternalID,
+		Autologin:    dbUser.Autologin,
 	}
 }
 
@@ -128,7 +125,6 @@ func SearchUserAPIToDB(searchUser api.SearchUser) db.SearchUser {
 		UserCreatedAt:          searchUser.CreatedAt,
 		UserUpdatedAt:          searchUser.UpdatedAt,
 		UserLastLogin:          searchUser.LastLogin,
-		CoachExternalID:        searchUser.CoachExternalID,
 		ExternalID:             searchUser.ExternalID,
 		Page:                   searchUser.Page,
 		Size:                   searchUser.Size,
@@ -147,7 +143,6 @@ func UpdateUserAPIToDB(User api.UserRequest) db.User {
 		UserDescription:        User.UserDescription,
 		UserPhoneNumber:        User.UserPhoneNumber,
 		UserAddress:            db.Address(User.UserAddress),
-		CoachExternalID:        User.CoachExternalID,
 		UserVerificationStatus: User.VerificationStatus,
 		Autologin:              User.Autologin,
 	}

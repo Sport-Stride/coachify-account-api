@@ -112,7 +112,6 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
 	dbUser.UserCreatedAt = now
 	dbUser.UserUpdatedAt = now
-	dbUser.CoachExternalID = ""
 	token, err := utils.CreateToken(utils.CreateTokenParams{
 		User: *dbUser,
 		Type: "access",
@@ -666,24 +665,6 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 }
 
 func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
-	// Validate that CoachExternalID is provided
-	if req.CoachExternalID == "" {
-		return nil, &models.ApiError{
-			Code:  400,
-			Error: fmt.Errorf("CoachExternalID is required"),
-		}
-	}
-
-	// Fetch users by coach ID
-	nbr, err := s.userRepository.GetUsersByOrgID(ctx, req.CoachExternalID)
-	if err != nil {
-		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to fetch users for coach %s: %w", req.CoachExternalID, err),
-		}
-	}
-	log.Printf("users by coach: %s= %d", req.CoachExternalID, nbr)
-
 	now := time.Now()
 	// Password validation
 	if !core.ValidatePassword(req.Password) {

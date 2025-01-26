@@ -22,7 +22,6 @@ const (
 	UserUpdateMaskUserDescription        = "description"
 	UserUpdateMaskUserPhoneNumber        = "phone_number"
 	UserUpdateMaskUserAddress            = "address"
-	UserUpdateMaskUserCoachExternalID    = "coach_external_id"
 	UserUpdateMaskUserVerificationStatus = "verification_status"
 )
 
@@ -126,12 +125,6 @@ func UpdateUserMasks(dataDB *db.User, dataReq *api.RequestUpdateUser) (*db.User,
 				dataDB.UserAddress = db.Address(dataReq.User.UserAddress)
 				updated = true
 			}
-		case UserUpdateMaskUserCoachExternalID:
-			// Update the orgID if it has changed
-			if dataDB.CoachExternalID != dataReq.User.CoachExternalID {
-				dataDB.CoachExternalID = dataReq.User.CoachExternalID
-				updated = true
-			}
 
 		case UserUpdateMaskUserVerificationStatus:
 			// Update the verification status if it has changed
@@ -219,9 +212,6 @@ func SearchUserMasks(search *db.SearchUser) bson.M {
 	}
 	if !search.UserLastLogin.IsZero() {
 		filters["last_login"] = search.UserLastLogin
-	}
-	if search.CoachExternalID != "" {
-		filters["coach_external_id"] = search.CoachExternalID
 	}
 
 	return filters

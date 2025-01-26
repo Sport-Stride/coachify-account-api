@@ -19,7 +19,6 @@ type UserResetPasswordCode struct {
 type User struct {
 	ID                     primitive.ObjectID     `bson:"_id,omitempty"`
 	ExternalID             string                 `bson:"externalid"`
-	CoachExternalID        string                 `bson:"coach_external_id"`
 	UserFirstname          string                 `bson:"firstname" validate:"required"`
 	UserLastname           string                 `bson:"lastname" validate:"required"`
 	UserEmail              string                 `bson:"email" validate:"required"`
@@ -44,7 +43,6 @@ type User struct {
 
 type SearchUser struct {
 	ExternalID             string     `bson:"externalid"`
-	CoachExternalID        string     `bson:"coach_external_id"`
 	UserFirstname          string     `bson:"firstname"  `
 	UserLastname           string     `bson:"lastname" `
 	UserEmail              string     `bson:"email" `
@@ -66,7 +64,6 @@ type SearchUser struct {
 }
 
 type UserRequest struct {
-	CoachExternalID    string    `bson:"coach_external_id"`
 	UserFirstname      string    `bson:"firstname" `
 	UserLastname       string    `bson:"lastname" `
 	UserEmail          string    `bson:"email"`
@@ -85,7 +82,6 @@ type UserRequest struct {
 type UserResponse struct {
 	Id                 primitive.ObjectID `bson:"id"`
 	ExternalID         string             `bson:"external_id,omitempty"`
-	CoachExternalID    string             `bson:"coach_external_id,omitempty"`
 	Firstname          string             `bson:"firstname"`
 	Lastname           string             `bson:"lastname"`
 	Email              string             `bson:"email"`

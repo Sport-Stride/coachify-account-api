@@ -41,17 +41,16 @@ type ResetPasswordRequest struct {
 }
 
 type CreateUserRequest struct {
-	CoachExternalID string     `json:"coach_external_id,omitempty"`
-	FirstName       string     `json:"firstname" validate:"required"`
-	LastName        string     `json:"lastname" validate:"required"`
-	Email           string     `json:"email" validate:"required"`
-	Password        string     `json:"password" validate:"required"`
-	PhoneNumber     string     `json:"phone_number,omitempty"`
-	Role            string     `json:"role"`
-	Autologin       bool       `json:"autologin"`
-	Address         Address    `json:"address,omitempty"`
-	Gender          UserGender `json:"gender,omitempty"`
-	Status          UserStatus `json:"status" `
+	FirstName   string     `json:"firstname" validate:"required"`
+	LastName    string     `json:"lastname" validate:"required"`
+	Email       string     `json:"email" validate:"required"`
+	Password    string     `json:"password" validate:"required"`
+	PhoneNumber string     `json:"phone_number,omitempty"`
+	Role        string     `json:"role"`
+	Autologin   bool       `json:"autologin"`
+	Address     Address    `json:"address,omitempty"`
+	Gender      UserGender `json:"gender,omitempty"`
+	Status      UserStatus `json:"status" `
 	jwt.StandardClaims
 }
 
@@ -68,7 +67,6 @@ type RegisterResponse struct {
 type ApiUser struct {
 	ID                 string                    `json:"id"`
 	ExternalID         string                    `json:"external_id,omitempty"`
-	CoachExternalID    string                    `json:"coach_external_id,omitempty"`
 	Firstname          string                    `json:"firstname"`
 	Lastname           string                    `json:"lastname"`
 	Email              string                    `json:"email"`
@@ -94,7 +92,6 @@ type ApiUser struct {
 type ApiUserResponse struct {
 	ID                 string    `json:"id"`
 	ExternalID         string    `json:"external_id,omitempty"`
-	CoachExternalID    string    `json:"coach_external_id,omitempty"`
 	Firstname          string    `json:"firstname"`
 	Lastname           string    `json:"lastname"`
 	Email              string    `json:"email"`
@@ -121,7 +118,6 @@ type RequestRefreshtoken struct {
 }
 
 type UserRequest struct {
-	CoachExternalID    string  `json:"coach_external_id,omitempty"`
 	UserFirstname      string  `json:"firstname" validate:"required"`
 	UserLastname       string  `json:"lastname" validate:"required"`
 	UserEmail          string  `json:"email"`
@@ -138,7 +134,6 @@ type UserRequest struct {
 
 type SearchUser struct {
 	ExternalID            string    `json:"external_id,omitempty"`
-	CoachExternalID       string    `json:"coach_external_id,omitempty"`
 	Firstname             string    `json:"firstname"`
 	Lastname              string    `json:"lastname"`
 	Email                 string    `json:"email"`
