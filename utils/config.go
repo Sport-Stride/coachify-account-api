@@ -42,7 +42,7 @@ func LoadConfig() AppConfig {
 			MongoURI: getStringWithDefault("MONGODB_URI", "mongodb://localhost:27017"),
 		},
 		Notification: NotificationConfig{
-			URL: getStringWithDefault("Notification_URL", "http://localhost:8087"),
+			URL: getStringWithDefault("NOTIFICATION_URL", "http://localhost:8087"),
 		},
 		IdentifierAPI: IdentifierAPIConfig{
 			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
