@@ -26,11 +26,16 @@ func NewNotificationClient(domain, apiKey string) *NotificationClient {
 // Send sends an email via Mailgun.
 func (c *NotificationClient) Send(ctx context.Context, req Request, template ...string) (*Response, error) {
 	// Create the email message
-	url := "https://send.api.mailtrap.io/api/send"
+	url := "https://sandbox.api.mailtrap.io/api/send/2370532"
 	method := "POST"
 
-	payload := strings.NewReader(`{\"from\":{\"email\":\"hello@demomailtrap.com\",\"name\":\"Mailtrap Test\"},\"to\":[{\"email\":\"` + req.To + `\"}],\"subject\":\"You are awesome!\",\"text\":\"Congrats for sending test email with Mailtrap!\",\"category\":\"Integration Test\"}`)
-
+	payload := strings.NewReader(`{
+		"from": {"email": "hello@example.com", "name": "Mailtrap Test"},
+		"to": [{"email": "khaledlajili11@gmail.com"}],
+		"subject": "You are awesome!",
+		"text": "Congrats for sending test email with Mailtrap!",
+		"category": "Integration Test"
+	}`)
 	client := &http.Client{}
 	req1, err := http.NewRequest(method, url, payload)
 
