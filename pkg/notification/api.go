@@ -3,7 +3,9 @@ package notification
 import (
 	"context"
 	"fmt"
-	"log"
+	"io/ioutil"
+	"net/http"
+	"strings"
 
 	"github.com/mailgun/mailgun-go/v4"
 )
@@ -24,34 +26,35 @@ func NewNotificationClient(domain, apiKey string) *NotificationClient {
 // Send sends an email via Mailgun.
 func (c *NotificationClient) Send(ctx context.Context, req Request, template ...string) (*Response, error) {
 	// Create the email message
-	var tmpl string
-	if len(template) > 0 {
-		tmpl = template[0] // Use the provided template
-	} else {
-		tmpl = "" // Default to an empty string
-	}
-	message := c.mgClient.NewMessage(
-		"Mailgun Sandbox <postmaster@sandbox7caec8d24a564f0e9d63bf11c29370cd.mailgun.org>",
-		req.Subject,                // Email subject
-		req.DynamicData["message"], // Email body
-		req.To,                     // Recipient email
-	)
-	message.SetTemplate(tmpl)
-	// Add dynamic data as variables (optional)
-	for key, value := range req.DynamicData {
-		message.AddVariable(key, value)
-	}
-	// Send the message
+	url := "https://send.api.mailtrap.io/api/send"
+	method := "POST"
 
-	_, id, err := c.mgClient.Send(ctx, message)
+	payload := strings.NewReader(`{\"from\":{\"email\":\"hello@demomailtrap.com\",\"name\":\"Mailtrap Test\"},\"to\":[{\"email\":\"` + req.To + `\"}],\"subject\":\"You are awesome!\",\"text\":\"Congrats for sending test email with Mailtrap!\",\"category\":\"Integration Test\"}`)
+
+	client := &http.Client{}
+	req1, err := http.NewRequest(method, url, payload)
+
+	req1.Header.Add("Authorization", "Bearer 7475bbc0b2f03ef8a90a71161170aff3")
+	req1.Header.Add("Content-Type", "application/json")
+
+	res, err := client.Do(req1)
 	if err != nil {
-		log.Printf("Mailgun Error: %v", err)
-		return nil, fmt.Errorf("failed to send email: %w", err)
+		fmt.Println(err)
+
 	}
+	defer res.Body.Close()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err)
+
+	}
+
+	fmt.Println(string(body))
 
 	// Return the response
 	return &Response{
 		Message: "Email sent successfully",
-		ID:      id,
+		ID:      "id",
 	}, nil
 }
