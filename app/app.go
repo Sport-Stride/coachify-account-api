@@ -61,7 +61,8 @@ func (app *App) setup() {
 	activationManager := core.NewSimpleActivationManager()
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
 	userRepo := repositories.NewUserRepository(app.DB, "users", "users")
-	notification := notification.NewNotificationClient(config.Notification)
+	notification := notification.NewNotificationClient(config.Notification.MailgunDomain,
+		config.Notification.MailgunAPIKey)
 
 	// Initialize Services
 	servicesWrapper := services.InitServices(
