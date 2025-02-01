@@ -29,8 +29,13 @@ func (c *NotificationClient) Send(ctx context.Context, req Request, template ...
 	url := "https://sandbox.api.mailtrap.io/api/send/2370532"
 	method := "POST"
 
-	payload := strings.NewReader(`{\"from\":{\"email\":\"hello@example.com\",\"name\":\"Mailtrap Test\"},\"to\":[{\"email\":\"khaledlajili11@gmail.com\"}],\"subject\":\"You are awesome!\",\"text\":\"Congrats for sending test email with Mailtrap!\",\"category\":\"Integration Test\"}`)
-
+	payload := strings.NewReader(`{
+		"from": {"email": "hello@example.com", "name": "Mailtrap Test"},
+		"to": [{"email": "khaledlajili11@gmail.com"}],
+		"subject": "You are awesome!",
+		"text": "Congrats for sending test email with Mailtrap!",
+		"category": "Integration Test"
+	}`)
 	client := &http.Client{}
 	req1, err := http.NewRequest(method, url, payload)
 
