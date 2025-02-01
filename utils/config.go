@@ -20,8 +20,10 @@ type MongoConfig struct {
 }
 
 type NotificationConfig struct {
-	URL string
+	MailgunDomain string // Mailgun domain
+	MailgunAPIKey string // Mailgun API key
 }
+
 type TrackerAPIConfig struct {
 	URL string
 }
@@ -39,10 +41,11 @@ func LoadConfig() AppConfig {
 		Port:        getIntWithDefault("PORT", 8060),
 		Environment: getStringWithDefault("ENVIRONMENT", "development"),
 		MongoDB: MongoConfig{
-			MongoURI: getStringWithDefault("MONGODB_URI", "mongodb://localhost:27017"),
+			MongoURI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),
 		},
 		Notification: NotificationConfig{
-			URL: getStringWithDefault("NOTIFICATION_URL", "http://localhost:8087"),
+			MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", "5a88901c9830e9c821c4de4e9e2b0a70-d8df908e-65aaaae3"),
+			MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "sandbox7caec8d24a564f0e9d63bf11c29370cd.mailgun.org"),
 		},
 		IdentifierAPI: IdentifierAPIConfig{
 			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),

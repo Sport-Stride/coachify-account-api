@@ -176,10 +176,11 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		// Log error if sending fails
 		fmt.Printf("Failed to send email: %v\n", er.Error)
 
+	} else {
+		// Log success response
+		fmt.Println("Email sent successfully!", res)
 	}
 
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 	if dbUser == nil {
 		return nil, &models.ApiError{
 			Code:  400,
@@ -484,9 +485,8 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 		To:          user.UserEmail, // Recipient's email
 		DynamicData: dynamicData,    // Dynamic content
 	}
-
 	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
+	res, er := s.notificationClient.Send(ctx, data, "forgotpassword")
 	log.Printf("%v", data)
 	if er != nil {
 		// Log error if sending fails
