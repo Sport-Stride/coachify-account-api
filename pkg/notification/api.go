@@ -29,13 +29,17 @@ func (c *NotificationClient) Send(ctx context.Context, req Request, template ...
 	url := "https://sandbox.api.mailtrap.io/api/send/2370532"
 	method := "POST"
 
-	payload := strings.NewReader(`{
+	messageText := req.DynamicData["message"]
+	fmt.Println("Dynamic Message Data:", messageText) // 🔍 Debug log
+
+	payload := strings.NewReader(fmt.Sprintf(`{
 		"from": {"email": "hello@example.com", "name": "Mailtrap Test"},
 		"to": [{"email": "khaledlajili11@gmail.com"}],
 		"subject": "You are awesome!",
-		"text": "Congrats for sending test email with Mailtrap!",
+		"text": "Congrats for sending test email with Mailtrap! %s",
 		"category": "Integration Test"
-	}`)
+	}`, messageText))
+
 	client := &http.Client{}
 	req1, err := http.NewRequest(method, url, payload)
 
