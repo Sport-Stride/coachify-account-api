@@ -42,7 +42,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.POST("/reset-password/init", handlers.InitResetPassword(services.AuthService))
 	userGroup.POST("/reset-password/confirm", handlers.ConfirmResetPassword(services.AuthService))
 	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
-	userGroup.PUT("/update-user/:prefix", AuthMiddleware(), handlers.UpdateUser(services.AuthService))
+	userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 	userGroup.GET("/", handlers.GetAllUsersPag(services.AuthService))
 	userGroup.DELETE("/:prefix", handlers.DeleteUser(services.AuthService))
 	userGroup.POST("/", AuthMiddleware(), handlers.AddUser(services.AuthService))

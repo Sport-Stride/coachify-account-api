@@ -35,7 +35,7 @@ type AuthService interface {
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
 	GetUserByExternalId(ctx context.Context, userId string) (*api.ApiUserResponse, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
-	UpdateUser(ctx context.Context, id string, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError)
+	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError)
 	GetAllUsersPag(api.SearchUser) ([]*api.ApiUserResponse, int, error)
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
@@ -303,6 +303,7 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 			Error: errors.New("unknown_user"),
 		}
 	}
+	fmt.Printf("Code: %s\n", u.UserConfirmCode.Code)
 
 	if u.UserVerificationStatus {
 		return &models.ApiError{
@@ -513,7 +514,7 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 
 		return err
 	}
-
+	fmt.Printf("Code: %s\n", user.UserResetPasswordCode.Code)
 	resetPasswordCode := user.UserResetPasswordCode
 	if resetPasswordCode == nil || resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
 		return &models.ApiError{
@@ -579,7 +580,7 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, username string, oldR
 			Error: errors.New("user not found"),
 		}
 	}
-
+	fmt.Printf("UserRefreshToken : %s  , oldRefreshToken : %s \n", *user.UserRefreshToken, oldRefreshToken)
 	if *user.UserRefreshToken != oldRefreshToken {
 		return "", &models.ApiError{
 			Code:  http.StatusUnauthorized,
@@ -612,9 +613,9 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, username string, oldR
 	return accessToken, nil
 }
 
-func (s *AuthServiceImpl) UpdateUser(ctx context.Context, id string, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError) {
+func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError) {
 	// Fetch user data by external ID
-	data, err := s.userRepository.GetUserByExternalIdUpdate(ctx, id)
+	data, err := s.userRepository.GetByEmail(ctx, req.User.UserEmail)
 	if err != nil {
 		log.Printf("UpdateUser: error fetching User from database - %s", err)
 		return nil, err // Return the error if fetching fails
@@ -629,7 +630,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, id string, req api.Req
 	}
 
 	// Update user data in the repository
-	updatedData, err := s.userRepository.UpdateUser(ctx, id, dataDB)
+	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB)
 	if err != nil {
 		log.Printf("UpdateUser: error updating user in database - %s", err)
 		return nil, err // Return the error if updating fails

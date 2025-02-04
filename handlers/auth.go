@@ -110,7 +110,7 @@ func Confirm(wrapper services.AuthService) gin.HandlerFunc {
 func ResendConfirmEmail(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ResendConfirmUserRequest)
-		err := ctx.ShouldBind(req)
+		err := ctx.ShouldBindJSON(req)
 		if err != nil {
 			ctx.JSON(
 				http.StatusBadRequest,
@@ -132,7 +132,7 @@ func ResendConfirmEmail(wrapper services.AuthService) gin.HandlerFunc {
 func InitResetPassword(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ResetPasswordRequest)
-		err := ctx.ShouldBind(req)
+		err := ctx.ShouldBindJSON(req)
 		if err != nil {
 			ctx.JSON(
 				http.StatusBadRequest,
@@ -202,13 +202,7 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		userID := c.Param("prefix")
-		if userID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid user ID"})
-			return
-		}
-
-		userUpdated, apiErr := wrapper.UpdateUser(c.Request.Context(), userID, *req)
+		userUpdated, apiErr := wrapper.UpdateUser(c.Request.Context(), *req)
 		if apiErr != nil {
 			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return

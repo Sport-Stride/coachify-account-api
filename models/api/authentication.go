@@ -118,6 +118,7 @@ type RequestRefreshtoken struct {
 }
 
 type UserRequest struct {
+	ExternalID         string  `json:"external_id,omitempty"`
 	UserFirstname      string  `json:"firstname" validate:"required"`
 	UserLastname       string  `json:"lastname" validate:"required"`
 	UserEmail          string  `json:"email"`

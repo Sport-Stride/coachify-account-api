@@ -370,9 +370,9 @@ func (r *UserRepository) GetUserByExternalId(ctx context.Context, userId string)
 }
 
 // UpdateUser updates an existing user in the MongoDB collection.
-func (r *UserRepository) UpdateUser(ctx context.Context, id string, user *db.User) (*db.UserResponse, *models.ApiError) {
+func (r *UserRepository) UpdateUser(ctx context.Context, user *db.User) (*db.UserResponse, *models.ApiError) {
 	// MongoDB filter to find the user by user_id
-	filter := bson.M{"externalid": id}
+	filter := bson.M{"externalid": user.ExternalID}
 
 	// Ensure the CreatedAt field is set if not already provided
 	if user.UserCreatedAt.IsZero() {
