@@ -88,7 +88,7 @@ func Register(wrapper services.AuthService) gin.HandlerFunc {
 func Confirm(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ConfirmUserRequest)
-		err := ctx.ShouldBind(req)
+		err := ctx.ShouldBindJSON(req)
 		if err != nil {
 			ctx.JSON(
 				http.StatusBadRequest,
