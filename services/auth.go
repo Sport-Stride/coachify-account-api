@@ -103,8 +103,8 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	// Password validation
 	if !core.ValidatePassword(req.Password) {
 		return nil, &models.ApiError{
-			Code:  400,
-			Error: errors.New("the password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one symbol"),
+			Code:  http.StatusBadRequest,
+			Error: models.ErrIncorrectPassword,
 		}
 	}
 
@@ -170,12 +170,11 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
+	res, err := s.notificationClient.Send(ctx, data)
 	log.Printf("%v", data)
-	if er != nil {
+	if err != nil {
 		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
-
+		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 	} else {
 		// Log success response
 		fmt.Println("Email sent successfully!", res)
@@ -183,8 +182,9 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 
 	if dbUser == nil {
 		return nil, &models.ApiError{
-			Code:  400,
-			Error: errors.New("dbUser is nil")}
+			Code:  http.StatusBadRequest,
+			Error: models.ErrDbUserIsNil,
+		}
 	}
 
 	resp := &api.RegisterResponse{
@@ -200,8 +200,8 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		})
 		if err != nil {
 			return nil, &models.ApiError{
-				Code:  500,
-				Error: errors.New("error generating jwt token"),
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrErrorGeneratingJWTToken,
 			}
 		}
 		resp.AuthToken = token
@@ -219,39 +219,24 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 	}
 
 	if user == nil {
-		return nil, &models.ApiError{
-			Code:  401,
-			Error: errors.New("authentication failed: user object is nil"),
-		}
+		return nil, models.NewApiError(http.StatusUnauthorized, models.ErrUserNotFound)
 	}
 
 	if user.UserStatus == db.Blocked {
-		return nil, &models.ApiError{
-			Code:  401,
-			Error: errors.New("authentication failed: account is blocked"),
-		}
+		return nil, models.NewApiError(http.StatusUnauthorized, models.ErrUserBlocked)
 	}
 
 	if user.UserStatus == db.ToConfirm {
-		return nil, &models.ApiError{
-			Code:  403,
-			Error: errors.New("authentication failed: account not confirmed"),
-		}
+		return nil, models.NewApiError(http.StatusForbidden, models.ErrAccountNotConfirmed)
 	}
 
-	checked, e := s.passwordChecker.VerifyPassword(request.Password, user.UserPassword)
-	if e != nil {
-		return nil, &models.ApiError{
-			Code:  401,
-			Error: errors.New("authentication failed: error verifying password"),
-		}
+	checked, err := s.passwordChecker.VerifyPassword(request.Password, user.UserPassword)
+	if err != nil {
+		return nil, models.NewApiError(http.StatusUnauthorized, models.ErrPasswordVerificationError)
 	}
 
 	if !checked {
-		return nil, &models.ApiError{
-			Code:  401,
-			Error: errors.New("authentication failed: incorrect password provided"),
-		}
+		return nil, models.NewApiError(http.StatusUnauthorized, models.ErrIncorrectPassword)
 	}
 
 	user.UserLastLogin = time.Now()
@@ -281,10 +266,8 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 	}
 
 	if err := s.userRepository.Update(ctx, user.ID, user); err != nil {
-		return nil, &models.ApiError{
-			Code:  500,
-			Error: errors.New("local server error: unable to update last login"),
-		}
+		return nil, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
+
 	}
 
 	// Return the LoginResponse with the token, refreshToken, and apiUser
@@ -298,18 +281,13 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
 	u, err := s.userRepository.GetByEmail(ctx, req.Email)
 	if err != nil {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("unknown_user"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, models.ErrUnknownUser)
 	}
+
 	fmt.Printf("Code: %s\n", u.UserConfirmCode.Code)
 
 	if u.UserVerificationStatus {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("user_already_verified"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, models.ErrUserAlreadyVerified)
 	}
 
 	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
@@ -342,23 +320,19 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		log.Printf("%v", data)
 		if er != nil {
 			// Log error if sending fails
-			fmt.Printf("Failed to send email: %v\n", er.Error)
+			models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 		}
 
 		// Log success response
 		fmt.Println("Email sent successfully!", res)
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("invalid_confirmation_code"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, models.ErrInvalidConfirmationCode)
+
 	}
 
 	if req.ConfirmCode != u.UserConfirmCode.Code {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("invalid_confirmation_code"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, models.ErrInvalidConfirmationCode)
+
 	}
 
 	u.UserStatus = "Active"
@@ -387,7 +361,7 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	log.Printf("%v", data)
 	if er != nil {
 		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
+		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 	}
 
@@ -400,16 +374,11 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *models.ApiError {
 	u, err := s.userRepository.GetByEmail(ctx, email)
 	if err != nil {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("unknown_user"),
-		}
+		return err
 	}
+
 	if u.UserVerificationStatus {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("user_already_verified"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, models.ErrUserAlreadyVerified)
 	}
 
 	confirmCode := &db.UserConfirmCode{
@@ -440,7 +409,7 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 	log.Printf("%v", data)
 	if er != nil {
 		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
+		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 	}
 
@@ -491,7 +460,7 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 	log.Printf("%v", data)
 	if er != nil {
 		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
+		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 	}
 
@@ -504,10 +473,7 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError {
 	// Password validation
 	if !core.ValidatePassword(request.NewPassword) {
-		return &models.ApiError{
-			Code:  400,
-			Error: errors.New("the password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one symbol"),
-		}
+		return models.NewApiError(http.StatusBadRequest, models.ErrInvalidPassword)
 	}
 	user, err := s.userRepository.GetByEmail(ctx, request.Email)
 	if err != nil || user.UserStatus == db.Blocked {
@@ -551,7 +517,7 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 	log.Printf("%v", data)
 	if er != nil {
 		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
+		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 	}
 
@@ -575,39 +541,29 @@ func (s AuthServiceImpl) GetUserByExternalId(ctx context.Context, userId string)
 func (s AuthServiceImpl) RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError) {
 	user, err := s.userRepository.GetByEmail(ctx, username)
 	if err != nil {
-		return "", &models.ApiError{
-			Code:  http.StatusNotFound,
-			Error: errors.New("user not found"),
-		}
+		return "", err
 	}
 	fmt.Printf("UserRefreshToken : %s  , oldRefreshToken : %s \n", *user.UserRefreshToken, oldRefreshToken)
 	if *user.UserRefreshToken != oldRefreshToken {
-		return "", &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: errors.New("invalid refresh token"),
-		}
+		log.Printf("Invalid refresh token: %v", oldRefreshToken)
+		return "", models.NewApiError(http.StatusUnauthorized, models.ErrInvalidRefreshToken)
 	}
 
-	accessToken, e := utils.CreateToken(utils.CreateTokenParams{
+	accessToken, err := utils.CreateToken(utils.CreateTokenParams{
 		User: *user,
 		Type: "access",
 	})
-	if e != nil {
-		return "", &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: errors.New("error generating jwt token"),
-		}
+	if err != nil {
+		log.Printf("Error generating JWT token: %v", err)
+		return "", models.NewApiError(http.StatusInternalServerError, models.ErrErrorGeneratingJWTToken)
 	}
 
 	user.UserUpdatedAt = time.Now()
 	user.Token = &accessToken
-	//user.UserRefreshToken = &newRefreshToken
 
 	if err := s.userRepository.Update(ctx, user.ID, user); err != nil {
-		return "", &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: errors.New("local server error: unable to update user"),
-		}
+		log.Printf("Failed to update user: %v", err)
+		return "", models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
 	}
 
 	return accessToken, nil
@@ -617,7 +573,6 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	// Fetch user data by external ID
 	data, err := s.userRepository.GetByEmail(ctx, req.User.UserEmail)
 	if err != nil {
-		log.Printf("UpdateUser: error fetching User from database - %s", err)
 		return nil, err // Return the error if fetching fails
 	}
 
@@ -625,14 +580,12 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	dataDB, err := masks.UpdateUserMasks(data, &req)
 
 	if err != nil {
-		log.Printf("UpdateUser: error applying masks to user - %s", err)
 		return nil, err // Return the error if masking fails
 	}
 
 	// Update user data in the repository
 	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB)
 	if err != nil {
-		log.Printf("UpdateUser: error updating user in database - %s", err)
 		return nil, err // Return the error if updating fails
 	}
 	log.Printf("token: %s", updatedData.Token) // Log the created event details
@@ -683,10 +636,7 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 	now := time.Now()
 	// Password validation
 	if !core.ValidatePassword(req.Password) {
-		return nil, &models.ApiError{
-			Code:  400,
-			Error: errors.New("the password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one symbol"),
-		}
+		return nil, models.NewApiError(http.StatusBadRequest, models.ErrInvalidPassword)
 	}
 
 	encrypted, err := s.passwordChecker.HashPassword(req.Password)
@@ -767,11 +717,8 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 	fmt.Println("Email sent successfully!", res)
 
 	if dbUser == nil {
-		return nil, &models.ApiError{
-			Code:  400,
-			Error: errors.New("dbUser is nil")}
+		return nil, models.NewApiError(http.StatusBadRequest, models.ErrDbUserIsNil)
 	}
-
 	resp := &api.RegisterResponse{
 		User:      mapping.ToApiUserResponse(inserted),
 		AuthToken: token,
@@ -785,10 +732,7 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 			Type: "access",
 		})
 		if err != nil {
-			return nil, &models.ApiError{
-				Code:  500,
-				Error: errors.New("error generating jwt token"),
-			}
+			return nil, models.NewApiError(http.StatusInternalServerError, models.ErrErrorGeneratingJWTToken)
 		}
 		resp.AuthToken = token
 

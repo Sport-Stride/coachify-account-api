@@ -95,6 +95,31 @@ func ToApiUserResponse(dbUser *db.UserResponse) api.ApiUserResponse {
 	}
 }
 
+func ToUserResponse(user *db.User) db.UserResponse {
+	return db.UserResponse{
+		Id:                 user.ID,
+		Email:              user.UserEmail,
+		Firstname:          user.UserFirstname,
+		Lastname:           user.UserLastname,
+		Password:           user.UserPassword,
+		Gender:             string(user.UserGender),
+		Status:             string(user.UserStatus),
+		ProfilePicture:     user.UserProfilePicture,
+		Description:        user.UserDescription,
+		PhoneNumber:        user.UserPhoneNumber,
+		Address:            user.UserAddress,
+		VerificationStatus: user.UserVerificationStatus,
+		CreatedAt:          user.UserCreatedAt,
+		UpdatedAt:          user.UserUpdatedAt,
+		LastLogin:          user.UserLastLogin,
+		ExternalID:         user.ExternalID,
+		Token:              user.Token,
+		RefreshToken:       user.UserRefreshToken,
+		Role:               user.UserRole,
+		Autologin:          user.Autologin,
+	}
+}
+
 func FormattedDateTime() string {
 	return time.Now().Format("02/01/2006 15:04:05")
 }

@@ -38,29 +38,20 @@ func (c *IdentifierClient) GenerateId(ctx context.Context, label string) (Entity
 	// Create the request
 	req, err := c.do(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Entity{}, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Failed to create request to identifier service: %w", err),
-		}
+		return Entity{}, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToCreateRequest)
 	}
 
 	// Send the request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Entity{}, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Failed to send request to identifier service: %w", err),
-		}
+		return Entity{}, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendRequest)
 	}
 	defer resp.Body.Close()
 
 	// Read the response body
 	bodyResp, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Entity{}, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Error reading response body: %w", err),
-		}
+		return Entity{}, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToReadResponse)
 	}
 
 	// Handle different HTTP response codes
@@ -69,22 +60,13 @@ func (c *IdentifierClient) GenerateId(ctx context.Context, label string) (Entity
 		// Assuming the response contains the generated ID as a JSON object
 		var result Entity
 		if err := json.Unmarshal(bodyResp, &result); err != nil {
-			return Entity{}, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("Error unmarshaling response body: %w", err),
-			}
+			return Entity{}, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUnmarshalResponse)
 		}
 		return result, nil
 	case http.StatusBadRequest:
-		return Entity{}, &models.ApiError{
-			Code:  400,
-			Error: fmt.Errorf("Bad request to identifier service: %s", string(bodyResp)),
-		}
+		return Entity{}, models.NewApiError(http.StatusBadRequest, models.ErrBadRequestToIdentifier)
 	default:
-		return Entity{}, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Unexpected status code from identifier service: %d, body: %s", resp.StatusCode, string(bodyResp)),
-		}
+		return Entity{}, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d, body: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(bodyResp)))
 	}
 }
 

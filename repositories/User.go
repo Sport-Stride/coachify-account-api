@@ -2,10 +2,10 @@ package repositories
 
 import (
 	"coachify-account-api/models/db"
+	"coachify-account-api/models/mapping"
 	"coachify-account-api/models/masks"
 	"context"
 	"errors"
-	"fmt"
 
 	"net/http"
 	"strconv"
@@ -32,12 +32,6 @@ func NewUserRepository(client *mongo.Client, dbName, collName string) *UserRepos
 
 }
 
-var (
-	ErrUserNotFound    = errors.New("user not found")
-	EmailAlreadyExists = errors.New("email already exists")
-	FailedToCreateUser = errors.New("failed to create user")
-)
-
 // GetUserById retrieves a user by their ID
 func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.User, *models.ApiError) {
 	var user db.User
@@ -46,7 +40,7 @@ func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.Us
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusBadRequest,
-			Error: fmt.Errorf("invalid user ID format: %w", err),
+			Error: models.ErrInvalidIdFormat,
 		}
 	}
 
@@ -55,12 +49,12 @@ func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.Us
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -80,7 +74,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.U
 		// If a user with this email already exists, return an error
 		return nil, &models.ApiError{
 			Code:  http.StatusConflict,
-			Error: EmailAlreadyExists,
+			Error: models.ErrEmailAlreadyExists,
 		}
 	}
 
@@ -89,33 +83,12 @@ func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.U
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: FailedToCreateUser,
+			Error: models.ErrFailedToCreateUser,
 		}
 	}
 
 	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 dbUser.ID,
-		Email:              dbUser.UserEmail,
-		Firstname:          dbUser.UserFirstname,
-		Lastname:           dbUser.UserLastname,
-		Password:           dbUser.UserPassword,
-		Gender:             string(dbUser.UserGender),
-		Status:             string(dbUser.UserStatus),
-		ProfilePicture:     dbUser.UserProfilePicture,
-		Description:        dbUser.UserDescription,
-		PhoneNumber:        dbUser.UserPhoneNumber,
-		Address:            dbUser.UserAddress,
-		VerificationStatus: dbUser.UserVerificationStatus,
-		CreatedAt:          dbUser.UserCreatedAt,
-		UpdatedAt:          dbUser.UserUpdatedAt,
-		LastLogin:          dbUser.UserLastLogin,
-		ExternalID:         dbUser.ExternalID,
-		Token:              dbUser.Token,
-		RefreshToken:       dbUser.UserRefreshToken,
-		Role:               dbUser.UserRole,
-		Autologin:          dbUser.Autologin,
-	}
+	userResponse := mapping.ToUserResponse(dbUser)
 
 	return &userResponse, nil
 
@@ -127,7 +100,7 @@ func (r *UserRepository) GetUsersByOrgID(ctx context.Context, orgID string) (int
 	if err != nil {
 		return 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -164,8 +137,8 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	cursor, err := col.Find(ctx, filters, opts)
 	if err != nil {
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to retrieve users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 	defer cursor.Close(ctx) // Always close the cursor to avoid leaks
@@ -174,8 +147,8 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	count, err := col.CountDocuments(ctx, filters)
 	if err != nil {
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to count users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -184,35 +157,14 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 		var user db.User
 		if err := cursor.Decode(&user); err != nil {
 			return nil, 0, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("failed to decode user: %w", err),
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrFailedDecodeUser,
 			}
 
 		}
 
 		// Prepare the response with user and role details
-		userResponse := db.UserResponse{
-			Id:                 user.ID,
-			Email:              user.UserEmail,
-			Firstname:          user.UserFirstname,
-			Lastname:           user.UserLastname,
-			Password:           user.UserPassword,
-			Gender:             string(user.UserGender),
-			Status:             string(user.UserStatus),
-			ProfilePicture:     user.UserProfilePicture,
-			Description:        user.UserDescription,
-			PhoneNumber:        user.UserPhoneNumber,
-			Address:            user.UserAddress,
-			VerificationStatus: user.UserVerificationStatus,
-			CreatedAt:          user.UserCreatedAt,
-			UpdatedAt:          user.UserUpdatedAt,
-			LastLogin:          user.UserLastLogin,
-			ExternalID:         user.ExternalID,
-			Token:              user.Token,
-			RefreshToken:       user.UserRefreshToken,
-			Role:               user.UserRole,
-			Autologin:          user.Autologin,
-		}
+		userResponse := mapping.ToUserResponse(&user)
 
 		results = append(results, &userResponse)
 	}
@@ -220,8 +172,8 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	// Handle potential cursor errors
 	if err := cursor.Err(); err != nil {
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("cursor error: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -240,14 +192,14 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User
 		if err == mongo.ErrNoDocuments {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: fmt.Errorf("user with email %s not found", email),
+				Error: models.ErrUserNotFound,
 			}
 		}
 		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
 
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("error retrieving user from the database: %w", err),
+			Error: models.ErrRetrievingUser,
 		}
 	}
 
@@ -278,21 +230,21 @@ func (r *UserRepository) Update(ctx context.Context, id primitive.ObjectID, user
 	if err != nil {
 		return &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("failed to update user: %w", err),
+			Error: models.ErrUpdateUser,
 		}
 	}
 
 	if result.MatchedCount == 0 {
 		return &models.ApiError{
 			Code:  http.StatusNotFound,
-			Error: fmt.Errorf("no user found with ID: %v", id),
+			Error: models.ErrUserNotFound,
 		}
 	}
 
 	if result.ModifiedCount == 0 {
 		return &models.ApiError{
 			Code:  http.StatusNotModified,
-			Error: fmt.Errorf("no changes made to user with ID: %v", id),
+			Error: models.ErrNoChangesToUser,
 		}
 	}
 
@@ -309,12 +261,12 @@ func (r *UserRepository) GetUserByExternalIdUpdate(ctx context.Context, userId s
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -332,38 +284,17 @@ func (r *UserRepository) GetUserByExternalId(ctx context.Context, userId string)
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
 	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 user.ID,
-		Email:              user.UserEmail,
-		Firstname:          user.UserFirstname,
-		Lastname:           user.UserLastname,
-		Password:           user.UserPassword,
-		Gender:             string(user.UserGender),
-		Status:             string(user.UserStatus),
-		ProfilePicture:     user.UserProfilePicture,
-		Description:        user.UserDescription,
-		PhoneNumber:        user.UserPhoneNumber,
-		Address:            user.UserAddress,
-		VerificationStatus: user.UserVerificationStatus,
-		CreatedAt:          user.UserCreatedAt,
-		UpdatedAt:          user.UserUpdatedAt,
-		LastLogin:          user.UserLastLogin,
-		ExternalID:         user.ExternalID,
-		Token:              user.Token,
-		RefreshToken:       user.UserRefreshToken,
-		Role:               user.UserRole,
-		Autologin:          user.Autologin,
-	}
+	userResponse := mapping.ToUserResponse(&user)
 
 	return &userResponse, nil
 
@@ -388,42 +319,21 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user *db.User) (*db.Use
 	if err != nil {
 		// Return an API error if something goes wrong
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Failed to update user"),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateUser,
 		}
 	}
 
 	// If no document was matched and updated, return a custom "Not Found" error
 	if result.MatchedCount == 0 {
 		return nil, &models.ApiError{
-			Code:  404,
-			Error: fmt.Errorf("user not found"),
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
 		}
 	}
 
 	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 user.ID,
-		Email:              user.UserEmail,
-		Firstname:          user.UserFirstname,
-		Lastname:           user.UserLastname,
-		Password:           user.UserPassword,
-		Gender:             string(user.UserGender),
-		Status:             string(user.UserStatus),
-		ProfilePicture:     user.UserProfilePicture,
-		Description:        user.UserDescription,
-		PhoneNumber:        user.UserPhoneNumber,
-		Address:            user.UserAddress,
-		VerificationStatus: user.UserVerificationStatus,
-		CreatedAt:          user.UserCreatedAt,
-		UpdatedAt:          user.UserUpdatedAt,
-		LastLogin:          user.UserLastLogin,
-		ExternalID:         user.ExternalID,
-		Token:              user.Token,
-		RefreshToken:       user.UserRefreshToken,
-		Role:               user.UserRole,
-		Autologin:          user.Autologin,
-	}
+	userResponse := mapping.ToUserResponse(user)
 
 	// Return the updated user struct
 	return &userResponse, nil
@@ -431,17 +341,14 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user *db.User) (*db.Use
 
 // DeleteUser deletes a user by externalID from the database.
 func (r *UserRepository) DeleteUser(ctx context.Context, externalID string) *models.ApiError {
-	// Set a timeout of 5 seconds for the operation.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel() // Ensure the context is canceled after the operation.
 
 	// Attempt to delete the user with the specified externalID.
 	result, err := r.collection.DeleteOne(ctx, bson.M{"externalid": externalID})
 	if err != nil {
 		// Return a 500 Internal Server Error if the deletion operation fails.
 		return &models.ApiError{
-			Code:  500,
-			Error: errors.New("failed to delete user"),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUserDeletionFailed,
 		}
 	}
 
@@ -449,8 +356,8 @@ func (r *UserRepository) DeleteUser(ctx context.Context, externalID string) *mod
 	if result.DeletedCount == 0 {
 		// Return a 404 Not Found error if the user does not exist.
 		return &models.ApiError{
-			Code:  404,
-			Error: errors.New("user not found"),
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
 		}
 	}
 
@@ -468,8 +375,8 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 	cursor, err := col.Find(ctx, bson.D{}) // Empty filter to get all users
 	if err != nil {
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to retrieve users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
 		}
 	}
 	defer cursor.Close(ctx) // Always close the cursor to avoid leaks
@@ -479,34 +386,13 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 		var user db.User
 		if err := cursor.Decode(&user); err != nil {
 			return nil, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("failed to decode user: %w", err),
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrFailedDecodeUser,
 			}
 		}
 
 		// Prepare the response with user details
-		userResponse := db.UserResponse{
-			Id:                 user.ID,
-			Email:              user.UserEmail,
-			Firstname:          user.UserFirstname,
-			Lastname:           user.UserLastname,
-			Password:           user.UserPassword,
-			Gender:             string(user.UserGender),
-			Status:             string(user.UserStatus),
-			ProfilePicture:     user.UserProfilePicture,
-			Description:        user.UserDescription,
-			PhoneNumber:        user.UserPhoneNumber,
-			Address:            user.UserAddress,
-			VerificationStatus: user.UserVerificationStatus,
-			CreatedAt:          user.UserCreatedAt,
-			UpdatedAt:          user.UserUpdatedAt,
-			LastLogin:          user.UserLastLogin,
-			ExternalID:         user.ExternalID,
-			Token:              user.Token,
-			RefreshToken:       user.UserRefreshToken,
-			Role:               user.UserRole,
-			Autologin:          user.Autologin,
-		}
+		userResponse := mapping.ToUserResponse(&user)
 
 		// Add the user response to the results
 		results = append(results, &userResponse)
@@ -515,8 +401,8 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 	// Handle potential cursor errors
 	if err := cursor.Err(); err != nil {
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("cursor error: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 

@@ -5,7 +5,7 @@ import (
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
 	"coachify-account-api/models/mapping"
-	"fmt"
+	"net/http"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -27,22 +27,15 @@ const (
 
 func UpdateUserMasks(dataDB *db.User, dataReq *api.RequestUpdateUser) (*db.User, *models.ApiError) {
 	// Check if both input parameters are nil
-	if dataDB == nil {
-		if dataReq == nil {
-			// Return an error if both inputs are nil
-			return nil, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("Invalid input: dataDB and dataReq cannot be nil"),
-			}
+	if (dataDB == nil) || (dataReq == nil) {
+		// Return an error if both inputs are nil
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInvalidInputInUpdateMask,
 		}
-		// Map the API identifier data to the DB identifier format if only dataReq is provided
-		*dataDB = mapping.UpdateUserAPIToDB(dataReq.User)
 	}
-
-	// If only dataDB is provided, return it without further processing
-	if dataReq == nil {
-		return dataDB, nil
-	}
+	// Map the API identifier data to the DB identifier format if only dataReq is provided
+	*dataDB = mapping.UpdateUserAPIToDB(dataReq.User)
 
 	now := time.Now() // Store the current time for tracking updates
 	var updated bool  // Track if any field has been updated

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -9,6 +10,50 @@ type ApiError struct {
 	Code  int   // HTTP status code
 	Error error // Underlying error
 }
+
+var (
+	ErrInvalidIdFormat           = errors.New("invalid user ID format")
+	ErrInvalidInputInUpdateMask  = errors.New("invalid input: dataDB and dataReq cannot be nil")
+	ErrFailedToUpdateUser        = errors.New("local server error: unable to update user")
+	ErrFailedToHashPassword      = errors.New("failed to hash password")
+	ErrRetrievingUser            = errors.New("error retrieving user")
+	ErrPasswordMismatch          = errors.New("password mismatch")
+	ErrFailedToVerifyPassword    = errors.New("failed to verify password")
+	ErrInternalError             = errors.New("internal server error")
+	ErrUpdateUser                = errors.New("failed to update user")
+	ErrNoChangesToUser           = errors.New("no changes made to user")
+	ErrUserNotFound              = errors.New("user not found")
+	ErrFailedDecodeUser          = errors.New("failed to decode user")
+	ErrEmailAlreadyExists        = errors.New("email already exists")
+	ErrFailedToCreateUser        = errors.New("failed to create user")
+	ErrInvalidPassword           = errors.New("the password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one symbol")
+	ErrUserAlreadyVerified       = errors.New("user already verified")
+	ErrInvalidConfirmationCode   = errors.New("invalid confirmation code")
+	ErrUserBlocked               = errors.New("account is blocked")
+	ErrAccountNotConfirmed       = errors.New("account not confirmed")
+	ErrAuthenticationFailed      = errors.New("authentication failed")
+	ErrIncorrectPassword         = errors.New("incorrect password provided")
+	ErrUnknownUser               = errors.New("unknown user")
+	ErrInvalidResetPasswordCode  = errors.New("invalid reset password code")
+	ErrErrorGeneratingJWTToken   = errors.New("error generating jwt token")
+	ErrLocalServerError          = errors.New("local server error")
+	ErrUnableToUpdateLastLogin   = errors.New("unable to update last login")
+	ErrUnableToUpdateUser        = errors.New("unable to update user")
+	ErrInvalidRefreshToken       = errors.New("invalid refresh token")
+	ErrDbUserIsNil               = errors.New("dbUser is nil")
+	ErrFailedToSendEmail         = errors.New("failed to send email")
+	ErrUserAlreadyExists         = errors.New("user already exists")
+	ErrUserCreationFailed        = errors.New("user creation failed")
+	ErrUserUpdateFailed          = errors.New("user update failed")
+	ErrUserDeletionFailed        = errors.New("user deletion failed")
+	ErrPasswordVerificationError = errors.New("error verifying password")
+	ErrFailedToCreateRequest     = errors.New("failed to create request to identifier service")
+	ErrFailedToSendRequest       = errors.New("failed to send request to identifier service")
+	ErrFailedToReadResponse      = errors.New("error reading response body")
+	ErrFailedToUnmarshalResponse = errors.New("error unmarshaling response body")
+	ErrBadRequestToIdentifier    = errors.New("bad request to identifier service")
+	ErrUnexpectedStatusCode      = errors.New("unexpected status code from identifier service")
+)
 
 // Error implements the error interface for ApiError.
 func (e *ApiError) Error_() string {
