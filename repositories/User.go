@@ -6,6 +6,8 @@ import (
 	"coachify-account-api/models/masks"
 	"context"
 	"errors"
+	"fmt"
+	"log"
 
 	"net/http"
 	"strconv"
@@ -26,7 +28,18 @@ type UserRepository struct {
 }
 
 func NewUserRepository(client *mongo.Client, dbName, collName string) *UserRepository {
+	// Create a unique index on the "email" field
+	indexModel := mongo.IndexModel{
+		Keys:    bson.M{"email": 1},              // Index on the "email" field
+		Options: options.Index().SetUnique(true), // Ensure the index is unique
+	}
+
 	collection := client.Database(dbName).Collection(collName)
+	// Create the index
+	_, err := collection.Indexes().CreateOne(context.Background(), indexModel)
+	if err != nil {
+		log.Fatalf("Failed to create unique index on email: %v", err)
+	}
 	return &UserRepository{
 		collection: collection}
 
@@ -61,38 +74,229 @@ func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.Us
 	return &user, nil
 }
 
-// CreateUser creates a new user in the database
-func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.UserResponse, *models.ApiError) {
+func (r *UserRepository) GetConfirmationDetails(ctx context.Context, email string) (*db.UserConfirmCode, bool, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
 
-	dbUser.ID = primitive.NewObjectID()
-
-	// Check if the email is already in use
-	filter := bson.M{"email": dbUser.UserEmail}
-	var existingUser db.User
-	err := r.collection.FindOne(ctx, filter).Decode(&existingUser)
-	if err == nil {
-		// If a user with this email already exists, return an error
-		return nil, &models.ApiError{
-			Code:  http.StatusConflict,
-			Error: models.ErrEmailAlreadyExists,
-		}
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userConfirmCode":        1,
+		"userVerificationStatus": 1,
 	}
 
-	_, err = r.collection.InsertOne(ctx, dbUser)
+	// Execute the query
+	var result struct {
+		UserConfirmCode        *db.UserConfirmCode `bson:"userConfirmCode"`
+		UserVerificationStatus bool                `bson:"userVerificationStatus"`
+	}
 
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
 	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, false, nil // User not found
+		}
+		return nil, false, fmt.Errorf("failed to fetch confirmation details: %w", err)
+	}
+
+	return result.UserConfirmCode, result.UserVerificationStatus, nil
+}
+
+func (r *UserRepository) UpdateConfirmationCode(ctx context.Context, email string, confirmCode *db.UserConfirmCode) error {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the new confirmation code and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"userConfirmCode": confirmCode,
+			"userUpdatedAt":   time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update confirmation code: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UserRepository) MarkUserAsVerified(ctx context.Context, email string) error {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the user as verified and active
+	update := bson.M{
+		"$set": bson.M{
+			"userVerificationStatus": true,
+			"userStatus":             "Active",
+			"userUpdatedAt":          time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to mark user as verified: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UserRepository) GetVerificationStatusAndID(ctx context.Context, email string) (bool, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userVerificationStatus": 1,
+		"_id":                    1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserVerificationStatus bool `bson:"userVerificationStatus"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, models.ErrUserNotFound // User not found
+		}
+		return false, models.ErrFailedToFetchVerifStatus
+	}
+
+	return result.UserVerificationStatus, nil
+}
+
+func (r *UserRepository) GetStatusAndID(ctx context.Context, email string) (db.UserStatus, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userStatus": 1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserStatus db.UserStatus `bson:"userStatus"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", models.ErrUserNotFound // User not found
+		}
+		return "", models.ErrFailedToFetchUserStatus
+	}
+
+	return result.UserStatus, nil
+}
+
+func (r *UserRepository) UpdateResetPasswordCode(ctx context.Context, email string, resetCode *db.UserResetPasswordCode) error {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the new reset password code and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"userResetPasswordCode": resetCode,
+			"userUpdatedAt":         time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return models.ErrUpdateResetPassword
+	}
+
+	return nil
+}
+
+func (r *UserRepository) GetStatusAndResetPasswordCode(ctx context.Context, email string) (db.UserStatus, *db.UserResetPasswordCode, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userStatus":            1,
+		"userResetPasswordCode": 1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserStatus            db.UserStatus             `bson:"userStatus"`
+		UserResetPasswordCode *db.UserResetPasswordCode `bson:"userResetPasswordCode"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", nil, models.ErrUserNotFound // User not found
+		}
+		return "", nil, models.ErrFailedToFetchUserStatus
+	}
+
+	return result.UserStatus, result.UserResetPasswordCode, nil
+}
+
+func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, email, encryptedPassword string) error {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the new password and clear the reset password code
+	update := bson.M{
+		"$set": bson.M{
+			"userPassword":          encryptedPassword,
+			"userResetPasswordCode": nil,
+			"userUpdatedAt":         time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update password and clear reset code: %w", err)
+	}
+
+	return nil
+}
+
+// CreateUser creates a new user in the database
+func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.UserResponse, *models.ApiError) {
+	// Generate a new ObjectID for the user
+	dbUser.ID = primitive.NewObjectID()
+
+	// Insert the user into the database
+	_, err := r.collection.InsertOne(ctx, dbUser)
+	if err != nil {
+		// Check if the error is a duplicate key error (email already exists)
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, &models.ApiError{
+				Code:  http.StatusConflict,
+				Error: models.ErrEmailAlreadyExists,
+			}
+		}
+
+		// Log the error for debugging purposes
+		fmt.Printf("Failed to create user: %v\n", err)
+
+		// Return a generic internal server error
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrFailedToCreateUser,
 		}
 	}
 
-	// Prepare the response with user and role details
+	// Map the database user to the response model
 	userResponse := mapping.ToUserResponse(dbUser)
 
 	return &userResponse, nil
-
 }
+
 func (r *UserRepository) GetUsersByOrgID(ctx context.Context, orgID string) (int, *models.ApiError) {
 	filter := bson.M{"organization_id": orgID}
 

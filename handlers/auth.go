@@ -81,7 +81,7 @@ func Register(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		ctx.JSON(http.StatusCreated, gin.H{"message": "Register successful", "user": user})
+		ctx.JSON(http.StatusCreated, gin.H{"message": "User registered successfully", "user": user})
 	}
 }
 
@@ -103,7 +103,7 @@ func Confirm(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		ctx.JSON(http.StatusOK, gin.H{"success": true})
+		ctx.JSON(http.StatusOK, gin.H{"Email confirmed successfully": true})
 	}
 }
 

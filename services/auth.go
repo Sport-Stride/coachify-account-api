@@ -199,10 +199,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 			Type: "access",
 		})
 		if err != nil {
-			return nil, &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrErrorGeneratingJWTToken,
-			}
+			return nil, err
 		}
 		resp.AuthToken = token
 	}
@@ -279,181 +276,120 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 }
 
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
-	u, err := s.userRepository.GetByEmail(ctx, req.Email)
+	// Fetch confirmation details
+	confirmCode, isVerified, err := s.userRepository.GetConfirmationDetails(ctx, req.Email)
 	if err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrInternalError)
+	}
+	if confirmCode == nil {
 		return models.NewApiError(http.StatusUnauthorized, models.ErrUnknownUser)
 	}
-
-	fmt.Printf("Code: %s\n", u.UserConfirmCode.Code)
-
-	if u.UserVerificationStatus {
+	if isVerified {
 		return models.NewApiError(http.StatusUnauthorized, models.ErrUserAlreadyVerified)
 	}
 
-	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
-		confirmCode := &db.UserConfirmCode{
+	// Validate or update the confirmation code
+	if confirmCode.ExpirationDate.Before(time.Now()) {
+		newConfirmCode := &db.UserConfirmCode{
 			Code:           s.activationManager.GenerateCode(),
 			ExpirationDate: time.Now().Add(24 * time.Hour),
 		}
-
-		u.UserConfirmCode = confirmCode
-		u.UserUpdatedAt = time.Now()
-		err = s.userRepository.Update(ctx, u.ID, u)
-		if err != nil {
-			return err
+		if err := s.userRepository.UpdateConfirmationCode(ctx, req.Email, newConfirmCode); err != nil {
+			return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
 		}
-
-		dynamicData := map[string]string{
-			"message":  "Thank you for registering! Here is your confirmation code: " + u.UserConfirmCode.Code,
-			"username": u.UserFirstname + " " + u.UserLastname,
-			"subject":  "Confirmation of Your Registration",
-		}
-
-		// Create the notification request
-		data := notification.Request{
-			To:          u.UserEmail, // Recipient's email
-			DynamicData: dynamicData, // Dynamic content
-		}
-
-		// Send the notification email
-		res, er := s.notificationClient.Send(ctx, data)
-		log.Printf("%v", data)
-		if er != nil {
-			// Log error if sending fails
-			models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
-
-		}
-
-		// Log success response
-		fmt.Println("Email sent successfully!", res)
 		return models.NewApiError(http.StatusUnauthorized, models.ErrInvalidConfirmationCode)
-
 	}
 
-	if req.ConfirmCode != u.UserConfirmCode.Code {
-		return models.NewApiError(http.StatusUnauthorized, models.ErrInvalidConfirmationCode)
-
+	// Mark the user as verified
+	if err := s.userRepository.MarkUserAsVerified(ctx, req.Email); err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
 	}
-
-	u.UserStatus = "Active"
-	u.UserVerificationStatus = true
-	u.UserUpdatedAt = time.Now()
-	err = s.userRepository.Update(ctx, u.ID, u)
-
-	if err != nil {
-		return err
-	}
-
-	dynamicData := map[string]string{
-		"message":  "Welcome to our platform. We are excited to have you on board!",
-		"username": u.UserFirstname + " " + u.UserLastname,
-		"subject":  "Welcome to Our Service!",
-	}
-
-	// Create the notification request
-	data := notification.Request{
-		To:          u.UserEmail, // Recipient's email
-		DynamicData: dynamicData, // Dynamic content
-	}
-
-	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
-	if er != nil {
-		// Log error if sending fails
-		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
-
-	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	return nil
 }
 
 func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *models.ApiError {
-	u, err := s.userRepository.GetByEmail(ctx, email)
+	// Fetch only the necessary fields (verification status and user ID)
+	isVerified, err := s.userRepository.GetVerificationStatusAndID(ctx, email)
 	if err != nil {
-		return err
+		return models.NewApiError(http.StatusInternalServerError, models.ErrInternalError)
 	}
 
-	if u.UserVerificationStatus {
+	// Check if the user is already verified
+	if isVerified {
 		return models.NewApiError(http.StatusUnauthorized, models.ErrUserAlreadyVerified)
 	}
 
+	// Generate a new confirmation code
 	confirmCode := &db.UserConfirmCode{
 		Code:           s.activationManager.GenerateCode(),
 		ExpirationDate: time.Now().Add(24 * time.Hour),
 	}
 
-	u.UserConfirmCode = confirmCode
-	err = s.userRepository.Update(ctx, u.ID, u)
-	if err != nil {
-		return err
+	// Update the user's confirmation code in the database
+	if err := s.userRepository.UpdateConfirmationCode(ctx, email, confirmCode); err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
 	}
 
 	dynamicData := map[string]string{
-		"message":  "Thank you for registering! Here is your confirmation code: " + u.UserConfirmCode.Code,
-		"username": u.UserFirstname + " " + u.UserLastname,
-		"subject":  "Confirmation of Your Registration",
+		"message": "Please use the following code to reset your password: " + confirmCode.Code + " Best regards,The Support Team.",
+
+		"subject": "Password Reset Request",
 	}
 
 	// Create the notification request
 	data := notification.Request{
-		To:          u.UserEmail, // Recipient's email
+		To:          email,       // Recipient's email
 		DynamicData: dynamicData, // Dynamic content
 	}
-
-	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
-	if er != nil {
+	// Send the confirmation email
+	if res, err := s.notificationClient.Send(ctx, data, "forgotpassword"); err != nil {
 		// Log error if sending fails
-		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
-
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
+	} else {
+		fmt.Println("Email sent successfully!", res)
 	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	return nil
 }
 
 func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError {
-	user, err := s.userRepository.GetByEmail(ctx, request.Email)
-
+	// Fetch only the necessary fields (status and user ID)
+	userStatus, err := s.userRepository.GetStatusAndID(ctx, request.Email)
 	if err != nil {
-
-		return err
+		return models.NewApiError(http.StatusInternalServerError, models.ErrInternalError)
 	}
 
-	if user.UserStatus == db.Blocked {
-		utils.Logger.Info("unable to send reset password email, user banned ",
-			zap.String("email", user.UserEmail),
-			zap.String("status", string(user.UserStatus)),
+	// Check if the user is blocked
+	if userStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned",
+			zap.String("email", request.Email),
+			zap.String("status", string(userStatus)),
 		)
-		return nil
+		return models.NewApiError(http.StatusInternalServerError, models.ErrUnableToSendResPass)
 	}
 
-	user.UserResetPasswordCode = &db.UserResetPasswordCode{
+	// Generate a new reset password code
+	resetCode := &db.UserResetPasswordCode{
 		Code:           s.activationManager.GenerateCode(),
 		ExpirationDate: time.Now().Add(24 * time.Hour),
 	}
-	err = s.userRepository.Update(ctx, user.ID, user)
-	if err != nil {
-		return err
+
+	// Update the user's reset password code in the database
+	if err := s.userRepository.UpdateResetPasswordCode(ctx, request.Email, resetCode); err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
 	}
 
+	// Send the reset password email
 	dynamicData := map[string]string{
-		"message":  "Please use the following code to reset your password: " + user.UserResetPasswordCode.Code + " Best regards,The Support Team.",
-		"username": user.UserFirstname + " " + user.UserLastname,
-		"subject":  "Password Reset Request",
+		"message": "Please use the following code to reset your password: " + resetCode.Code + " Best regards,The Support Team.",
+		"subject": "Password Reset Request",
 	}
 
 	// Create the notification request
 	data := notification.Request{
-		To:          user.UserEmail, // Recipient's email
-		DynamicData: dynamicData,    // Dynamic content
+		To:          request.Email, // Recipient's email
+		DynamicData: dynamicData,   // Dynamic content
 	}
 	// Send the notification email
 	res, er := s.notificationClient.Send(ctx, data, "forgotpassword")
@@ -463,10 +399,8 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 		models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendEmail)
 
 	}
-
 	// Log success response
 	fmt.Println("Email sent successfully!", res)
-
 	return nil
 }
 
@@ -475,41 +409,45 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 	if !core.ValidatePassword(request.NewPassword) {
 		return models.NewApiError(http.StatusBadRequest, models.ErrInvalidPassword)
 	}
-	user, err := s.userRepository.GetByEmail(ctx, request.Email)
-	if err != nil || user.UserStatus == db.Blocked {
 
-		return err
+	// Fetch only the necessary fields (status and reset password code)
+	userStatus, resetPasswordCode, err := s.userRepository.GetStatusAndResetPasswordCode(ctx, request.Email)
+	if err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrInternalError)
 	}
-	fmt.Printf("Code: %s\n", user.UserResetPasswordCode.Code)
-	resetPasswordCode := user.UserResetPasswordCode
+
+	// Check if the user is blocked
+	if userStatus == db.Blocked {
+		return models.NewApiError(http.StatusUnauthorized, models.ErrUserBlocked)
+	}
+
+	// Validate the reset password code
 	if resetPasswordCode == nil || resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
-		return &models.ApiError{
-			Code:  401,
-			Error: errors.New("invalid_reset_password_code"),
-		}
+		return models.NewApiError(http.StatusUnauthorized, errors.New("invalid_reset_password_code"))
 	}
 
-	encrypted, err := s.passwordChecker.HashPassword(request.NewPassword)
-	if err != nil {
-		return err
-	}
-	user.UserPassword = encrypted
-	user.UserResetPasswordCode = nil
-	err = s.userRepository.Update(ctx, user.ID, user)
-	if err != nil {
-		return err
+	// Hash the new password
+	encrypted, er := s.passwordChecker.HashPassword(request.NewPassword)
+	if er != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToHashPassword)
 	}
 
+	// Update the user's password and clear the reset password code
+	if err := s.userRepository.UpdatePasswordAndClearResetCode(ctx, request.Email, encrypted); err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUpdateUser)
+	}
+
+	// Send the password reset confirmation email
 	dynamicData := map[string]string{
-		"message":  "Your password has been successfully reset.",
-		"username": user.UserFirstname + " " + user.UserLastname,
-		"subject":  "Password Reset Confirmation",
+		"message": "Your password has been successfully reset.",
+
+		"subject": "Password Reset Confirmation",
 	}
 
 	// Create the notification request
 	data := notification.Request{
-		To:          user.UserEmail, // Recipient's email
-		DynamicData: dynamicData,    // Dynamic content
+		To:          request.Email, // Recipient's email
+		DynamicData: dynamicData,   // Dynamic content
 	}
 
 	// Send the notification email
