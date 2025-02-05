@@ -259,7 +259,7 @@ func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, em
 	// Execute the update operation
 	_, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return fmt.Errorf("failed to update password and clear reset code: %w", err)
+		return models.ErrInternalError
 	}
 
 	return nil

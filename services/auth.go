@@ -10,7 +10,6 @@ import (
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/notification"
 	"context"
-	"errors"
 	"fmt"
 	"log"
 
@@ -423,7 +422,7 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 
 	// Validate the reset password code
 	if resetPasswordCode == nil || resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
-		return models.NewApiError(http.StatusUnauthorized, errors.New("invalid_reset_password_code"))
+		return models.NewApiError(http.StatusUnauthorized, models.ErrInvalidResetPasswordCode)
 	}
 
 	// Hash the new password
