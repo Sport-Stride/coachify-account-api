@@ -542,7 +542,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	// Fetch user data by external ID
 	data, err := s.userRepository.GetByEmail(ctx, req.User.UserEmail)
 	if err != nil {
-		log.Printf("UpdateUser: error fetching User from database - %s", err)
+		log.Printf("UpdateUser: error fetching User from database - %v", err)
 		return nil, err // Return the error if fetching fails
 	}
 
@@ -550,14 +550,14 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	dataDB, err := masks.UpdateUserMasks(data, &req)
 
 	if err != nil {
-		log.Printf("UpdateUser: error applying masks to user - %s", err)
+		log.Printf("UpdateUser: error applying masks to user - %v", err)
 		return nil, err // Return the error if masking fails
 	}
 
 	// Update user data in the repository
 	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB)
 	if err != nil {
-		log.Printf("UpdateUser: error updating user in database - %s", err)
+		log.Printf("UpdateUser: error updating user in database - %v", err)
 		return nil, err // Return the error if updating fails
 	}
 	log.Printf("token: %s", updatedData.Token) // Log the created event details
@@ -605,7 +605,7 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 	if !core.ValidatePassword(req.Password) {
 		return nil, &models.ApiError{
 			Code:  http.StatusBadRequest,
-			Error: models.ErrIncorrectPassword,
+			Error: models.ErrInvalidPassword,
 		}
 	}
 

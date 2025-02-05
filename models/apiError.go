@@ -14,7 +14,7 @@ type ApiError struct {
 var (
 	ErrInvalidIdFormat           = errors.New("invalid user ID format")
 	ErrInvalidInputInUpdateMask  = errors.New("invalid input: dataDB and dataReq cannot be nil")
-	ErrFailedToUpdateUser        = errors.New("local server error: unable to update user")
+	ErrFailedToUpdateUser        = errors.New("failed to update user")
 	ErrUpdateResetPassword       = errors.New("failed to update reset password")
 	ErrUnableToSendResPass       = errors.New("unable to send reset password email")
 	ErrInvalidTokenType          = errors.New("invalid token type")

@@ -284,7 +284,14 @@ func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 
 func DeleteUser(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		apiErr := service.DeleteUser(ctx, ctx.Param("prefix"))
+		req := new(api.DeleteUserRequest)
+
+		if err := ctx.ShouldBindJSON(req); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+			return
+		}
+
+		apiErr := service.DeleteUser(ctx, req.ExternalID)
 		if apiErr != nil {
 			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return

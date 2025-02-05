@@ -21,6 +21,10 @@ type ConfirmResetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+type DeleteUserRequest struct {
+	ExternalID string `json:"external_id,omitempty"`
+}
+
 var ResetPassword struct {
 	UserPassword  string        `bson:"password" validate:"required"`
 	UserStatus    db.UserStatus `bson:"status"`
