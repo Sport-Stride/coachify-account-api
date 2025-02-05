@@ -4,9 +4,7 @@ import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
-	"coachify-account-api/models/mapping"
-	"fmt"
-	"time"
+	"net/http"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -25,124 +23,58 @@ const (
 	UserUpdateMaskUserVerificationStatus = "verification_status"
 )
 
-func UpdateUserMasks(dataDB *db.User, dataReq *api.RequestUpdateUser) (*db.User, *models.ApiError) {
-	// Check if both input parameters are nil
-	if dataDB == nil {
-		if dataReq == nil {
-			// Return an error if both inputs are nil
-			return nil, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("Invalid input: dataDB and dataReq cannot be nil"),
-			}
+func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
+	// Check if the request is nil
+	if req == nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusBadRequest,
+			Error: models.ErrInvalidInputInUpdateMask,
 		}
-		// Map the API identifier data to the DB identifier format if only dataReq is provided
-		*dataDB = mapping.UpdateUserAPIToDB(dataReq.User)
 	}
 
-	// If only dataDB is provided, return it without further processing
-	if dataReq == nil {
-		return dataDB, nil
-	}
-
-	now := time.Now() // Store the current time for tracking updates
-	var updated bool  // Track if any field has been updated
+	// Create a map to store the fields to be updated
+	updateFields := bson.M{}
 
 	// Iterate through the update masks and update the corresponding fields
-	for _, s := range dataReq.UpdateMasks {
-		switch s {
-
+	for _, mask := range req.UpdateMasks {
+		switch mask {
 		case UserUpdateMaskUserFirstname:
-			// Update the first name if it has changed
-			if dataDB.UserFirstname != dataReq.User.UserFirstname {
-				dataDB.UserFirstname = dataReq.User.UserFirstname
-				updated = true
-			}
+			updateFields["firstname"] = req.User.UserFirstname
 
 		case UserUpdateMaskUserLastname:
-			// Update the last name if it has changed
-			if dataDB.UserLastname != dataReq.User.UserLastname {
-				dataDB.UserLastname = dataReq.User.UserLastname
-				updated = true
-			}
+			updateFields["lastname"] = req.User.UserLastname
 
 		case UserUpdateMaskUserEmail:
-			// Update the email if it has changed
-			if dataDB.UserEmail != dataReq.User.UserEmail {
-				dataDB.UserEmail = dataReq.User.UserEmail
-				updated = true
-			}
+			updateFields["email"] = req.User.UserEmail
 
 		case UserUpdateMaskUserRole:
-			// Update the identifier role if it has changed
-			if dataDB.UserRole != dataReq.User.UserRole {
-				dataDB.UserRole = dataReq.User.UserRole
-				updated = true
-			}
+			updateFields["role"] = req.User.UserRole
 
 		case UserUpdateMaskUserGender:
-			// Update the gender if it has changed
-			if string(dataDB.UserGender) != dataReq.User.UserGender {
-				dataDB.UserGender = db.UserGender(dataReq.User.UserGender)
-				updated = true
-			}
+			updateFields["gender"] = req.User.UserGender
 
 		case UserUpdateMaskUserStatus:
-			// Update the identifier status if it has changed
-			if string(dataDB.UserStatus) != dataReq.User.UserStatus {
-				dataDB.UserStatus = db.UserStatus(dataReq.User.UserStatus)
-				updated = true
-			}
+			updateFields["status"] = req.User.UserStatus
 
 		case UserUpdateMaskUserProfilePicture:
-			// Update the profile picture if it has changed
-			if dataDB.UserProfilePicture != dataReq.User.UserProfilePicture {
-				dataDB.UserProfilePicture = dataReq.User.UserProfilePicture
-				updated = true
-			}
+			updateFields["profile_picture"] = req.User.UserProfilePicture
 
 		case UserUpdateMaskUserDescription:
-			// Update the description if it has changed
-			if dataDB.UserDescription != dataReq.User.UserDescription {
-				dataDB.UserDescription = dataReq.User.UserDescription
-				updated = true
-			}
+			updateFields["description"] = req.User.UserDescription
 
 		case UserUpdateMaskUserPhoneNumber:
-			// Update the phone number if it has changed
-			if dataDB.UserPhoneNumber != dataReq.User.UserPhoneNumber {
-				dataDB.UserPhoneNumber = dataReq.User.UserPhoneNumber
-				updated = true
-			}
+			updateFields["phone_number"] = req.User.UserPhoneNumber
 
 		case UserUpdateMaskUserAddress:
-			// Update the address if it has changed
-			if dataDB.UserAddress.Line1 != dataReq.User.UserAddress.Line1 ||
-				dataDB.UserAddress.Line2 != dataReq.User.UserAddress.Line2 ||
-				dataDB.UserAddress.City != dataReq.User.UserAddress.City ||
-				dataDB.UserAddress.State != dataReq.User.UserAddress.State ||
-				dataDB.UserAddress.Country != dataReq.User.UserAddress.Country ||
-				dataDB.UserAddress.PostalCode != dataReq.User.UserAddress.PostalCode {
-				dataDB.UserAddress = db.Address(dataReq.User.UserAddress)
-				updated = true
-			}
+			updateFields["address"] = req.User.UserAddress
 
 		case UserUpdateMaskUserVerificationStatus:
-			// Update the verification status if it has changed
-			if dataDB.UserVerificationStatus != dataReq.User.VerificationStatus {
-				dataDB.UserVerificationStatus = dataReq.User.VerificationStatus
-				updated = true
-			}
-
+			updateFields["verification_status"] = req.User.VerificationStatus
 		}
 	}
 
-	// If any field was updated, update the 'UserUpdatedAt' timestamp
-	if updated {
-		dataDB.UserUpdatedAt = now
-	}
-
-	// Return the updated identifier data and no error
-	return dataDB, nil
+	// Return the update fields and no error
+	return updateFields, nil
 }
 
 // Helper function to compare two addresses
@@ -153,65 +85,55 @@ func addressEqual(a, b db.Address) bool {
 }
 
 // SearchUserMasks generates dynamic filters for identifier search based on the provided criteria.
-func SearchUserMasks(search *db.SearchUser) bson.M {
+func SearchUserMasks(s *db.SearchUser) bson.M {
 	filters := bson.M{}
 
-	if search.ExternalID != "" {
-		filters["external_id"] = search.ExternalID
+	if s.UserFirstname != "" {
+		filters["firstname"] = bson.M{"$regex": s.UserFirstname, "$options": "i"}
 	}
-	if search.UserFirstname != "" {
-		filters["firstname"] = search.UserFirstname
+	if s.UserLastname != "" {
+		filters["lastname"] = bson.M{"$regex": s.UserLastname, "$options": "i"}
 	}
-	if search.UserLastname != "" {
-		filters["lastname"] = search.UserLastname
+	if s.UserEmail != "" {
+		filters["email"] = bson.M{"$regex": s.UserEmail, "$options": "i"}
 	}
-	if search.UserEmail != "" {
-		filters["email"] = search.UserEmail
+	if s.UserRole != "" {
+		filters["role"] = s.UserRole
 	}
-	if search.UserRole != "" {
-		filters["role"] = search.UserRole
+	if s.UserStatus != "" {
+		filters["status"] = s.UserStatus
 	}
-	if search.UserStatus != "" {
-		filters["status"] = search.UserStatus
+	if s.UserGender != "" {
+		filters["gender"] = s.UserGender
 	}
-	if search.UserGender != "" {
-		filters["gender"] = search.UserGender
+	if s.UserPhoneNumber != "" {
+		filters["phone_number"] = bson.M{"$regex": s.UserPhoneNumber, "$options": "i"}
 	}
-	if search.UserPhoneNumber != "" {
-		filters["phone_number"] = search.UserPhoneNumber
+	if s.UserVerificationStatus {
+		filters["verification_status"] = s.UserVerificationStatus
 	}
-	if search.UserAddress != nil {
-		// Apply filters for individual address fields
-		if search.UserAddress.City != nil {
-			filters["address.city"] = *search.UserAddress.City
+	if s.ExternalID != "" {
+		filters["externalid"] = s.ExternalID
+	}
+	if s.UserAddress != nil {
+		if s.UserAddress.City != nil {
+			filters["address.city"] = bson.M{"$regex": s.UserAddress.City, "$options": "i"}
 		}
-		if search.UserAddress.Country != nil {
-			filters["address.country"] = *search.UserAddress.Country
+		if s.UserAddress.Country != nil {
+			filters["address.country"] = bson.M{"$regex": s.UserAddress.Country, "$options": "i"}
 		}
-		if search.UserAddress.Line1 != nil {
-			filters["address.line1"] = *search.UserAddress.Line1
+		if s.UserAddress.Line1 != nil {
+			filters["address.line1"] = bson.M{"$regex": s.UserAddress.Line1, "$options": "i"}
 		}
-		if search.UserAddress.Line2 != nil {
-			filters["address.line2"] = *search.UserAddress.Line2
+		if s.UserAddress.Line2 != nil {
+			filters["address.line2"] = bson.M{"$regex": s.UserAddress.Line2, "$options": "i"}
 		}
-		if search.UserAddress.PostalCode != nil {
-			filters["address.postal_code"] = *search.UserAddress.PostalCode
+		if s.UserAddress.PostalCode != nil {
+			filters["address.postal_code"] = bson.M{"$regex": s.UserAddress.PostalCode, "$options": "i"}
 		}
-		if search.UserAddress.State != nil {
-			filters["address.state"] = *search.UserAddress.State
+		if s.UserAddress.State != nil {
+			filters["address.state"] = bson.M{"$regex": s.UserAddress.State, "$options": "i"}
 		}
-	}
-	if search.VerificationStatusSet {
-		filters["verification_status"] = search.UserVerificationStatus
-	}
-	if !search.UserCreatedAt.IsZero() {
-		filters["created_at"] = search.UserCreatedAt
-	}
-	if !search.UserUpdatedAt.IsZero() {
-		filters["updated_at"] = search.UserUpdatedAt
-	}
-	if !search.UserLastLogin.IsZero() {
-		filters["last_login"] = search.UserLastLogin
 	}
 
 	return filters

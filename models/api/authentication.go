@@ -21,6 +21,24 @@ type ConfirmResetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+type DeleteUserRequest struct {
+	ExternalID string `json:"external_id,omitempty"`
+}
+
+var ResetPassword struct {
+	UserPassword  string        `bson:"password" validate:"required"`
+	UserStatus    db.UserStatus `bson:"status"`
+	UserEmail     string        `bson:"email" validate:"required"`
+	UserUpdatedAt time.Time     `bson:"updated_at"`
+}
+
+type ResetPasswordResponse struct {
+	UserPassword          string                   `bson:"password" validate:"required"`
+	UserStatus            db.UserStatus            `bson:"status"`
+	UserEmail             string                   `bson:"email" validate:"required"`
+	UserUpdatedAt         time.Time                `bson:"updated_at"`
+	UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
+}
 type ConfirmUserRequest struct {
 	Email       string `json:"email"`
 	ConfirmCode string `json:"code"`
@@ -118,6 +136,7 @@ type RequestRefreshtoken struct {
 }
 
 type UserRequest struct {
+	ExternalID         string  `json:"external_id,omitempty"`
 	UserFirstname      string  `json:"firstname" validate:"required"`
 	UserLastname       string  `json:"lastname" validate:"required"`
 	UserEmail          string  `json:"email"`
@@ -132,6 +151,30 @@ type UserRequest struct {
 	UserAddress        Address `json:"address,omitempty"`
 }
 
+type RefreshToken struct {
+	ExternalID   string  `json:"external_id,omitempty"`
+	UserEmail    string  `bson:"email" validate:"required"`
+	UserRole     string  `json:"role"`
+	RefreshToken *string `json:"refresh_token,omitempty"`
+}
+
+type GetUserConfirm struct {
+	UserVerificationStatus bool                `bson:"verification_status"`
+	UserStatus             db.UserStatus       `bson:"status"`
+	UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
+	UserEmail              string              `bson:"email" validate:"required"`
+	UserUpdatedAt          time.Time           `bson:"updated_at"`
+}
+
+type ConfirmResponse struct {
+	ExternalID             string              `json:"externalId"`
+	UserEmail              string              `json:"userEmail"`
+	UserRole               string              `json:"userRole"`
+	UserVerificationStatus bool                `json:"userVerificationStatus"`
+	UserStatus             db.UserStatus       `bson:"status"`
+	UserConfirmCode        *db.UserConfirmCode `json:"userConfirmCode,omitempty"`
+}
+
 type SearchUser struct {
 	ExternalID            string    `json:"external_id,omitempty"`
 	Firstname             string    `json:"firstname"`
@@ -143,8 +186,8 @@ type SearchUser struct {
 	ProfilePicture        string    `json:"profile_picture,omitempty"`
 	Description           string    `json:"description,omitempty"`
 	PhoneNumber           string    `json:"phone_number,omitempty"`
-	Page                  string    `json:"page"`
-	Size                  string    `json:"size"`
+	Page                  int       `json:"page"`
+	Size                  int       `json:"size"`
 	VerificationStatus    bool      `json:"verification_status"`
 	VerificationStatusSet bool      `json:"verification_status_set"`
 	Address               *Address  `json:"address,omitempty"`

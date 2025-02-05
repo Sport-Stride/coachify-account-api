@@ -1,14 +1,16 @@
 package repositories
 
 import (
+	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
+	"coachify-account-api/models/mapping"
 	"coachify-account-api/models/masks"
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"net/http"
-	"strconv"
 	"time"
 
 	"coachify-account-api/models"
@@ -26,17 +28,22 @@ type UserRepository struct {
 }
 
 func NewUserRepository(client *mongo.Client, dbName, collName string) *UserRepository {
+	// Create a unique index on the "email" field
+	indexModel := mongo.IndexModel{
+		Keys:    bson.M{"email": 1},              // Index on the "email" field
+		Options: options.Index().SetUnique(true), // Ensure the index is unique
+	}
+
 	collection := client.Database(dbName).Collection(collName)
+	// Create the index
+	_, err := collection.Indexes().CreateOne(context.Background(), indexModel)
+	if err != nil {
+		log.Fatalf("Failed to create unique index on email: %v", err)
+	}
 	return &UserRepository{
 		collection: collection}
 
 }
-
-var (
-	ErrUserNotFound    = errors.New("user not found")
-	EmailAlreadyExists = errors.New("email already exists")
-	FailedToCreateUser = errors.New("failed to create user")
-)
 
 // GetUserById retrieves a user by their ID
 func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.User, *models.ApiError) {
@@ -46,7 +53,7 @@ func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.Us
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusBadRequest,
-			Error: fmt.Errorf("invalid user ID format: %w", err),
+			Error: models.ErrInvalidIdFormat,
 		}
 	}
 
@@ -55,177 +62,336 @@ func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.Us
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
 	return &user, nil
 }
 
+func (r *UserRepository) GetConfirmationDetails(ctx context.Context, email string) (*db.UserConfirmCode, bool, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userConfirmCode":        1,
+		"userVerificationStatus": 1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserConfirmCode        *db.UserConfirmCode `bson:"userConfirmCode"`
+		UserVerificationStatus bool                `bson:"userVerificationStatus"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, false, nil // User not found
+		}
+		return nil, false, fmt.Errorf("failed to fetch confirmation details: %w", err)
+	}
+
+	return result.UserConfirmCode, result.UserVerificationStatus, nil
+}
+
+func (r *UserRepository) UpdateConfirmationCode(ctx context.Context, user *api.GetUserConfirm) *models.ApiError {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": user.UserEmail}
+
+	// Define the update to set the new confirmation code and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"status":              user.UserStatus,
+			"verification_status": user.UserVerificationStatus,
+			"confirm_code":        user.UserConfirmCode,
+			"updated_at":          time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
+		}
+	}
+
+	return nil
+}
+
+func (r *UserRepository) MarkUserAsVerified(ctx context.Context, email string) error {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the user as verified and active
+	update := bson.M{
+		"$set": bson.M{
+			"userVerificationStatus": true,
+			"userStatus":             "Active",
+			"userUpdatedAt":          time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to mark user as verified: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UserRepository) GetVerificationStatusAndID(ctx context.Context, email string) (bool, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userVerificationStatus": 1,
+		"_id":                    1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserVerificationStatus bool `bson:"userVerificationStatus"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, models.ErrUserNotFound // User not found
+		}
+		return false, models.ErrFailedToFetchVerifStatus
+	}
+
+	return result.UserVerificationStatus, nil
+}
+
+func (r *UserRepository) GetStatusAndID(ctx context.Context, email string) (db.UserStatus, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"userStatus": 1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserStatus db.UserStatus `bson:"userStatus"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", models.ErrUserNotFound // User not found
+		}
+		return "", models.ErrFailedToFetchUserStatus
+	}
+
+	return result.UserStatus, nil
+}
+
+func (r *UserRepository) UpdateResetPasswordCode(ctx context.Context, email string, resetCode *db.UserResetPasswordCode) *models.ApiError {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the new reset password code and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"reset_password_code": resetCode,
+			"updated_at":          time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateResetPassword,
+		}
+	}
+
+	return nil
+}
+
+func (r *UserRepository) GetStatusAndResetPasswordCode(ctx context.Context, email string) (db.UserStatus, *db.UserResetPasswordCode, error) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"status":              1,
+		"reset_password_code": 1,
+	}
+
+	// Execute the query
+	var result struct {
+		UserStatus            db.UserStatus             `bson:"status"`
+		UserResetPasswordCode *db.UserResetPasswordCode `bson:"reset_password_code"`
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", nil, models.ErrUserNotFound // User not found
+		}
+		return "", nil, models.ErrFailedToFetchUserStatus
+	}
+
+	return result.UserStatus, result.UserResetPasswordCode, nil
+}
+
+func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, email, encryptedPassword string) *models.ApiError {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define the update to set the new password and clear the reset password code
+	update := bson.M{
+		"$set": bson.M{
+			"password":            encryptedPassword,
+			"reset_password_code": nil,
+			"updated_at":          time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+
+	return nil
+}
+
 // CreateUser creates a new user in the database
 func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.UserResponse, *models.ApiError) {
-
+	// Generate a new ObjectID for the user
 	dbUser.ID = primitive.NewObjectID()
 
-	// Check if the email is already in use
-	filter := bson.M{"email": dbUser.UserEmail}
-	var existingUser db.User
-	err := r.collection.FindOne(ctx, filter).Decode(&existingUser)
-	if err == nil {
-		// If a user with this email already exists, return an error
-		return nil, &models.ApiError{
-			Code:  http.StatusConflict,
-			Error: EmailAlreadyExists,
-		}
-	}
-
-	_, err = r.collection.InsertOne(ctx, dbUser)
-
+	// Insert the user into the database
+	_, err := r.collection.InsertOne(ctx, dbUser)
 	if err != nil {
+		// Check if the error is a duplicate key error (email already exists)
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, &models.ApiError{
+				Code:  http.StatusConflict,
+				Error: models.ErrEmailAlreadyExists,
+			}
+		}
+
+		// Log the error for debugging purposes
+		fmt.Printf("Failed to create user: %v\n", err)
+
+		// Return a generic internal server error
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: FailedToCreateUser,
+			Error: models.ErrFailedToCreateUser,
 		}
 	}
 
-	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 dbUser.ID,
-		Email:              dbUser.UserEmail,
-		Firstname:          dbUser.UserFirstname,
-		Lastname:           dbUser.UserLastname,
-		Password:           dbUser.UserPassword,
-		Gender:             string(dbUser.UserGender),
-		Status:             string(dbUser.UserStatus),
-		ProfilePicture:     dbUser.UserProfilePicture,
-		Description:        dbUser.UserDescription,
-		PhoneNumber:        dbUser.UserPhoneNumber,
-		Address:            dbUser.UserAddress,
-		VerificationStatus: dbUser.UserVerificationStatus,
-		CreatedAt:          dbUser.UserCreatedAt,
-		UpdatedAt:          dbUser.UserUpdatedAt,
-		LastLogin:          dbUser.UserLastLogin,
-		ExternalID:         dbUser.ExternalID,
-		Token:              dbUser.Token,
-		RefreshToken:       dbUser.UserRefreshToken,
-		Role:               dbUser.UserRole,
-		Autologin:          dbUser.Autologin,
-	}
+	// Map the database user to the response model
+	userResponse := mapping.ToUserResponse(dbUser)
 
 	return &userResponse, nil
-
-}
-func (r *UserRepository) GetUsersByOrgID(ctx context.Context, orgID string) (int, *models.ApiError) {
-	filter := bson.M{"organization_id": orgID}
-
-	count, err := r.collection.CountDocuments(ctx, filter)
-	if err != nil {
-		return 0, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: err,
-		}
-	}
-
-	return int(count), nil
 }
 
 func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) ([]*db.UserResponse, int, *models.ApiError) {
-	// Initialize the results slice
-	results := make([]*db.UserResponse, 0)
-
-	// Use the collection defined in the repository
-	col := r.collection
-
 	// Convert page and size to integers with default values
-	page, err := strconv.Atoi(s.Page)
-	if err != nil || page < 1 {
+	page := s.Page
+	if page < 1 {
 		page = 1
 	}
 
-	size, err := strconv.Atoi(s.Size)
-	if err != nil || size < 1 {
-		size = 3 // Default value for size
+	size := s.Size
+	if size < 1 {
+		size = 10 // Default value for size
 	}
 
-	// Use the SearchUserMasks function to generate dynamic filters
-	filters := masks.SearchUserMasks(s) // Assuming a similar function exists for users
+	// Generate dynamic filters
+	filters := masks.SearchUserMasks(s)
 
 	// Define pagination options
 	opts := options.Find().
 		SetLimit(int64(size)).
-		SetSkip(int64((page - 1) * size))
+		SetSkip(int64((page - 1) * size)).
+		SetProjection(bson.M{
+			"externalid":          1,
+			"firstname":           1,
+			"lastname":            1,
+			"email":               1,
+			"role":                1,
+			"gender":              1,
+			"status":              1,
+			"profile_picture":     1,
+			"description":         1,
+			"phone_number":        1,
+			"verification_status": 1,
+			"address":             1,
+			"created_at":          1,
+			"updated_at":          1,
+			"last_login":          1,
+		})
 
 	// Execute the query with filters and pagination options
-	cursor, err := col.Find(ctx, filters, opts)
+	cursor, err := r.collection.Find(ctx, filters, opts)
 	if err != nil {
+		utils.Logger.Error("Failed to retrieve users from the database", zap.Error(err))
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to retrieve users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
-	defer cursor.Close(ctx) // Always close the cursor to avoid leaks
+	defer cursor.Close(ctx)
 
 	// Count the total number of documents matching the filters
-	count, err := col.CountDocuments(ctx, filters)
+	count, err := r.collection.CountDocuments(ctx, filters)
 	if err != nil {
+		utils.Logger.Error("Failed to count users in the database", zap.Error(err))
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to count users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 
 	// Iterate through the results and decode them
+	results := make([]*db.UserResponse, 0)
 	for cursor.Next(ctx) {
 		var user db.User
 		if err := cursor.Decode(&user); err != nil {
+			utils.Logger.Error("Failed to decode user from the database", zap.Error(err))
 			return nil, 0, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("failed to decode user: %w", err),
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrFailedDecodeUser,
 			}
-
 		}
 
-		// Prepare the response with user and role details
-		userResponse := db.UserResponse{
-			Id:                 user.ID,
-			Email:              user.UserEmail,
-			Firstname:          user.UserFirstname,
-			Lastname:           user.UserLastname,
-			Password:           user.UserPassword,
-			Gender:             string(user.UserGender),
-			Status:             string(user.UserStatus),
-			ProfilePicture:     user.UserProfilePicture,
-			Description:        user.UserDescription,
-			PhoneNumber:        user.UserPhoneNumber,
-			Address:            user.UserAddress,
-			VerificationStatus: user.UserVerificationStatus,
-			CreatedAt:          user.UserCreatedAt,
-			UpdatedAt:          user.UserUpdatedAt,
-			LastLogin:          user.UserLastLogin,
-			ExternalID:         user.ExternalID,
-			Token:              user.Token,
-			RefreshToken:       user.UserRefreshToken,
-			Role:               user.UserRole,
-			Autologin:          user.Autologin,
-		}
-
+		// Prepare the response with user details
+		userResponse := mapping.ToUserResponse(&user)
 		results = append(results, &userResponse)
 	}
 
 	// Handle potential cursor errors
 	if err := cursor.Err(); err != nil {
+		utils.Logger.Error("Cursor error while retrieving users", zap.Error(err))
 		return nil, 0, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("cursor error: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 
-	// Return the results and the total number of documents
 	return results, int(count), nil
 }
 
@@ -240,27 +406,137 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User
 		if err == mongo.ErrNoDocuments {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: fmt.Errorf("user with email %s not found", email),
+				Error: models.ErrUserNotFound,
 			}
 		}
 		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
 
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("error retrieving user from the database: %w", err),
+			Error: models.ErrRetrievingUser,
 		}
 	}
-
+	if user.UserStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned ",
+			zap.String("email", user.UserEmail),
+			zap.String("status", string(user.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
 	return &user, nil
 }
+func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email string) (*api.ResetPasswordResponse, *models.ApiError) {
 
-// Update updates user information in the database
-func (r *UserRepository) Update(ctx context.Context, id primitive.ObjectID, user *db.User) *models.ApiError {
+	filter := bson.M{"email": email}
+	projection := bson.M{
+		"password":            1,
+		"status":              1,
+		"email":               1,
+		"updated_at":          1,
+		"reset_password_code": 1,
+	}
+	// Execute the query
+	var result struct {
+		UserPassword          string                   `bson:"password" validate:"required"`
+		UserStatus            db.UserStatus            `bson:"status"`
+		UserEmail             string                   `bson:"email" validate:"required"`
+		UserUpdatedAt         time.Time                `bson:"updated_at"`
+		UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
 
-	filter := bson.M{"_id": id}
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+	if result.UserStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned ",
+			zap.String("email", result.UserEmail),
+			zap.String("status", string(result.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
+	resultToApi := &api.ResetPasswordResponse{
+		UserPassword:          result.UserPassword,
+		UserStatus:            result.UserStatus,
+		UserEmail:             result.UserEmail,
+		UserUpdatedAt:         result.UserUpdatedAt,
+		UserResetPasswordCode: result.UserResetPasswordCode,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) (*api.GetUserConfirm, *models.ApiError) {
+
+	filter := bson.M{"email": email}
+	projection := bson.M{
+		"verification_status": 1,
+		"status":              1,
+		"confirm_code":        1,
+		"email":               1,
+		"updated_at":          1,
+	}
+	// Execute the query
+	var result struct {
+		UserVerificationStatus bool                `bson:"verification_status"`
+		UserStatus             db.UserStatus       `bson:"status"`
+		UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
+		UserEmail              string              `bson:"email" validate:"required"`
+		UserUpdatedAt          time.Time           `bson:"updated_at"`
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
+
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+	if result.UserVerificationStatus {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserAlreadyVerified,
+		}
+	}
+	resultToApi := &api.GetUserConfirm{
+		UserVerificationStatus: result.UserVerificationStatus,
+		UserStatus:             result.UserStatus,
+		UserConfirmCode:        result.UserConfirmCode,
+		UserEmail:              result.UserEmail,
+		UserUpdatedAt:          result.UserUpdatedAt,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) Update(ctx context.Context, email string, user *db.User) *models.ApiError {
+
+	filter := bson.M{"email": email}
 
 	update := bson.M{
 		"$set": bson.M{
+			"email":               user.UserEmail,
 			"confirm_code":        user.UserConfirmCode,
 			"status":              user.UserStatus,
 			"updated_at":          time.Now(),
@@ -278,21 +554,21 @@ func (r *UserRepository) Update(ctx context.Context, id primitive.ObjectID, user
 	if err != nil {
 		return &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("failed to update user: %w", err),
+			Error: models.ErrUpdateUser,
 		}
 	}
 
 	if result.MatchedCount == 0 {
 		return &models.ApiError{
 			Code:  http.StatusNotFound,
-			Error: fmt.Errorf("no user found with ID: %v", id),
+			Error: models.ErrUserNotFound,
 		}
 	}
 
 	if result.ModifiedCount == 0 {
 		return &models.ApiError{
 			Code:  http.StatusNotModified,
-			Error: fmt.Errorf("no changes made to user with ID: %v", id),
+			Error: models.ErrNoChangesToUser,
 		}
 	}
 
@@ -309,12 +585,12 @@ func (r *UserRepository) GetUserByExternalIdUpdate(ctx context.Context, userId s
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
@@ -332,47 +608,145 @@ func (r *UserRepository) GetUserByExternalId(ctx context.Context, userId string)
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
 				Code:  http.StatusNotFound,
-				Error: ErrUserNotFound,
+				Error: models.ErrUserNotFound,
 			}
 		}
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
-			Error: err,
+			Error: models.ErrInternalError,
 		}
 	}
 
 	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 user.ID,
-		Email:              user.UserEmail,
-		Firstname:          user.UserFirstname,
-		Lastname:           user.UserLastname,
-		Password:           user.UserPassword,
-		Gender:             string(user.UserGender),
-		Status:             string(user.UserStatus),
-		ProfilePicture:     user.UserProfilePicture,
-		Description:        user.UserDescription,
-		PhoneNumber:        user.UserPhoneNumber,
-		Address:            user.UserAddress,
-		VerificationStatus: user.UserVerificationStatus,
-		CreatedAt:          user.UserCreatedAt,
-		UpdatedAt:          user.UserUpdatedAt,
-		LastLogin:          user.UserLastLogin,
-		ExternalID:         user.ExternalID,
-		Token:              user.Token,
-		RefreshToken:       user.UserRefreshToken,
-		Role:               user.UserRole,
-		Autologin:          user.Autologin,
-	}
+	userResponse := mapping.ToUserResponse(&user)
 
 	return &userResponse, nil
 
 }
 
+func (r *UserRepository) GetRefreshToken(ctx context.Context, email string) (*api.RefreshToken, *models.ApiError) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"externalid":    1,
+		"email":         1,
+		"refresh_token": 1,
+		"role":          1,
+	}
+	// Execute the query
+	var result struct {
+		ExternalID       string  `bson:"externalid"`
+		UserRefreshToken *string `bson:"refresh_token,omitempty"`
+		UserRole         string  `bson:"role" `
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound, // User not found
+			}
+		}
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrFailedToFetchToken, // User not found
+		}
+	}
+	resultToApi := &api.RefreshToken{
+		ExternalID:   result.ExternalID,
+		UserEmail:    email,
+		UserRole:     result.UserRole,
+		RefreshToken: result.UserRefreshToken,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) UpdateToken(ctx context.Context, userExternalID string, token string) *models.ApiError {
+	// Define a filter to find the user by ID
+	filter := bson.M{"externalid": userExternalID}
+
+	// Define the update to set the new token and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"token":      token,
+			"updated_at": time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrFailedToUpdateUser, // User not found
+		}
+	}
+
+	return nil
+}
+
+func (r *UserRepository) GetExternalIDByEmail(ctx context.Context, email string) (string, *models.ApiError) {
+	var result struct {
+		ExternalID string `bson:"externalid"`
+	}
+
+	filter := bson.M{"email": email}
+	projection := bson.M{"externalid": 1}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user ExternalID from the database", zap.String("email", email), zap.Error(err))
+		return "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+
+	return result.ExternalID, nil
+}
+func (r *UserRepository) UpdateUserByMask(ctx context.Context, externalID string, updateFields bson.M) (*db.User, *models.ApiError) {
+	// MongoDB filter to find the user by ExternalID
+	filter := bson.M{"externalid": externalID}
+
+	// Add the updated timestamp to the update fields
+	updateFields["updated_at"] = time.Now()
+
+	// Define the update operation
+	update := bson.M{"$set": updateFields}
+
+	// Perform the update operation
+	var updatedUser db.User
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&updatedUser)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error updating user in the database", zap.String("externalID", externalID), zap.Error(err))
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateUser,
+		}
+	}
+
+	return &updatedUser, nil
+}
+
 // UpdateUser updates an existing user in the MongoDB collection.
-func (r *UserRepository) UpdateUser(ctx context.Context, id string, user *db.User) (*db.UserResponse, *models.ApiError) {
+func (r *UserRepository) UpdateUser(ctx context.Context, ExternalID string, user *db.User) (*db.UserResponse, *models.ApiError) {
 	// MongoDB filter to find the user by user_id
-	filter := bson.M{"externalid": id}
+	filter := bson.M{"externalid": ExternalID}
 
 	// Ensure the CreatedAt field is set if not already provided
 	if user.UserCreatedAt.IsZero() {
@@ -388,42 +762,21 @@ func (r *UserRepository) UpdateUser(ctx context.Context, id string, user *db.Use
 	if err != nil {
 		// Return an API error if something goes wrong
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("Failed to update user"),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateUser,
 		}
 	}
 
 	// If no document was matched and updated, return a custom "Not Found" error
 	if result.MatchedCount == 0 {
 		return nil, &models.ApiError{
-			Code:  404,
-			Error: fmt.Errorf("user not found"),
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
 		}
 	}
 
 	// Prepare the response with user and role details
-	userResponse := db.UserResponse{
-		Id:                 user.ID,
-		Email:              user.UserEmail,
-		Firstname:          user.UserFirstname,
-		Lastname:           user.UserLastname,
-		Password:           user.UserPassword,
-		Gender:             string(user.UserGender),
-		Status:             string(user.UserStatus),
-		ProfilePicture:     user.UserProfilePicture,
-		Description:        user.UserDescription,
-		PhoneNumber:        user.UserPhoneNumber,
-		Address:            user.UserAddress,
-		VerificationStatus: user.UserVerificationStatus,
-		CreatedAt:          user.UserCreatedAt,
-		UpdatedAt:          user.UserUpdatedAt,
-		LastLogin:          user.UserLastLogin,
-		ExternalID:         user.ExternalID,
-		Token:              user.Token,
-		RefreshToken:       user.UserRefreshToken,
-		Role:               user.UserRole,
-		Autologin:          user.Autologin,
-	}
+	userResponse := mapping.ToUserResponse(user)
 
 	// Return the updated user struct
 	return &userResponse, nil
@@ -431,17 +784,14 @@ func (r *UserRepository) UpdateUser(ctx context.Context, id string, user *db.Use
 
 // DeleteUser deletes a user by externalID from the database.
 func (r *UserRepository) DeleteUser(ctx context.Context, externalID string) *models.ApiError {
-	// Set a timeout of 5 seconds for the operation.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel() // Ensure the context is canceled after the operation.
 
 	// Attempt to delete the user with the specified externalID.
 	result, err := r.collection.DeleteOne(ctx, bson.M{"externalid": externalID})
 	if err != nil {
 		// Return a 500 Internal Server Error if the deletion operation fails.
 		return &models.ApiError{
-			Code:  500,
-			Error: errors.New("failed to delete user"),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUserDeletionFailed,
 		}
 	}
 
@@ -449,8 +799,8 @@ func (r *UserRepository) DeleteUser(ctx context.Context, externalID string) *mod
 	if result.DeletedCount == 0 {
 		// Return a 404 Not Found error if the user does not exist.
 		return &models.ApiError{
-			Code:  404,
-			Error: errors.New("user not found"),
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
 		}
 	}
 
@@ -468,8 +818,8 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 	cursor, err := col.Find(ctx, bson.D{}) // Empty filter to get all users
 	if err != nil {
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("failed to retrieve users: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
 		}
 	}
 	defer cursor.Close(ctx) // Always close the cursor to avoid leaks
@@ -479,34 +829,13 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 		var user db.User
 		if err := cursor.Decode(&user); err != nil {
 			return nil, &models.ApiError{
-				Code:  500,
-				Error: fmt.Errorf("failed to decode user: %w", err),
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrFailedDecodeUser,
 			}
 		}
 
 		// Prepare the response with user details
-		userResponse := db.UserResponse{
-			Id:                 user.ID,
-			Email:              user.UserEmail,
-			Firstname:          user.UserFirstname,
-			Lastname:           user.UserLastname,
-			Password:           user.UserPassword,
-			Gender:             string(user.UserGender),
-			Status:             string(user.UserStatus),
-			ProfilePicture:     user.UserProfilePicture,
-			Description:        user.UserDescription,
-			PhoneNumber:        user.UserPhoneNumber,
-			Address:            user.UserAddress,
-			VerificationStatus: user.UserVerificationStatus,
-			CreatedAt:          user.UserCreatedAt,
-			UpdatedAt:          user.UserUpdatedAt,
-			LastLogin:          user.UserLastLogin,
-			ExternalID:         user.ExternalID,
-			Token:              user.Token,
-			RefreshToken:       user.UserRefreshToken,
-			Role:               user.UserRole,
-			Autologin:          user.Autologin,
-		}
+		userResponse := mapping.ToUserResponse(&user)
 
 		// Add the user response to the results
 		results = append(results, &userResponse)
@@ -515,8 +844,8 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 	// Handle potential cursor errors
 	if err := cursor.Err(); err != nil {
 		return nil, &models.ApiError{
-			Code:  500,
-			Error: fmt.Errorf("cursor error: %w", err),
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
 		}
 	}
 

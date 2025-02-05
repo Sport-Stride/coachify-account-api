@@ -301,8 +301,8 @@ func (_m *AuthService) TryToConnect(ctx context.Context, request api.LoginReques
 }
 
 // UpdateUser provides a mock function with given fields: ctx, id, req
-func (_m *AuthService) UpdateUser(ctx context.Context, id string, req *api.RequestUpdateUser) *models.ApiError {
-	ret := _m.Called(ctx, id, req)
+func (_m *AuthService) UpdateUser(ctx context.Context, req *api.RequestUpdateUser) *models.ApiError {
+	ret := _m.Called(ctx, req.User.ExternalID, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateUser")

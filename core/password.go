@@ -2,7 +2,9 @@ package core
 
 import (
 	"coachify-account-api/models"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 
 	"golang.org/x/crypto/bcrypt"
@@ -10,7 +12,7 @@ import (
 
 type PasswordChecker interface {
 	HashPassword(password string) (string, *models.ApiError)
-	VerifyPassword(providedPassword, password string) (bool, *models.ApiError)
+	VerifyPassword(providedPassword, password string) *models.ApiError
 }
 
 type PasswordCheckerImpl struct{}
@@ -22,31 +24,21 @@ func NewPasswordChecker() *PasswordCheckerImpl {
 func (p *PasswordCheckerImpl) HashPassword(password string) (string, *models.ApiError) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", &models.ApiError{
-			Code:  500, // Internal Server Error
-			Error: fmt.Errorf("failed to hash password: %w", err),
-		}
+		return "", models.NewApiError(http.StatusInternalServerError, models.ErrFailedToHashPassword)
 	}
 
 	return string(hashedPassword), nil
 }
 
-func (p *PasswordCheckerImpl) VerifyPassword(providedPassword string, userPassword string) (bool, *models.ApiError) {
+func (p *PasswordCheckerImpl) VerifyPassword(providedPassword string, userPassword string) *models.ApiError {
 	err := bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(providedPassword))
 	if err != nil {
-		if err == bcrypt.ErrMismatchedHashAndPassword {
-			return false, &models.ApiError{
-				Code:  401, // Unauthorized (mot de passe incorrect)
-				Error: fmt.Errorf("password mismatch: %w", err),
-			}
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return models.NewApiError(http.StatusUnauthorized, fmt.Errorf("%w: %v", models.ErrPasswordMismatch, err))
 		}
-		return false, &models.ApiError{
-			Code:  500, // Internal Server Error
-			Error: fmt.Errorf("failed to verify password: %w", err),
-		}
+		return models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %v", models.ErrFailedToVerifyPassword, err))
 	}
-
-	return true, nil
+	return nil
 }
 
 // ValidatePassword checks if the password contains an uppercase letter, a lowercase letter, a symbol, and at least 8 characters

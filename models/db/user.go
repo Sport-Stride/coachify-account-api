@@ -51,8 +51,8 @@ type SearchUser struct {
 	UserProfilePicture     string     `bson:"profile_picture,omitempty"`
 	UserDescription        string     `bson:"description,omitempty"`
 	UserPhoneNumber        string     `bson:"phone_number,omitempty"`
-	Page                   string     `bson:"page"`
-	Size                   string     `bson:"size"`
+	Page                   int        `bson:"page"`
+	Size                   int        `bson:"size"`
 	UserVerificationStatus bool       `bson:"verification_status"`
 	VerificationStatusSet  bool       `bson:"verification_status_set"`
 	UserGender             UserGender ` bson:"gender"`

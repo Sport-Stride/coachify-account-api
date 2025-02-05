@@ -2,8 +2,9 @@ package utils
 
 import (
 	"coachify-account-api/models"
-	"coachify-account-api/models/db"
+	"coachify-account-api/models/api"
 	"fmt"
+	"net/http"
 
 	"github.com/golang-jwt/jwt/v4"
 
@@ -12,7 +13,7 @@ import (
 
 // CreateTokenParams struct
 type CreateTokenParams struct {
-	User db.User
+	User api.RefreshToken
 	Type string
 }
 
@@ -27,8 +28,8 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 		expirationTime = 15 * time.Minute
 	default:
 		return "", &models.ApiError{
-			Code:  400, // Bad Request
-			Error: fmt.Errorf("invalid token type: %s", params.Type),
+			Code:  http.StatusBadRequest, // Bad Request
+			Error: models.ErrInvalidTokenType,
 		}
 	}
 
@@ -46,8 +47,8 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 	signedToken, err := token.SignedString(secretKey)
 	if err != nil {
 		return "", &models.ApiError{
-			Code:  500, // Internal Server Error
-			Error: fmt.Errorf("error signing token: %w", err),
+			Code:  http.StatusInternalServerError, // Internal Server Error
+			Error: models.ErrSigningToken,
 		}
 	}
 
@@ -56,8 +57,8 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 	})
 	if err != nil {
 		return "", &models.ApiError{
-			Code:  500, // Internal Server Error
-			Error: fmt.Errorf("error parsing signed token: %w", err),
+			Code:  http.StatusInternalServerError, // Internal Server Error
+			Error: models.ErrParsingSignedToken,
 		}
 	}
 

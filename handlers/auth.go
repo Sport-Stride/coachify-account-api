@@ -81,7 +81,7 @@ func Register(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		ctx.JSON(http.StatusCreated, gin.H{"message": "Register successful", "user": user})
+		ctx.JSON(http.StatusCreated, gin.H{"message": "User registered successfully", "user": user})
 	}
 }
 
@@ -103,14 +103,14 @@ func Confirm(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		ctx.JSON(http.StatusOK, gin.H{"success": true})
+		ctx.JSON(http.StatusOK, gin.H{"Email confirmed successfully": true})
 	}
 }
 
 func ResendConfirmEmail(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ResendConfirmUserRequest)
-		err := ctx.ShouldBind(req)
+		err := ctx.ShouldBindJSON(req)
 		if err != nil {
 			ctx.JSON(
 				http.StatusBadRequest,
@@ -132,7 +132,7 @@ func ResendConfirmEmail(wrapper services.AuthService) gin.HandlerFunc {
 func InitResetPassword(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ResetPasswordRequest)
-		err := ctx.ShouldBind(req)
+		err := ctx.ShouldBindJSON(req)
 		if err != nil {
 			ctx.JSON(
 				http.StatusBadRequest,
@@ -202,13 +202,7 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		userID := c.Param("prefix")
-		if userID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or invalid user ID"})
-			return
-		}
-
-		userUpdated, apiErr := wrapper.UpdateUser(c.Request.Context(), userID, *req)
+		userUpdated, apiErr := wrapper.UpdateUser(c.Request.Context(), *req)
 		if apiErr != nil {
 			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return
@@ -217,65 +211,38 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, userUpdated)
 	}
 }
-
 func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
-
 	return func(ctx *gin.Context) {
-		verificationStatusStr := ctx.DefaultQuery("verification_status", "")
-		verificationStatus := false
-		verificationStatusSet := false
-
-		if verificationStatusStr != "" {
-			parsedVerificationStatus, err := strconv.ParseBool(verificationStatusStr)
-			if err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid value for 'verification_status'. Must be true or false."})
-				return
-			}
-			verificationStatus = parsedVerificationStatus
-			verificationStatusSet = true
-		}
-
-		searchQuery := &api.SearchUser{
-			Firstname:             ctx.DefaultQuery("firstname", ""),
-			Lastname:              ctx.DefaultQuery("lastname", ""),
-			Email:                 ctx.DefaultQuery("email", ""),
-			Role:                  ctx.DefaultQuery("role", ""),
-			Status:                ctx.DefaultQuery("status", ""),
-			Gender:                ctx.DefaultQuery("gender", ""),
-			PhoneNumber:           ctx.DefaultQuery("phone_number", ""),
-			VerificationStatus:    verificationStatus,
-			VerificationStatusSet: verificationStatusSet,
-			ExternalID:            ctx.DefaultQuery("external_id", ""),
-			Page:                  ctx.DefaultQuery("page", "1"),
-			Size:                  ctx.DefaultQuery("size", "10"),
-		}
-
-		searchQuery.Address = &api.Address{
-			City:       getOptionalQueryParam(ctx, "address.city"),
-			Country:    getOptionalQueryParam(ctx, "address.country"),
-			Line1:      getOptionalQueryParam(ctx, "address.line1"),
-			Line2:      getOptionalQueryParam(ctx, "address.line2"),
-			PostalCode: getOptionalQueryParam(ctx, "address.postal_code"),
-			State:      getOptionalQueryParam(ctx, "address.state"),
-		}
-
-		pageNbr, err := strconv.Atoi(searchQuery.Page)
-		if err != nil {
-			pageNbr = 1 // Default value in case of error
-		}
-		sizeNbr, err := strconv.Atoi(searchQuery.Size)
-		if err != nil {
-			sizeNbr = 10 // Default value in case of error
-		}
-
-		data, count, err := service.GetAllUsersPag(*searchQuery)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// Parse the request body into a SearchUser struct
+		var searchQuery api.SearchUser
+		if err := ctx.ShouldBindJSON(&searchQuery); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
-		totalPages := (count + sizeNbr - 1) / sizeNbr // Calculate the total number of pages
+		// Call the service to retrieve paginated users
+		data, count, err := service.GetAllUsersPag(searchQuery)
+		if err != nil {
+			ctx.JSON(err.Code, gin.H{"error": err.Error})
+			return
+		}
 
+		// Calculate pagination details
+		pageNbr := searchQuery.Page
+		sizeNbr := searchQuery.Size
+
+		// Ensure sizeNbr is at least 1 to avoid division by zero
+		if sizeNbr < 1 {
+			sizeNbr = 1
+		}
+
+		// Calculate total pages
+		totalPages := 0
+		if count > 0 {
+			totalPages = (count + sizeNbr - 1) / sizeNbr
+		}
+
+		// Prepare the response
 		dataResponse := &mapping.PaginatedUser{
 			Users:        data,
 			Page:         pageNbr,
@@ -288,9 +255,29 @@ func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 	}
 }
 
+// Helper function to parse optional boolean query parameters
+func getOptionalBoolQuery(ctx *gin.Context, key string) *bool {
+	value := ctx.DefaultQuery(key, "")
+	if value == "" {
+		return nil
+	}
+	parsedValue, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil
+	}
+	return &parsedValue
+}
+
 func DeleteUser(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		apiErr := service.DeleteUser(ctx, ctx.Param("prefix"))
+		req := new(api.DeleteUserRequest)
+
+		if err := ctx.ShouldBindJSON(req); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+			return
+		}
+
+		apiErr := service.DeleteUser(ctx, req.ExternalID)
 		if apiErr != nil {
 			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return

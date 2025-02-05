@@ -29,6 +29,32 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 		UserConfirmCode:        &confirmCode,
 	}
 }
+func ToRefreshToken(dbUser *db.User) api.RefreshToken {
+	return api.RefreshToken{
+		ExternalID:   dbUser.ExternalID,
+		UserEmail:    dbUser.UserEmail,
+		UserRole:     dbUser.UserRole,
+		RefreshToken: dbUser.UserRefreshToken,
+	}
+}
+
+func ToConfirmResponse(dbUser *api.GetUserConfirm) api.ConfirmResponse {
+	return api.ConfirmResponse{
+		UserEmail:              dbUser.UserEmail,
+		UserVerificationStatus: dbUser.UserVerificationStatus,
+		UserStatus:             dbUser.UserStatus,
+		UserConfirmCode:        dbUser.UserConfirmCode,
+	}
+}
+
+func ToResetPasswor(dbUser *api.ResetPasswordResponse) api.ResetPasswordResponse {
+	return api.ResetPasswordResponse{
+		UserPassword:  dbUser.UserPassword,
+		UserStatus:    dbUser.UserStatus,
+		UserEmail:     dbUser.UserEmail,
+		UserUpdatedAt: dbUser.UserUpdatedAt,
+	}
+}
 
 func ToApiUser(dbUser *db.User) api.ApiUser {
 	var confirmCode db.UserConfirmCode
@@ -95,6 +121,31 @@ func ToApiUserResponse(dbUser *db.UserResponse) api.ApiUserResponse {
 	}
 }
 
+func ToUserResponse(user *db.User) db.UserResponse {
+	return db.UserResponse{
+		Id:                 user.ID,
+		Email:              user.UserEmail,
+		Firstname:          user.UserFirstname,
+		Lastname:           user.UserLastname,
+		Password:           user.UserPassword,
+		Gender:             string(user.UserGender),
+		Status:             string(user.UserStatus),
+		ProfilePicture:     user.UserProfilePicture,
+		Description:        user.UserDescription,
+		PhoneNumber:        user.UserPhoneNumber,
+		Address:            user.UserAddress,
+		VerificationStatus: user.UserVerificationStatus,
+		CreatedAt:          user.UserCreatedAt,
+		UpdatedAt:          user.UserUpdatedAt,
+		LastLogin:          user.UserLastLogin,
+		ExternalID:         user.ExternalID,
+		Token:              user.Token,
+		RefreshToken:       user.UserRefreshToken,
+		Role:               user.UserRole,
+		Autologin:          user.Autologin,
+	}
+}
+
 func FormattedDateTime() string {
 	return time.Now().Format("02/01/2006 15:04:05")
 }
@@ -130,9 +181,10 @@ func SearchUserAPIToDB(searchUser api.SearchUser) db.SearchUser {
 		Size:                   searchUser.Size,
 	}
 }
-func UpdateUserAPIToDB(User api.UserRequest) db.User {
+func UpdateUserAPIToDB(User api.UserRequest, ExternalID string) db.User {
 
 	return db.User{
+		ExternalID:             ExternalID,
 		UserFirstname:          User.UserFirstname,
 		UserLastname:           User.UserLastname,
 		UserEmail:              User.UserEmail,

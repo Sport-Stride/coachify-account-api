@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"coachify-account-api/models"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -24,7 +25,7 @@ func NewNotificationClient(domain, apiKey string) *NotificationClient {
 }
 
 // Send sends an email via Mailgun.
-func (c *NotificationClient) Send(ctx context.Context, req Request, template ...string) (*Response, error) {
+func (c *NotificationClient) Send(ctx context.Context, req Request, template ...string) (*Response, *models.ApiError) {
 	// Create the email message
 	url := "https://sandbox.api.mailtrap.io/api/send/2370532"
 	method := "POST"
