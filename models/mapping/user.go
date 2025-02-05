@@ -181,9 +181,10 @@ func SearchUserAPIToDB(searchUser api.SearchUser) db.SearchUser {
 		Size:                   searchUser.Size,
 	}
 }
-func UpdateUserAPIToDB(User api.UserRequest) db.User {
+func UpdateUserAPIToDB(User api.UserRequest, ExternalID string) db.User {
 
 	return db.User{
+		ExternalID:             ExternalID,
 		UserFirstname:          User.UserFirstname,
 		UserLastname:           User.UserLastname,
 		UserEmail:              User.UserEmail,

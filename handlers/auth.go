@@ -185,7 +185,7 @@ func RefreshToken(wrapper services.AuthService) gin.HandlerFunc {
 		accessToken, err := wrapper.RefreshToken(c, request.Email, request.RefreshToken)
 
 		if err != nil {
-			c.JSON(err.Code, gin.H{"error": err})
+			c.JSON(err.Code, gin.H{"error": err.Error.Error()})
 			return
 		}
 

@@ -35,7 +35,7 @@ func UpdateUserMasks(dataDB *db.User, dataReq *api.RequestUpdateUser) (*db.User,
 		}
 	}
 	// Map the API identifier data to the DB identifier format if only dataReq is provided
-	*dataDB = mapping.UpdateUserAPIToDB(dataReq.User)
+	*dataDB = mapping.UpdateUserAPIToDB(dataReq.User, dataDB.ExternalID)
 
 	now := time.Now() // Store the current time for tracking updates
 	var updated bool  // Track if any field has been updated

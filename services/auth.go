@@ -519,7 +519,10 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 	}
 	fmt.Printf("UserRefreshToken : %s  , oldRefreshToken : %s \n", *user.RefreshToken, oldRefreshToken)
 	if *user.RefreshToken != oldRefreshToken {
-		return "", err
+		return "", &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidRefreshToken,
+		}
 	}
 
 	accessToken, e := utils.CreateToken(utils.CreateTokenParams{
@@ -545,17 +548,18 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 		log.Printf("UpdateUser: error fetching User from database - %v", err)
 		return nil, err // Return the error if fetching fails
 	}
+	log.Printf("GetByEmail1: %s", data.ExternalID)
 
 	// Apply update masks to the user data
 	dataDB, err := masks.UpdateUserMasks(data, &req)
-
+	log.Printf("GetByEmail: %s", dataDB.ExternalID)
 	if err != nil {
 		log.Printf("UpdateUser: error applying masks to user - %v", err)
 		return nil, err // Return the error if masking fails
 	}
 
 	// Update user data in the repository
-	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB)
+	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB.ExternalID, dataDB)
 	if err != nil {
 		log.Printf("UpdateUser: error updating user in database - %v", err)
 		return nil, err // Return the error if updating fails
