@@ -15,6 +15,7 @@ import (
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"coachify-account-api/repositories"
 	"coachify-account-api/utils"
@@ -33,7 +34,7 @@ type AuthService interface {
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
 	GetUserByExternalId(ctx context.Context, userId string) (*api.ApiUserResponse, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
-	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError)
+	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError)
 	GetAllUsersPag(api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError)
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
@@ -457,7 +458,7 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 	}
 	fmt.Printf("Code: %s\n", user.UserResetPasswordCode.Code)
 	resetPasswordCode := user.UserResetPasswordCode
-	if &resetPasswordCode == nil || resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
+	if resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
 		return &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidResetPasswordCode,
@@ -541,54 +542,53 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 	return accessToken, nil
 }
 
-func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUserResponse, *models.ApiError) {
-	// Fetch user data by external ID
-	data, err := s.userRepository.GetByEmail(ctx, req.User.UserEmail)
+func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError) {
+	// Fetch only the necessary fields (e.g., ExternalID) to verify the user exists
+	externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
 	if err != nil {
-		log.Printf("UpdateUser: error fetching User from database - %v", err)
-		return nil, err // Return the error if fetching fails
+		log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
+		return nil, err
 	}
-	log.Printf("GetByEmail1: %s", data.ExternalID)
 
 	// Apply update masks to the user data
-	dataDB, err := masks.UpdateUserMasks(data, &req)
-	log.Printf("GetByEmail: %s", dataDB.ExternalID)
+	updateFields, err := masks.UpdateUserMasks(&req)
 	if err != nil {
 		log.Printf("UpdateUser: error applying masks to user - %v", err)
-		return nil, err // Return the error if masking fails
+		return nil, err
 	}
 
 	// Update user data in the repository
-	updatedData, err := s.userRepository.UpdateUser(ctx, dataDB.ExternalID, dataDB)
+	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, externalID, updateFields)
 	if err != nil {
 		log.Printf("UpdateUser: error updating user in database - %v", err)
-		return nil, err // Return the error if updating fails
+		return nil, err
 	}
-	log.Printf("token: %s", updatedData.Token) // Log the created event details
+
 	// Convert updated data to API user response format
-	dataResp := mapping.ToApiUserResponse(updatedData)
+	dataResp := mapping.ToApiUser(updatedUser)
 
-	return &dataResp, nil // Return the updated user response
+	return &dataResp, nil
 }
-
 func (s *AuthServiceImpl) GetAllUsersPag(searchUser api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError) {
+	// Log the search query for debugging
+	utils.Logger.Info("Search query received", zap.Any("searchUser", searchUser))
+
 	// Convert the API SearchUser object to DB format
 	sDB := mapping.SearchUserAPIToDB(searchUser)
 
 	// Call the repository to retrieve users with pagination and filters
 	res, count, err := s.userRepository.GetAllUsersPag(context.Background(), &sDB)
 	if err != nil {
-		return nil, 0, err // Return an error if the retrieval fails
+		return nil, 0, err
 	}
 
 	// Convert results from DB format to ApiUser format
-	results := make([]*api.ApiUserResponse, 0)
+	results := make([]*api.ApiUserResponse, 0, len(res))
 	for _, v := range res {
 		result := mapping.ToApiUserResponse(v)
-		results = append(results, &result) // Append the converted user to the results
+		results = append(results, &result)
 	}
 
-	// Return the paginated users and the total count
 	return results, count, nil
 }
 

@@ -11,7 +11,6 @@ import (
 	"log"
 
 	"net/http"
-	"strconv"
 	"time"
 
 	"coachify-account-api/models"
@@ -310,44 +309,57 @@ func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.U
 }
 
 func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) ([]*db.UserResponse, int, *models.ApiError) {
-	// Initialize the results slice
-	results := make([]*db.UserResponse, 0)
-
-	// Use the collection defined in the repository
-	col := r.collection
-
 	// Convert page and size to integers with default values
-	page, err := strconv.Atoi(s.Page)
-	if err != nil || page < 1 {
+	page := s.Page
+	if page < 1 {
 		page = 1
 	}
 
-	size, err := strconv.Atoi(s.Size)
-	if err != nil || size < 1 {
-		size = 3 // Default value for size
+	size := s.Size
+	if size < 1 {
+		size = 10 // Default value for size
 	}
 
-	// Use the SearchUserMasks function to generate dynamic filters
-	filters := masks.SearchUserMasks(s) // Assuming a similar function exists for users
+	// Generate dynamic filters
+	filters := masks.SearchUserMasks(s)
 
 	// Define pagination options
 	opts := options.Find().
 		SetLimit(int64(size)).
-		SetSkip(int64((page - 1) * size))
+		SetSkip(int64((page - 1) * size)).
+		SetProjection(bson.M{
+			"externalid":          1,
+			"firstname":           1,
+			"lastname":            1,
+			"email":               1,
+			"role":                1,
+			"gender":              1,
+			"status":              1,
+			"profile_picture":     1,
+			"description":         1,
+			"phone_number":        1,
+			"verification_status": 1,
+			"address":             1,
+			"created_at":          1,
+			"updated_at":          1,
+			"last_login":          1,
+		})
 
 	// Execute the query with filters and pagination options
-	cursor, err := col.Find(ctx, filters, opts)
+	cursor, err := r.collection.Find(ctx, filters, opts)
 	if err != nil {
+		utils.Logger.Error("Failed to retrieve users from the database", zap.Error(err))
 		return nil, 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
 		}
 	}
-	defer cursor.Close(ctx) // Always close the cursor to avoid leaks
+	defer cursor.Close(ctx)
 
 	// Count the total number of documents matching the filters
-	count, err := col.CountDocuments(ctx, filters)
+	count, err := r.collection.CountDocuments(ctx, filters)
 	if err != nil {
+		utils.Logger.Error("Failed to count users in the database", zap.Error(err))
 		return nil, 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
@@ -355,31 +367,31 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	}
 
 	// Iterate through the results and decode them
+	results := make([]*db.UserResponse, 0)
 	for cursor.Next(ctx) {
 		var user db.User
 		if err := cursor.Decode(&user); err != nil {
+			utils.Logger.Error("Failed to decode user from the database", zap.Error(err))
 			return nil, 0, &models.ApiError{
 				Code:  http.StatusInternalServerError,
 				Error: models.ErrFailedDecodeUser,
 			}
-
 		}
 
-		// Prepare the response with user and role details
+		// Prepare the response with user details
 		userResponse := mapping.ToUserResponse(&user)
-
 		results = append(results, &userResponse)
 	}
 
 	// Handle potential cursor errors
 	if err := cursor.Err(); err != nil {
+		utils.Logger.Error("Cursor error while retrieving users", zap.Error(err))
 		return nil, 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
 		}
 	}
 
-	// Return the results and the total number of documents
 	return results, int(count), nil
 }
 
@@ -674,6 +686,61 @@ func (r *UserRepository) UpdateToken(ctx context.Context, userExternalID string,
 	}
 
 	return nil
+}
+
+func (r *UserRepository) GetExternalIDByEmail(ctx context.Context, email string) (string, *models.ApiError) {
+	var result struct {
+		ExternalID string `bson:"externalid"`
+	}
+
+	filter := bson.M{"email": email}
+	projection := bson.M{"externalid": 1}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user ExternalID from the database", zap.String("email", email), zap.Error(err))
+		return "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+
+	return result.ExternalID, nil
+}
+func (r *UserRepository) UpdateUserByMask(ctx context.Context, externalID string, updateFields bson.M) (*db.User, *models.ApiError) {
+	// MongoDB filter to find the user by ExternalID
+	filter := bson.M{"externalid": externalID}
+
+	// Add the updated timestamp to the update fields
+	updateFields["updated_at"] = time.Now()
+
+	// Define the update operation
+	update := bson.M{"$set": updateFields}
+
+	// Perform the update operation
+	var updatedUser db.User
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&updatedUser)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error updating user in the database", zap.String("externalID", externalID), zap.Error(err))
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateUser,
+		}
+	}
+
+	return &updatedUser, nil
 }
 
 // UpdateUser updates an existing user in the MongoDB collection.

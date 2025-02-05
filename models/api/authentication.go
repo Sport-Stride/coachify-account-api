@@ -186,8 +186,8 @@ type SearchUser struct {
 	ProfilePicture        string    `json:"profile_picture,omitempty"`
 	Description           string    `json:"description,omitempty"`
 	PhoneNumber           string    `json:"phone_number,omitempty"`
-	Page                  string    `json:"page"`
-	Size                  string    `json:"size"`
+	Page                  int       `json:"page"`
+	Size                  int       `json:"size"`
 	VerificationStatus    bool      `json:"verification_status"`
 	VerificationStatusSet bool      `json:"verification_status_set"`
 	Address               *Address  `json:"address,omitempty"`
