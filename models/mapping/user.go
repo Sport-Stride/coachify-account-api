@@ -29,6 +29,32 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 		UserConfirmCode:        &confirmCode,
 	}
 }
+func ToRefreshToken(dbUser *db.User) api.RefreshToken {
+	return api.RefreshToken{
+		ExternalID:   dbUser.ExternalID,
+		UserEmail:    dbUser.UserEmail,
+		UserRole:     dbUser.UserRole,
+		RefreshToken: dbUser.UserRefreshToken,
+	}
+}
+
+func ToConfirmResponse(dbUser *api.GetUserConfirm) api.ConfirmResponse {
+	return api.ConfirmResponse{
+		UserEmail:              dbUser.UserEmail,
+		UserVerificationStatus: dbUser.UserVerificationStatus,
+		UserStatus:             dbUser.UserStatus,
+		UserConfirmCode:        dbUser.UserConfirmCode,
+	}
+}
+
+func ToResetPasswor(dbUser *api.ResetPasswordResponse) api.ResetPasswordResponse {
+	return api.ResetPasswordResponse{
+		UserPassword:  dbUser.UserPassword,
+		UserStatus:    dbUser.UserStatus,
+		UserEmail:     dbUser.UserEmail,
+		UserUpdatedAt: dbUser.UserUpdatedAt,
+	}
+}
 
 func ToApiUser(dbUser *db.User) api.ApiUser {
 	var confirmCode db.UserConfirmCode

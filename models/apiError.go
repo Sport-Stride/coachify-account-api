@@ -60,6 +60,7 @@ var (
 	ErrFailedToUnmarshalResponse = errors.New("error unmarshaling response body")
 	ErrBadRequestToIdentifier    = errors.New("bad request to identifier service")
 	ErrUnexpectedStatusCode      = errors.New("unexpected status code from identifier service")
+	ErrFailedToFetchToken        = errors.New("failed to fetch refresh token")
 )
 
 // Error implements the error interface for ApiError.

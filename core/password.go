@@ -12,7 +12,7 @@ import (
 
 type PasswordChecker interface {
 	HashPassword(password string) (string, *models.ApiError)
-	VerifyPassword(providedPassword, password string) (bool, *models.ApiError)
+	VerifyPassword(providedPassword, password string) *models.ApiError
 }
 
 type PasswordCheckerImpl struct{}
@@ -30,15 +30,15 @@ func (p *PasswordCheckerImpl) HashPassword(password string) (string, *models.Api
 	return string(hashedPassword), nil
 }
 
-func (p *PasswordCheckerImpl) VerifyPassword(providedPassword string, userPassword string) (bool, *models.ApiError) {
+func (p *PasswordCheckerImpl) VerifyPassword(providedPassword string, userPassword string) *models.ApiError {
 	err := bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(providedPassword))
 	if err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
-			return false, models.NewApiError(http.StatusUnauthorized, fmt.Errorf("%w: %v", models.ErrPasswordMismatch, err))
+			return models.NewApiError(http.StatusUnauthorized, fmt.Errorf("%w: %v", models.ErrPasswordMismatch, err))
 		}
-		return false, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %v", models.ErrFailedToVerifyPassword, err))
+		return models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %v", models.ErrFailedToVerifyPassword, err))
 	}
-	return true, nil
+	return nil
 }
 
 // ValidatePassword checks if the password contains an uppercase letter, a lowercase letter, a symbol, and at least 8 characters

@@ -2,7 +2,7 @@ package utils
 
 import (
 	"coachify-account-api/models"
-	"coachify-account-api/models/db"
+	"coachify-account-api/models/api"
 	"fmt"
 	"net/http"
 
@@ -13,7 +13,7 @@ import (
 
 // CreateTokenParams struct
 type CreateTokenParams struct {
-	User db.User
+	User api.RefreshToken
 	Type string
 }
 

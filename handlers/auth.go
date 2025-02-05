@@ -185,7 +185,7 @@ func RefreshToken(wrapper services.AuthService) gin.HandlerFunc {
 		accessToken, err := wrapper.RefreshToken(c, request.Email, request.RefreshToken)
 
 		if err != nil {
-			c.JSON(err.Code, gin.H{"error": err.Error.Error()})
+			c.JSON(err.Code, gin.H{"error": err})
 			return
 		}
 
@@ -262,9 +262,9 @@ func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 			sizeNbr = 10 // Default value in case of error
 		}
 
-		data, count, err := service.GetAllUsersPag(*searchQuery)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		data, count, er := service.GetAllUsersPag(*searchQuery)
+		if er != nil {
+			ctx.JSON(er.Code, gin.H{"error": er})
 			return
 		}
 

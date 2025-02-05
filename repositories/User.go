@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/models/masks"
@@ -101,22 +102,27 @@ func (r *UserRepository) GetConfirmationDetails(ctx context.Context, email strin
 	return result.UserConfirmCode, result.UserVerificationStatus, nil
 }
 
-func (r *UserRepository) UpdateConfirmationCode(ctx context.Context, email string, confirmCode *db.UserConfirmCode) error {
+func (r *UserRepository) UpdateConfirmationCode(ctx context.Context, user *api.GetUserConfirm) *models.ApiError {
 	// Define a filter to find the user by email
-	filter := bson.M{"email": email}
+	filter := bson.M{"email": user.UserEmail}
 
 	// Define the update to set the new confirmation code and update the timestamp
 	update := bson.M{
 		"$set": bson.M{
-			"userConfirmCode": confirmCode,
-			"userUpdatedAt":   time.Now(),
+			"status":              user.UserStatus,
+			"verification_status": user.UserVerificationStatus,
+			"confirm_code":        user.UserConfirmCode,
+			"updated_at":          time.Now(),
 		},
 	}
 
 	// Execute the update operation
 	_, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return fmt.Errorf("failed to update confirmation code: %w", err)
+		return &models.ApiError{
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
+		}
 	}
 
 	return nil
@@ -195,22 +201,25 @@ func (r *UserRepository) GetStatusAndID(ctx context.Context, email string) (db.U
 	return result.UserStatus, nil
 }
 
-func (r *UserRepository) UpdateResetPasswordCode(ctx context.Context, email string, resetCode *db.UserResetPasswordCode) error {
+func (r *UserRepository) UpdateResetPasswordCode(ctx context.Context, email string, resetCode *db.UserResetPasswordCode) *models.ApiError {
 	// Define a filter to find the user by email
 	filter := bson.M{"email": email}
 
 	// Define the update to set the new reset password code and update the timestamp
 	update := bson.M{
 		"$set": bson.M{
-			"userResetPasswordCode": resetCode,
-			"userUpdatedAt":         time.Now(),
+			"reset_password_code": resetCode,
+			"updated_at":          time.Now(),
 		},
 	}
 
 	// Execute the update operation
 	_, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return models.ErrUpdateResetPassword
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateResetPassword,
+		}
 	}
 
 	return nil
@@ -222,14 +231,14 @@ func (r *UserRepository) GetStatusAndResetPasswordCode(ctx context.Context, emai
 
 	// Define a projection to fetch only the required fields
 	projection := bson.M{
-		"userStatus":            1,
-		"userResetPasswordCode": 1,
+		"status":              1,
+		"reset_password_code": 1,
 	}
 
 	// Execute the query
 	var result struct {
-		UserStatus            db.UserStatus             `bson:"userStatus"`
-		UserResetPasswordCode *db.UserResetPasswordCode `bson:"userResetPasswordCode"`
+		UserStatus            db.UserStatus             `bson:"status"`
+		UserResetPasswordCode *db.UserResetPasswordCode `bson:"reset_password_code"`
 	}
 
 	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
@@ -243,23 +252,26 @@ func (r *UserRepository) GetStatusAndResetPasswordCode(ctx context.Context, emai
 	return result.UserStatus, result.UserResetPasswordCode, nil
 }
 
-func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, email, encryptedPassword string) error {
+func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, email, encryptedPassword string) *models.ApiError {
 	// Define a filter to find the user by email
 	filter := bson.M{"email": email}
 
 	// Define the update to set the new password and clear the reset password code
 	update := bson.M{
 		"$set": bson.M{
-			"userPassword":          encryptedPassword,
-			"userResetPasswordCode": nil,
-			"userUpdatedAt":         time.Now(),
+			"password":            encryptedPassword,
+			"reset_password_code": nil,
+			"updated_at":          time.Now(),
 		},
 	}
 
 	// Execute the update operation
 	_, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return models.ErrInternalError
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
 	}
 
 	return nil
@@ -295,20 +307,6 @@ func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.U
 	userResponse := mapping.ToUserResponse(dbUser)
 
 	return &userResponse, nil
-}
-
-func (r *UserRepository) GetUsersByOrgID(ctx context.Context, orgID string) (int, *models.ApiError) {
-	filter := bson.M{"organization_id": orgID}
-
-	count, err := r.collection.CountDocuments(ctx, filter)
-	if err != nil {
-		return 0, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-
-	return int(count), nil
 }
 
 func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) ([]*db.UserResponse, int, *models.ApiError) {
@@ -406,17 +404,127 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User
 			Error: models.ErrRetrievingUser,
 		}
 	}
-
+	if user.UserStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned ",
+			zap.String("email", user.UserEmail),
+			zap.String("status", string(user.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
 	return &user, nil
 }
+func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email string) (*api.ResetPasswordResponse, *models.ApiError) {
 
-// Update updates user information in the database
-func (r *UserRepository) Update(ctx context.Context, id primitive.ObjectID, user *db.User) *models.ApiError {
+	filter := bson.M{"email": email}
+	projection := bson.M{
+		"password":            1,
+		"status":              1,
+		"email":               1,
+		"updated_at":          1,
+		"reset_password_code": 1,
+	}
+	// Execute the query
+	var result struct {
+		UserPassword          string                   `bson:"password" validate:"required"`
+		UserStatus            db.UserStatus            `bson:"status"`
+		UserEmail             string                   `bson:"email" validate:"required"`
+		UserUpdatedAt         time.Time                `bson:"updated_at"`
+		UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
 
-	filter := bson.M{"_id": id}
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+	if result.UserStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned ",
+			zap.String("email", result.UserEmail),
+			zap.String("status", string(result.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
+	resultToApi := &api.ResetPasswordResponse{
+		UserPassword:          result.UserPassword,
+		UserStatus:            result.UserStatus,
+		UserEmail:             result.UserEmail,
+		UserUpdatedAt:         result.UserUpdatedAt,
+		UserResetPasswordCode: result.UserResetPasswordCode,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) (*api.GetUserConfirm, *models.ApiError) {
+
+	filter := bson.M{"email": email}
+	projection := bson.M{
+		"verification_status": 1,
+		"status":              1,
+		"confirm_code":        1,
+		"email":               1,
+		"updated_at":          1,
+	}
+	// Execute the query
+	var result struct {
+		UserVerificationStatus bool                `bson:"verification_status"`
+		UserStatus             db.UserStatus       `bson:"status"`
+		UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
+		UserEmail              string              `bson:"email" validate:"required"`
+		UserUpdatedAt          time.Time           `bson:"updated_at"`
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
+
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+	if result.UserVerificationStatus {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserAlreadyVerified,
+		}
+	}
+	resultToApi := &api.GetUserConfirm{
+		UserVerificationStatus: result.UserVerificationStatus,
+		UserStatus:             result.UserStatus,
+		UserConfirmCode:        result.UserConfirmCode,
+		UserEmail:              result.UserEmail,
+		UserUpdatedAt:          result.UserUpdatedAt,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) Update(ctx context.Context, email string, user *db.User) *models.ApiError {
+
+	filter := bson.M{"email": email}
 
 	update := bson.M{
 		"$set": bson.M{
+			"email":               user.UserEmail,
 			"confirm_code":        user.UserConfirmCode,
 			"status":              user.UserStatus,
 			"updated_at":          time.Now(),
@@ -502,6 +610,70 @@ func (r *UserRepository) GetUserByExternalId(ctx context.Context, userId string)
 
 	return &userResponse, nil
 
+}
+
+func (r *UserRepository) GetRefreshToken(ctx context.Context, email string) (*api.RefreshToken, *models.ApiError) {
+	// Define a filter to find the user by email
+	filter := bson.M{"email": email}
+
+	// Define a projection to fetch only the required fields
+	projection := bson.M{
+		"externalid":    1,
+		"email":         1,
+		"refresh_token": 1,
+		"role":          1,
+	}
+	// Execute the query
+	var result struct {
+		ExternalID       string  `bson:"externalid"`
+		UserRefreshToken *string `bson:"refresh_token,omitempty"`
+		UserRole         string  `bson:"role" `
+	}
+
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound, // User not found
+			}
+		}
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrFailedToFetchToken, // User not found
+		}
+	}
+	resultToApi := &api.RefreshToken{
+		ExternalID:   result.ExternalID,
+		UserEmail:    email,
+		UserRole:     result.UserRole,
+		RefreshToken: result.UserRefreshToken,
+	}
+	return resultToApi, nil
+}
+
+func (r *UserRepository) UpdateToken(ctx context.Context, userExternalID string, token string) *models.ApiError {
+	// Define a filter to find the user by ID
+	filter := bson.M{"externalid": userExternalID}
+
+	// Define the update to set the new token and update the timestamp
+	update := bson.M{
+		"$set": bson.M{
+			"token":      token,
+			"updated_at": time.Now(),
+		},
+	}
+
+	// Execute the update operation
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrFailedToUpdateUser, // User not found
+		}
+	}
+
+	return nil
 }
 
 // UpdateUser updates an existing user in the MongoDB collection.
