@@ -4,12 +4,51 @@ import (
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/services"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
+func HandleFacebookLogin(config utils.AppConfig) gin.HandlerFunc {
+	oauthConfig := utils.NewFacebookOAuthConfig(config)
+	return func(c *gin.Context) {
+		url := oauthConfig.AuthCodeURL("state")
+		c.Redirect(http.StatusTemporaryRedirect, url)
+	}
+}
+func HandleFacebookCallback(config utils.AppConfig) gin.HandlerFunc {
+	oauthConfig := utils.NewFacebookOAuthConfig(config)
+	return func(c *gin.Context) {
+		code := c.Query("code")
+		token, err := oauthConfig.Exchange(c, code)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		client := oauthConfig.Client(c, token)
+		resp, err := client.Get(config.FacebookEndpoint + "?fields=name,email")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		var userInfo struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Welcome, " + userInfo.Name + "!", "email": userInfo.Email})
+	}
+}
 func GetUserByEmail(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		entity, err := service.GetUserByEmail(ctx, ctx.Param("prefix"))

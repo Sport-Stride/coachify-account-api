@@ -395,6 +395,16 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	return results, int(count), nil
 }
 
+func (r *UserRepository) FindByFacebookID(ctx context.Context, facebookID string) (*db.User, error) {
+	var user db.User
+	filter := bson.M{"facebook_id": facebookID}
+	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	var user db.User

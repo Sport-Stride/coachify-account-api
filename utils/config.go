@@ -4,21 +4,29 @@ import (
 	"fmt"
 
 	"github.com/spf13/viper"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/facebook"
 )
 
 var errors []error
 
 type AppConfig struct {
-	Port          int
-	Environment   string
-	MongoDB       MongoConfig
-	Notification  NotificationConfig
-	IdentifierAPI IdentifierAPIConfig
+	Port              int
+	Environment       string
+	MongoDB           MongoConfig
+	Notification      NotificationConfig
+	IdentifierAPI     IdentifierAPIConfig
+	FacebookAppID     string
+	FacebookAppSecret string
+	FacebookEndpoint  string
 }
 type MongoConfig struct {
 	MongoURI string
 }
 
+type FacebookService struct {
+	oauthConfig *oauth2.Config
+}
 type NotificationConfig struct {
 	MailgunDomain string // Mailgun domain
 	MailgunAPIKey string // Mailgun API key
@@ -33,6 +41,11 @@ type IdentifierAPIConfig struct {
 type AccountingAPIConfig struct {
 	URL string
 }
+
+var (
+	OAuthConf        *oauth2.Config
+	OAuthStateString = "random" // This should be a cryptographically random string in production
+)
 
 func LoadConfig() AppConfig {
 	viper.AutomaticEnv()
@@ -50,6 +63,9 @@ func LoadConfig() AppConfig {
 		IdentifierAPI: IdentifierAPIConfig{
 			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
 		},
+		FacebookAppID:     getStringWithDefault("FACEBOOK_APP_ID", ""),
+		FacebookAppSecret: getStringWithDefault("FACEBOOK_APP_SECRET", ""),
+		FacebookEndpoint:  getStringWithDefault("FACEBOOK_APP_SECRET", ""),
 	}
 	if len(errors) != 0 {
 		errorReport := "errors in config :\n"
@@ -61,7 +77,15 @@ func LoadConfig() AppConfig {
 
 	return cfg
 }
-
+func InitOAuthConfig(config AppConfig) {
+	OAuthConf = &oauth2.Config{
+		ClientID:     config.FacebookAppID,
+		ClientSecret: config.FacebookAppSecret,
+		RedirectURL:  "http://localhost:8080/auth/facebook/callback",
+		Scopes:       []string{"public_profile", "email"},
+		Endpoint:     facebook.Endpoint,
+	}
+}
 func getStringWithDefault(key, defaultValue string) string {
 	viper.SetDefault(key, defaultValue)
 	return viper.GetString(key)

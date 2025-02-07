@@ -67,7 +67,63 @@ func NewAuthService(
 		notificationClient: notificationClient,
 	}
 }
+func (s AuthServiceImpl) FacebookLogin(ctx context.Context, accessToken string) (*api.RegisterResponse, *models.ApiError) {
+	fbUser, err := s.facebookService.Authenticate(ctx, accessToken)
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidFacebookToken,
+		}
+	}
 
+	// Check if user exists by Facebook ID
+	user, err := s.userRepository.FindByFacebookID(ctx, fbUser.ID)
+	if err != nil {
+		// If not, create a new user
+		user = &db.User{
+			FacebookID:    fbUser.ID,
+			UserEmail:     fbUser.Email,
+			UserFirstname: fbUser.Name,
+			// Set other necessary fields...
+		}
+		_, err = s.userRepository.CreateUser(ctx, user)
+		if err != nil {
+			return nil, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrUserCreationFailed,
+			}
+		}
+	}
+
+	// Generate tokens
+	token, err := utils.CreateToken(utils.CreateTokenParams{
+		User: mapping.ToRefreshToken(user),
+		Type: "access",
+	})
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenGenerationFailed,
+		}
+	}
+
+	refreshToken, err := utils.CreateToken(utils.CreateTokenParams{
+		User: mapping.ToRefreshToken(user),
+		Type: "refresh",
+	})
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenGenerationFailed,
+		}
+	}
+
+	return &api.RegisterResponse{
+		User:        mapping.ToApiUserResponse(user),
+		AuthToken:   token,
+		RereshToken: refreshToken,
+	}, nil
+}
 func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.ApiUser, *models.ApiError) {
 	user, err := s.userRepository.GetUserById(ctx, userId)
 	if err != nil {

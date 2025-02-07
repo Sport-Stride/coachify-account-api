@@ -28,6 +28,7 @@ type User struct {
 	UserDescription        string                 `bson:"description,omitempty"`
 	UserPhoneNumber        string                 `bson:"phone_number,omitempty"`
 	Token                  *string                `bson:"token"`
+	FacebookID             string                 `bson:"facebook_id,omitempty"`
 	UserRefreshToken       *string                `bson:"refresh_token,omitempty"`
 	UserVerificationStatus bool                   `bson:"verification_status"`
 	Autologin              bool                   `bson:"autologin"`
