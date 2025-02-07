@@ -63,9 +63,9 @@ func LoadConfig() AppConfig {
 		IdentifierAPI: IdentifierAPIConfig{
 			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
 		},
-		FacebookAppID:     getStringWithDefault("FACEBOOK_APP_ID", ""),
-		FacebookAppSecret: getStringWithDefault("FACEBOOK_APP_SECRET", ""),
-		FacebookEndpoint:  getStringWithDefault("FACEBOOK_APP_SECRET", ""),
+		FacebookAppID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
+		FacebookAppSecret: getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+		FacebookEndpoint:  getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
 	}
 	if len(errors) != 0 {
 		errorReport := "errors in config :\n"
