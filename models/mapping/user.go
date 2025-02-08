@@ -29,6 +29,24 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 		UserConfirmCode:        &confirmCode,
 	}
 }
+
+// ToDbUserFromOAuth maps an OAuthUser struct to a new User model for the database
+func ToDbUserFromOAuth(oauthUser db.OAuthUser, externalid string) *db.User {
+	return &db.User{
+		ExternalID:         externalid,
+		UserFirstname:      oauthUser.FirstName,
+		UserLastname:       oauthUser.LastName,
+		UserEmail:          oauthUser.Email,
+		UserProfilePicture: oauthUser.ProfilePicture,
+		UserStatus:         db.Active, // Active because it's an OAuth login
+		UserCreatedAt:      time.Now(),
+		UserUpdatedAt:      time.Now(),
+		Providers: map[string]string{
+			oauthUser.ProviderType: oauthUser.ProviderID,
+		},
+	}
+}
+
 func ToRefreshToken(dbUser *db.User) api.RefreshToken {
 	return api.RefreshToken{
 		ExternalID:   dbUser.ExternalID,

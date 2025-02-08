@@ -11,14 +11,14 @@ import (
 var errors []error
 
 type AppConfig struct {
-	Port              int
-	Environment       string
-	MongoDB           MongoConfig
-	Notification      NotificationConfig
-	IdentifierAPI     IdentifierAPIConfig
-	FacebookAppID     string
-	FacebookAppSecret string
-	FacebookEndpoint  string
+	Port                int
+	Environment         string
+	MongoDB             MongoConfig
+	Notification        NotificationConfig
+	IdentifierAPI       IdentifierAPIConfig
+	FacebookAppID       string
+	FacebookAppSecret   string
+	FacebookRedirectURL string
 }
 type MongoConfig struct {
 	MongoURI string
@@ -63,9 +63,9 @@ func LoadConfig() AppConfig {
 		IdentifierAPI: IdentifierAPIConfig{
 			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
 		},
-		FacebookAppID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
-		FacebookAppSecret: getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
-		FacebookEndpoint:  getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+		FacebookAppID:       getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
+		FacebookAppSecret:   getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+		FacebookRedirectURL: getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
 	}
 	if len(errors) != 0 {
 		errorReport := "errors in config :\n"

@@ -2,6 +2,7 @@ package services
 
 import (
 	"coachify-account-api/core"
+	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/repositories"
@@ -21,6 +22,7 @@ func InitServices(config utils.AppConfig,
 	activationManager core.ActivationManager,
 	identfier *identifier.IdentifierClient,
 	notification *notification.NotificationClient,
+	providers map[oauth2.ProviderType]oauth2.Provider,
 ) *Services {
 
 	// Initialisez AuthServiceImpl avec les dépendances
@@ -31,6 +33,7 @@ func InitServices(config utils.AppConfig,
 		activationManager,
 		identfier,
 		notification,
+		providers,
 	)
 	return &Services{
 		AuthService: authService,

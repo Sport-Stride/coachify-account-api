@@ -58,30 +58,10 @@ type ResetPasswordRequest struct {
 	Email string `json:"email" binding:"required"`
 }
 
-var FbUser struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+type OAuthResponse struct {
+	User *ApiUser `json:"user"`
 }
 
-type FacebookLoginRequest struct {
-	FacebookID string `json:"facebook_id"`
-	Name       string `json:"name"`
-	Email      string `json:"email"`
-}
-
-type FacebookRegisterResponse struct {
-	User        *FacebookUserResponse `json:"user"`
-	AuthToken   string                `json:"auth_token"`
-	RereshToken string                `json:"refresh_token"`
-}
-
-type FacebookUserResponse struct {
-	ID         string `json:"id"`
-	FacebookID string `json:"facebook_id"`
-	Name       string `json:"name"`
-	Email      string `json:"email"`
-}
 type CreateUserRequest struct {
 	FirstName   string     `json:"firstname" validate:"required"`
 	LastName    string     `json:"lastname" validate:"required"`
