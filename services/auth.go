@@ -74,6 +74,7 @@ func NewAuthService(
 		providers:          providers,
 	}
 }
+
 func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string) string {
 	provider, ok := s.providers[oauth2.ProviderType(providerType)]
 	if !ok {
@@ -87,40 +88,26 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, co
 	if !ok {
 		return nil, &models.ApiError{
 			Code:  http.StatusBadRequest,
-			Error: fmt.Errorf("unsupported provider: %s", providerType),
+			Error: models.ErrProviderNotFound,
 		}
 	}
 
 	// Exchange code for token
 	token, err := provider.ExchangeCode(ctx, code)
 	if err != nil {
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("failed to exchange code: %v", err),
-		}
+		return nil, err
 	}
 
 	// Fetch user info
-	userInfo, err := provider.GetUserInfo(ctx, token)
+	oauthUser, err := provider.GetUserInfo(ctx, token)
 	if err != nil {
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: fmt.Errorf("failed to fetch user info: %v", err),
-		}
+		return nil, err
 	}
 
-	// Map user info to OAuthUser struct
-	oauthUser := db.OAuthUser{
-		ProviderType:   providerType,
-		ProviderID:     userInfo["id"].(string),
-		Email:          userInfo["email"].(string),
-		FirstName:      userInfo["first_name"].(string),
-		LastName:       userInfo["last_name"].(string),
-		ProfilePicture: userInfo["picture"].(string),
-	}
+	//log.Printf("IBL: OAuth response from Facebook: %+v", oauthUser)
 
 	// Link OAuth provider with user account
-	user, apiErr := s.LinkOAuthProvider(ctx, oauthUser)
+	user, apiErr := s.LinkOAuthProvider(ctx, *oauthUser)
 	if apiErr != nil {
 		return nil, apiErr
 	}

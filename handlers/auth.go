@@ -23,7 +23,10 @@ func OAuth2Callback(authService services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		providerType := ctx.Param("provider")
 		code := ctx.Query("code")
-
+		if providerType == "" || code == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth callback request"})
+			return
+		}
 		// Call auth service to handle OAuth logic
 		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, code)
 		if apiErr != nil {

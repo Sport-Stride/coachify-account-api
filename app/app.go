@@ -71,15 +71,15 @@ func (app *App) setup() {
 		log.Fatalf("Failed to initialize Facebook provider: %v", err)
 	}
 
-	//googleProvider, err := oauth2.NewProvider(oauth2.ProviderGoogle, config.GoogleAppID, config.GoogleAppSecret, config.GoogleRedirectURL)
-	//if err != nil {
-	//	log.Fatalf("Failed to initialize Google provider: %v", err)
-	//}
+	googleProvider, err := oauth2.NewProvider(oauth2.ProviderGoogle, config.GoogleAppID, config.GoogleAppSecret, config.GoogleRedirectURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize Google provider: %v", err)
+	}
 
 	// Create a map of providers
 	providers := map[oauth2.ProviderType]oauth2.Provider{
 		oauth2.ProviderFacebook: facebookProvider,
-		//oauth2.ProviderGoogle:   googleProvider,
+		oauth2.ProviderGoogle:   googleProvider,
 	}
 
 	// Initialize Services

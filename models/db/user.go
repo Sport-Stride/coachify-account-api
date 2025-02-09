@@ -19,7 +19,7 @@ type UserResetPasswordCode struct {
 type User struct {
 	ID                     primitive.ObjectID     `bson:"_id,omitempty"`
 	ExternalID             string                 `bson:"externalid"`
-	UserFirstname          string                 `bson:"refresh_token" validate:"required"`
+	UserFirstname          string                 `bson:"firstname" validate:"required"`
 	UserLastname           string                 `bson:"lastname" validate:"required"`
 	UserEmail              string                 `bson:"email" validate:"required"`
 	UserPassword           string                 `bson:"password" validate:"required"`

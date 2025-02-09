@@ -458,7 +458,6 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 				Error: models.ErrRetrievingUser,
 			}
 		}
-		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
 		return nil, nil
 	}
 
