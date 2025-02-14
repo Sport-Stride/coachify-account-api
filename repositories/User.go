@@ -395,13 +395,21 @@ func (r *UserRepository) GetAllUsersPag(ctx context.Context, s *db.SearchUser) (
 	return results, int(count), nil
 }
 
+func (r *UserRepository) FindByFacebookID(ctx context.Context, facebookID string) (*db.User, error) {
+	var user db.User
+	filter := bson.M{"facebook_id": facebookID}
+	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	var user db.User
 
-	filter := bson.M{"email": email}
-
-	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, &models.ApiError{
@@ -428,6 +436,46 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User
 	}
 	return &user, nil
 }
+
+func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db.User, *models.ApiError) {
+	var user db.User
+
+	// Define the projection to retrieve only the required fields
+	projection := bson.M{
+		"token":         1,
+		"refresh_token": 1,
+		"firstname":     1,
+		"lastname":      1,
+		"email":         1,
+		"providers":     1,
+	}
+
+	err := r.collection.FindOne(ctx, bson.M{"email": email}, options.FindOne().SetProjection(projection)).Decode(&user)
+	if err != nil {
+		if err != mongo.ErrNoDocuments {
+			return nil, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrRetrievingUser,
+			}
+		}
+		return nil, nil
+	}
+
+	// Check if user is blocked
+	if user.UserStatus == db.Blocked {
+		utils.Logger.Info("unable to send reset password email, user banned",
+			zap.String("email", user.UserEmail),
+			zap.String("status", string(user.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
+
+	return &user, nil
+}
+
 func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email string) (*api.ResetPasswordResponse, *models.ApiError) {
 
 	filter := bson.M{"email": email}
@@ -528,6 +576,30 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		UserUpdatedAt:          result.UserUpdatedAt,
 	}
 	return resultToApi, nil
+}
+
+func (r *UserRepository) UpdateUserProviders(ctx context.Context, email string, providerType string, providerID string) *models.ApiError {
+	now := time.Now()
+
+	// Construct the update query
+	update := bson.M{
+		"$set": bson.M{
+			fmt.Sprintf("providers.%s", providerType): providerID,
+			"updated_at": now,
+		},
+	}
+
+	// Perform the update in MongoDB
+	_, err := r.collection.UpdateOne(ctx, bson.M{"email": email}, update)
+	if err != nil {
+		utils.Logger.Error("Failed to update user providers", zap.String("email", email), zap.Error(err))
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrUpdateUser,
+		}
+	}
+
+	return nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, email string, user *db.User) *models.ApiError {
@@ -851,4 +923,55 @@ func (r *UserRepository) GetAllUsers(ctx context.Context) ([]*db.UserResponse, *
 
 	// Return the results
 	return results, nil
+}
+
+// FindUserByProviderID finds a user by provider ID and type
+func (r *UserRepository) FindUserByProviderID(ctx context.Context, providerType, providerID string) (*db.User, error) {
+	var user db.User
+	err := r.collection.FindOne(ctx, bson.M{
+		"provider_type": providerType,
+		"provider_id":   providerID,
+	}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+// FindUserByProvider finds a user by provider type and ID
+func (r *UserRepository) FindUserByProvider(ctx context.Context, providerType, providerID string) (*db.User, error) {
+	var user db.User
+	err := r.collection.FindOne(ctx, bson.M{
+		"providers": bson.M{
+			"$elemMatch": bson.M{
+				"type": providerType,
+				"id":   providerID,
+			},
+		},
+	}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+// LinkProviderToUser links a new provider to an existing user
+func (r *UserRepository) LinkProviderToUser(ctx context.Context, email string, providerType, providerID string) error {
+	filter := bson.M{"email": email}
+	update := bson.M{
+		"$addToSet": bson.M{
+			"providers": bson.M{
+				"type": providerType,
+				"id":   providerID,
+			},
+		},
+	}
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	return err
 }

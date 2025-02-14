@@ -4,11 +4,42 @@ import (
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/services"
+
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
+
+func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		providerType := c.Param("provider")
+		url := authService.GetOAuth2LoginURL(providerType)
+		c.Redirect(http.StatusTemporaryRedirect, url)
+	}
+}
+
+func OAuth2Callback(authService services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		providerType := ctx.Param("provider")
+		code := ctx.Query("code")
+		if providerType == "" || code == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth callback request"})
+			return
+		}
+		// Call auth service to handle OAuth logic
+		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, code)
+		if apiErr != nil {
+			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{
+			"message": "User logged in successfully",
+			"user":    resp.User,
+		})
+	}
+}
 
 func GetUserByEmail(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {

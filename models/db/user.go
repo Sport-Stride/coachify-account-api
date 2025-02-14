@@ -28,6 +28,7 @@ type User struct {
 	UserDescription        string                 `bson:"description,omitempty"`
 	UserPhoneNumber        string                 `bson:"phone_number,omitempty"`
 	Token                  *string                `bson:"token"`
+	Providers              map[string]string      `bson:"providers,omitempty"`
 	UserRefreshToken       *string                `bson:"refresh_token,omitempty"`
 	UserVerificationStatus bool                   `bson:"verification_status"`
 	Autologin              bool                   `bson:"autologin"`
@@ -109,4 +110,13 @@ type Address struct {
 	Line2      *string `bson:"line2,omitempty" form:"line2"`
 	PostalCode *string `bson:"postal_code,omitempty" form:"postal_code"`
 	State      *string `bson:"state,omitempty" form:"state"`
+}
+
+type OAuthUser struct {
+	FirstName      string
+	LastName       string
+	Email          string
+	ProfilePicture string
+	ProviderType   string
+	ProviderID     string
 }

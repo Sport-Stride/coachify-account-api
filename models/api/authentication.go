@@ -58,6 +58,10 @@ type ResetPasswordRequest struct {
 	Email string `json:"email" binding:"required"`
 }
 
+type OAuthResponse struct {
+	User *ApiUser `json:"user"`
+}
+
 type CreateUserRequest struct {
 	FirstName   string     `json:"firstname" validate:"required"`
 	LastName    string     `json:"lastname" validate:"required"`

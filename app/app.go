@@ -2,6 +2,7 @@ package app
 
 import (
 	"coachify-account-api/core"
+	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/repositories"
@@ -64,6 +65,23 @@ func (app *App) setup() {
 	notification := notification.NewNotificationClient(config.Notification.MailgunDomain,
 		config.Notification.MailgunAPIKey)
 
+	// Initialize OAuth2 providers
+	facebookProvider, err := oauth2.NewProvider(oauth2.ProviderFacebook, config.FacebookAppID, config.FacebookAppSecret, config.FacebookRedirectURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize Facebook provider: %v", err)
+	}
+
+	googleProvider, err := oauth2.NewProvider(oauth2.ProviderGoogle, config.GoogleAppID, config.GoogleAppSecret, config.GoogleRedirectURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize Google provider: %v", err)
+	}
+
+	// Create a map of providers
+	providers := map[oauth2.ProviderType]oauth2.Provider{
+		oauth2.ProviderFacebook: facebookProvider,
+		oauth2.ProviderGoogle:   googleProvider,
+	}
+
 	// Initialize Services
 	servicesWrapper := services.InitServices(
 		config,
@@ -73,6 +91,7 @@ func (app *App) setup() {
 		activationManager,
 		identifier,
 		notification,
+		providers,
 	)
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)

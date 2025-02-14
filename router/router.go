@@ -33,6 +33,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	untracedGroup.GET("/", handlers.GetHealth)
 	untracedGroup.GET("/health", handlers.GetHealth)
 
+	//auth with providers
+	oauthGroup := untracedGroup.Group("/oauth")
+	oauthGroup.GET("/:provider/login", handlers.OAuth2Login(services.AuthService))
+	oauthGroup.GET("/:provider/callback", handlers.OAuth2Callback(services.AuthService))
+
 	//auth endpoints
 	userGroup := r.Group("/user")
 	userGroup.POST("/signup", handlers.Register(services.AuthService))
