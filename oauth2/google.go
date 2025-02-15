@@ -3,13 +3,14 @@ package oauth2
 import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/db"
+	"coachify-account-api/utils"
 	"context"
-	"encoding/json"
-	"io"
+	"fmt"
 	"net/http"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/idtoken"
 )
 
 type GoogleProvider struct {
@@ -44,51 +45,64 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2
 }
 
 func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (*db.OAuthUser, *models.ApiError) {
-	client := p.config.Client(ctx, token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	// Validate ID token instead of using userinfo endpoint
+	idToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidIDToken,
+		}
+	}
+
+	// Validate the ID token with Google's certificates
+	payload, err := idtoken.Validate(ctx, idToken, p.config.ClientID)
 	if err != nil {
 		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrRetrievingUser,
+			Code:  http.StatusUnauthorized,
+			Error: fmt.Errorf("invalid ID token: %v", err),
 		}
 	}
 
-	defer resp.Body.Close()
+	// Extract claims from validated token
+	claims := payload.Claims
+	email, _ := claims["email"].(string)
+	givenName, _ := claims["given_name"].(string)
+	familyName, _ := claims["family_name"].(string)
+	picture, _ := claims["picture"].(string)
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrFailedToReadResponse,
-		}
-	}
-
-	var googleUserInfo struct {
-		ID         string `json:"id"`
-		Email      string `json:"email"`
-		GivenName  string `json:"given_name"`
-		FamilyName string `json:"family_name"`
-		Picture    string `json:"picture"`
-	}
-
-	if err := json.Unmarshal(body, &googleUserInfo); err != nil {
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrFailedToUnmarshalResponse,
-		}
-	}
-	if googleUserInfo.Email == "" {
+	if email == "" {
 		return nil, &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrEmailNotProvided,
 		}
 	}
+
+	// Encrypt sensitive tokens before storage
+	encryptedAccess, err := utils.Encrypt(token.AccessToken, []byte(utils.LoadConfig().GetProviderEncryptionKey()))
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenEncryptionFailed,
+		}
+	}
+
+	encryptedRefresh, err := utils.Encrypt(token.RefreshToken, []byte(utils.LoadConfig().GetProviderEncryptionKey()))
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenEncryptionFailed,
+		}
+	}
+
 	return &db.OAuthUser{
 		ProviderType:   "google",
-		ProviderID:     googleUserInfo.ID,
-		Email:          googleUserInfo.Email,
-		FirstName:      googleUserInfo.GivenName,
-		LastName:       googleUserInfo.FamilyName,
-		ProfilePicture: googleUserInfo.Picture,
+		ProviderID:     claims["sub"].(string), // Google's unique user ID
+		Email:          email,
+		FirstName:      givenName,
+		LastName:       familyName,
+		ProfilePicture: picture,
+		AccessToken:    encryptedAccess,
+		RefreshToken:   encryptedRefresh,
+		Expiry:         token.Expiry,
 	}, nil
 }

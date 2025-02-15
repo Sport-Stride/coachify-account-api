@@ -4,6 +4,7 @@ import (
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/services"
+	"coachify-account-api/utils"
 
 	"net/http"
 	"strconv"
@@ -13,8 +14,16 @@ import (
 
 func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		state, err := utils.GenerateRandomString(32)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			return
+		}
+		// Store state in secure cookie/redis (with expiry)
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie("oauth_state", state, 600, "/", "", true, true)
 		providerType := c.Param("provider")
-		url := authService.GetOAuth2LoginURL(providerType)
+		url := authService.GetOAuth2LoginURL(providerType, state) // Update interface
 		c.Redirect(http.StatusTemporaryRedirect, url)
 	}
 }

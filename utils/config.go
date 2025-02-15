@@ -2,102 +2,112 @@ package utils
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/facebook"
+	"golang.org/x/oauth2/google"
 )
 
-var errors []error
-
 type AppConfig struct {
-	Port                int
-	Environment         string
-	MongoDB             MongoConfig
-	Notification        NotificationConfig
-	IdentifierAPI       IdentifierAPIConfig
-	FacebookAppID       string
-	FacebookAppSecret   string
-	FacebookRedirectURL string
-	GoogleAppID         string
-	GoogleAppSecret     string
-	GoogleRedirectURL   string
+	Port                  int
+	Environment           string
+	MongoDB               MongoConfig
+	Notification          NotificationConfig
+	IdentifierAPI         IdentifierAPIConfig
+	FacebookOAuth         *oauth2.Config
+	GoogleOAuth           *oauth2.Config
+	providerEncryptionKey string
 }
+
 type MongoConfig struct {
-	MongoURI string
+	URI string
 }
 
-type FacebookService struct {
-	oauthConfig *oauth2.Config
-}
 type NotificationConfig struct {
-	MailgunDomain string // Mailgun domain
-	MailgunAPIKey string // Mailgun API key
+	MailgunDomain string
+	MailgunAPIKey string
 }
 
-type TrackerAPIConfig struct {
-	URL string
-}
 type IdentifierAPIConfig struct {
-	URL string
-}
-type AccountingAPIConfig struct {
 	URL string
 }
 
 var (
-	OAuthConf        *oauth2.Config
-	OAuthStateString = "random" // This should be a cryptographically random string in production
+	configInstance *AppConfig
+	configOnce     sync.Once
 )
 
-func LoadConfig() AppConfig {
-	viper.AutomaticEnv()
-	viper.BindEnv("Tracker_API_URL")
-	cfg := AppConfig{
-		Port:        getIntWithDefault("PORT", 8060),
-		Environment: getStringWithDefault("ENVIRONMENT", "development"),
-		MongoDB: MongoConfig{
-			MongoURI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),
-		},
-		Notification: NotificationConfig{
-			MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", "5a88901c9830e9c821c4de4e9e2b0a70-d8df908e-65aaaae3"),
-			MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "sandbox7caec8d24a564f0e9d63bf11c29370cd.mailgun.org"),
-		},
-		IdentifierAPI: IdentifierAPIConfig{
-			URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
-		},
-		FacebookAppID:       getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
-		FacebookAppSecret:   getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
-		FacebookRedirectURL: getStringWithDefault("FACEBOOK_REDIRECT_URL", "http://localhost:8060/oauth/facebook/callback"),
-		GoogleAppID:         getStringWithDefault("GOOGLE_APP_ID", "431139297593-7f3qje1tvkkmd9o2jf5ubf1v0ahhseea.apps.googleusercontent.com"),
-		GoogleAppSecret:     getStringWithDefault("GOOGLE_APP_SECRET", "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"),
-		GoogleRedirectURL:   getStringWithDefault("GOOGLE_REDIRECT_URL", "http://localhost:8060/oauth/google/callback"),
-	}
-	if len(errors) != 0 {
-		errorReport := "errors in config :\n"
-		for _, err := range errors {
-			errorReport += fmt.Sprintf("- %s\n", err)
-		}
-		panic(fmt.Errorf(errorReport))
-	}
+func LoadConfig() *AppConfig {
+	configOnce.Do(func() {
+		viper.AutomaticEnv()
 
-	return cfg
+		cfg := &AppConfig{
+			Port:        getIntWithDefault("PORT", 8060),
+			Environment: getStringWithDefault("ENVIRONMENT", "development"),
+			MongoDB: MongoConfig{
+				URI: getStringRequired("MONGODB_URI"),
+			},
+			Notification: NotificationConfig{
+				MailgunAPIKey: getStringRequired("MAILGUN_API_KEY"),
+				MailgunDomain: getStringRequired("MAILGUN_DOMAIN"),
+			},
+			IdentifierAPI: IdentifierAPIConfig{
+				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+			},
+			FacebookOAuth: &oauth2.Config{
+				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
+				ClientSecret: getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+				RedirectURL:  getStringWithDefault("FACEBOOK_REDIRECT_URL", "http://localhost:8060/oauth/facebook/callback"),
+				Scopes:       []string{"public_profile", "email"},
+				Endpoint:     facebook.Endpoint,
+			},
+			GoogleOAuth: &oauth2.Config{
+				ClientID:     getStringWithDefault("GOOGLE_APP_ID", "597425356866-6vephqb542a7brgmk7sho06ojct1tqtt.apps.googleusercontent.com"),
+				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", "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"),
+				RedirectURL:  getStringWithDefault("GOOGLE_REDIRECT_URL", "http://localhost:8060/oauth/google/callback"),
+				Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
+				Endpoint:     google.Endpoint,
+			},
+			providerEncryptionKey: getStringRequired("PROVIDER_ENCRYPTION_KEY"),
+		}
+
+		validateConfig(cfg)
+		configInstance = cfg
+	})
+	return configInstance
 }
-func InitOAuthConfig(config AppConfig) {
-	OAuthConf = &oauth2.Config{
-		ClientID:     config.FacebookAppID,
-		ClientSecret: config.FacebookAppSecret,
-		RedirectURL:  "http://localhost:8060/oauth/facebook/callback",
-		Scopes:       []string{"public_profile", "email"},
-		Endpoint:     facebook.Endpoint,
+
+func (c *AppConfig) GetProviderEncryptionKey() string {
+	return c.providerEncryptionKey
+}
+
+func getStringRequired(key string) string {
+	value := viper.GetString(key)
+	if value == "" {
+		panic(fmt.Sprintf("required environment variable %s is missing", key))
 	}
+	return value
 }
+
 func getStringWithDefault(key, defaultValue string) string {
-	viper.SetDefault(key, defaultValue)
-	return viper.GetString(key)
+	if value := viper.GetString(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 func getIntWithDefault(key string, defaultValue int) int {
-	viper.SetDefault(key, defaultValue)
-	return viper.GetInt(key)
+	if viper.IsSet(key) {
+		return viper.GetInt(key)
+	}
+	return defaultValue
+}
+
+func validateConfig(cfg *AppConfig) {
+	// Add any additional validation logic here
+	if len(cfg.providerEncryptionKey) < 32 {
+		panic("provider encryption key must be at least 32 characters long")
+	}
 }

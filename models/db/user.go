@@ -18,7 +18,7 @@ type UserResetPasswordCode struct {
 
 type User struct {
 	ID                     primitive.ObjectID     `bson:"_id,omitempty"`
-	ExternalID             string                 `bson:"externalid"`
+	ExternalID             string                 `bson:"externalid,omitempty"`
 	UserFirstname          string                 `bson:"firstname" validate:"required"`
 	UserLastname           string                 `bson:"lastname" validate:"required"`
 	UserEmail              string                 `bson:"email" validate:"required"`
@@ -113,10 +113,13 @@ type Address struct {
 }
 
 type OAuthUser struct {
-	FirstName      string
-	LastName       string
-	Email          string
-	ProfilePicture string
-	ProviderType   string
-	ProviderID     string
+	ProviderType   string    `bson:"provider_type"`
+	ProviderID     string    `bson:"provider_id"`
+	Email          string    `bson:"email"`
+	FirstName      string    `bson:"first_name"`
+	LastName       string    `bson:"last_name"`
+	ProfilePicture string    `bson:"profile_picture"`
+	AccessToken    string    `bson:"access_token"`  // Encrypted
+	RefreshToken   string    `bson:"refresh_token"` // Encrypted
+	Expiry         time.Time `bson:"expiry"`
 }

@@ -39,7 +39,7 @@ type AuthService interface {
 	GetAllUsersPag(api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError)
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
-	GetOAuth2LoginURL(providerType string) string
+	GetOAuth2LoginURL(providerType string, state string) string
 	HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError)
 	LinkOAuthProvider(ctx context.Context, oauthUser db.OAuthUser) (*api.LoginResponse, *models.ApiError)
 }
@@ -75,12 +75,12 @@ func NewAuthService(
 	}
 }
 
-func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string) string {
+func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) string {
 	provider, ok := s.providers[oauth2.ProviderType(providerType)]
 	if !ok {
 		return ""
 	}
-	return provider.GetLoginURL("state")
+	return provider.GetLoginURL(state)
 }
 
 func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
@@ -155,13 +155,8 @@ func (s *AuthServiceImpl) LinkOAuthProvider(ctx context.Context, oauthUser db.OA
 		}
 
 		if _, err := s.notificationClient.Send(ctx, notificationData); err != nil {
-			fmt.Printf("Failed to send email: %v\n", err)
+			return nil, err
 		}
-
-		return &api.LoginResponse{
-			User: mapping.ToApiUser(user), // Dereference the apiUser pointer
-
-		}, nil
 	} else {
 		if _, exists := user.Providers[oauthUser.ProviderType]; exists {
 			// Provider already exists, just log in the user
@@ -191,11 +186,29 @@ func (s *AuthServiceImpl) LinkOAuthProvider(ctx context.Context, oauthUser db.OA
 		if err := s.userRepository.UpdateUserProviders(ctx, user.UserEmail, oauthUser.ProviderType, oauthUser.ProviderID); err != nil {
 			return nil, err
 		}
-		return &api.LoginResponse{
-			User: mapping.ToApiUser(user), // Dereference the apiUser pointer
-
-		}, nil
 	}
+	return &api.LoginResponse{
+		User: mapping.ToApiUser(user), // Dereference the apiUser pointer
+
+	}, nil
+}
+
+func (s *AuthServiceImpl) RefreshGoogleToken(user *db.User) error {
+	decryptedRefreshToken := utils.Decrypt(user.OAuthUser.RefreshToken, encryptionKey)
+	token := &oauth2.Token{
+		RefreshToken: decryptedRefreshToken,
+		Expiry:       time.Now().Add(-1 * time.Hour), // Force refresh
+	}
+
+	newToken, err := googleProvider.RefreshToken(context.Background(), token)
+	if err != nil {
+		return err
+	}
+
+	// Update user tokens in DB
+	user.OAuthUser.AccessToken = utils.Encrypt(newToken.AccessToken, encryptionKey)
+	user.OAuthUser.Expiry = newToken.Expiry
+	return s.userRepo.Update(context.Background(), user)
 }
 
 func (s *AuthServiceImpl) generateTokens(user *db.User) (string, string, *models.ApiError) {
