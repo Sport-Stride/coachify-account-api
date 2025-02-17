@@ -32,8 +32,15 @@ func OAuth2Callback(authService services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		providerType := ctx.Param("provider")
 		code := ctx.Query("code")
-		if providerType == "" || code == "" {
+		receivedState := ctx.Query("state")
+		if providerType == "" || code == "" || receivedState == "" {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth callback request"})
+			return
+		}
+		// Retrieve the stored state (e.g., from a cookie or session)
+		storedState, err := ctx.Cookie("oauth_state")
+		if err != nil || storedState != receivedState {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
 			return
 		}
 		// Call auth service to handle OAuth logic
