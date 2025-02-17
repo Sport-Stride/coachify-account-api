@@ -578,26 +578,81 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 	return resultToApi, nil
 }
 
-func (r *UserRepository) UpdateUserProviders(ctx context.Context, email string, providerType string, providerID string) *models.ApiError {
+func (r *UserRepository) UpdateUserProviders(ctx context.Context, user *db.User) *models.ApiError {
 	now := time.Now()
 
-	// Construct the update query
-	update := bson.M{
-		"$set": bson.M{
-			fmt.Sprintf("providers.%s", providerType): providerID,
-			"updated_at": now,
-		},
+	// Extract the provider type and its details.
+	// (Assumes you only have one provider in the map.)
+	var providerType string
+	var providerData db.OAuthProviderDetails
+	for key, data := range user.Providers {
+		providerType = key
+		providerData = data
+		break
+	}
+	if providerType == "" {
+		utils.Logger.Error("No provider type found in user's providers")
+		return &models.ApiError{
+			Code:  http.StatusBadRequest,
+			Error: models.ErrUpdateUser,
+		}
 	}
 
-	// Perform the update in MongoDB
-	_, err := r.collection.UpdateOne(ctx, bson.M{"email": email}, update)
+	// Construct updated provider details.
+	// You can update these values based on your new data.
+	providerDetails := db.OAuthProviderDetails{
+		ProviderID:     providerData.ProviderID,
+		Email:          user.UserEmail, // or providerData.Email if different
+		FirstName:      user.UserFirstname,
+		LastName:       user.UserLastname,
+		ProfilePicture: user.UserProfilePicture,
+		AccessToken:    providerData.AccessToken,  // updated access token if available
+		RefreshToken:   providerData.RefreshToken, // updated refresh token if available
+		Expiry:         providerData.Expiry,       // updated expiry if available
+	}
+
+	// Build update query with additional fields you want to update.
+	update := bson.M{
+		"$set": bson.M{
+			fmt.Sprintf("providers.%s", providerType): providerDetails,
+			"updated_at":    now,
+			"last_login":    user.UserLastLogin,    // new last login value
+			"token":         user.Token,            // new token value
+			"refresh_token": user.UserRefreshToken, // new refresh token value
+		},
+	}
+	log.Printf("IBL: Expiry token respository: %+v", providerData.Expiry)
+	// Update based on the user's email (or another unique field)
+	result, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"email": user.UserEmail},
+		update,
+	)
 	if err != nil {
-		utils.Logger.Error("Failed to update user providers", zap.String("email", email), zap.Error(err))
+		utils.Logger.Error("Failed to update user providers",
+			zap.String("email", user.UserEmail),
+			zap.Error(err),
+		)
 		return &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrUpdateUser,
 		}
 	}
+
+	if result.MatchedCount == 0 {
+		utils.Logger.Warn("User not found for provider update",
+			zap.String("email", user.UserEmail),
+		)
+		return &models.ApiError{
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
+		}
+	}
+
+	utils.Logger.Info("Successfully updated user providers",
+		zap.String("email", user.UserEmail),
+		zap.String("provider", providerType),
+	)
 
 	return nil
 }

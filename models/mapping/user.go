@@ -41,8 +41,17 @@ func ToDbUserFromOAuth(oauthUser db.OAuthUser, externalid string) *db.User {
 		UserStatus:         db.Active, // Active because it's an OAuth login
 		UserCreatedAt:      time.Now(),
 		UserUpdatedAt:      time.Now(),
-		Providers: map[string]string{
-			oauthUser.ProviderType: oauthUser.ProviderID,
+		Providers: map[string]db.OAuthProviderDetails{
+			oauthUser.ProviderType: {
+				ProviderID:     oauthUser.ProviderID,
+				Email:          oauthUser.Email,
+				FirstName:      oauthUser.FirstName,
+				LastName:       oauthUser.LastName,
+				ProfilePicture: oauthUser.ProfilePicture,
+				AccessToken:    oauthUser.AccessToken,
+				RefreshToken:   oauthUser.RefreshToken,
+				Expiry:         oauthUser.Expiry,
+			},
 		},
 	}
 }

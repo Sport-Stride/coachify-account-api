@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -14,10 +15,11 @@ import (
 )
 
 type GoogleProvider struct {
-	config *oauth2.Config
+	config        *oauth2.Config
+	encryptionKey string
 }
 
-func NewGoogleProvider(clientID, clientSecret, redirectURL string) *GoogleProvider {
+func NewGoogleProvider(clientID, clientSecret, redirectURL, encryptionKey string) *GoogleProvider {
 	return &GoogleProvider{
 		config: &oauth2.Config{
 			ClientID:     clientID,
@@ -26,6 +28,7 @@ func NewGoogleProvider(clientID, clientSecret, redirectURL string) *GoogleProvid
 			Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 			Endpoint:     google.Endpoint,
 		},
+		encryptionKey: encryptionKey,
 	}
 }
 
@@ -37,7 +40,7 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2
 	token, err := p.config.Exchange(ctx, code)
 	if err != nil {
 		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
+			Code:  http.StatusUnauthorized,
 			Error: models.ErrFailedToExchangeCode,
 		}
 	}
@@ -63,12 +66,22 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (
 		}
 	}
 
+	// Validate audience
+	if payload.Claims["aud"].(string) != p.config.ClientID {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidAudience,
+		}
+
+	}
+
 	// Extract claims from validated token
 	claims := payload.Claims
 	email, _ := claims["email"].(string)
 	givenName, _ := claims["given_name"].(string)
 	familyName, _ := claims["family_name"].(string)
 	picture, _ := claims["picture"].(string)
+	//providerID := claims["sub"].(string)
 
 	if email == "" {
 		return nil, &models.ApiError{
@@ -78,7 +91,7 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (
 	}
 
 	// Encrypt sensitive tokens before storage
-	encryptedAccess, err := utils.Encrypt(token.AccessToken, []byte(utils.LoadConfig().GetProviderEncryptionKey()))
+	encryptedAccess, err := utils.Encrypt(token.AccessToken, []byte(p.encryptionKey))
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
@@ -86,7 +99,7 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (
 		}
 	}
 
-	encryptedRefresh, err := utils.Encrypt(token.RefreshToken, []byte(utils.LoadConfig().GetProviderEncryptionKey()))
+	encryptedRefresh, err := utils.Encrypt(token.RefreshToken, []byte(p.encryptionKey))
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
@@ -104,5 +117,53 @@ func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (
 		AccessToken:    encryptedAccess,
 		RefreshToken:   encryptedRefresh,
 		Expiry:         token.Expiry,
+	}, nil
+}
+
+// Add to Provider interface
+func (p *GoogleProvider) RefreshToken(ctx context.Context, encryptedRefreshToken string) (*db.OAuthProviderDetails, *models.ApiError) {
+	// Decrypt refresh token
+	decryptedRefresh, err := utils.Decrypt(encryptedRefreshToken, []byte(p.encryptionKey))
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: fmt.Errorf("refresh token decryption failed: %v", err),
+		}
+	}
+
+	// Get new token
+	token := &oauth2.Token{
+		RefreshToken: decryptedRefresh,
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+	newToken, err := p.config.TokenSource(ctx, token).Token()
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: fmt.Errorf("token refresh failed: %v", err),
+		}
+	}
+
+	// Encrypt new tokens
+	encryptedAccess, err := utils.Encrypt(newToken.AccessToken, []byte(p.encryptionKey))
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenEncryptionFailed,
+		}
+	}
+
+	encryptedRefresh, err := utils.Encrypt(newToken.RefreshToken, []byte(p.encryptionKey))
+	if err != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenEncryptionFailed,
+		}
+	}
+
+	return &db.OAuthProviderDetails{
+		AccessToken:  encryptedAccess,
+		RefreshToken: encryptedRefresh,
+		Expiry:       newToken.Expiry,
 	}, nil
 }

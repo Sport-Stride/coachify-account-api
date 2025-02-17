@@ -17,8 +17,11 @@ type AppConfig struct {
 	Notification          NotificationConfig
 	IdentifierAPI         IdentifierAPIConfig
 	FacebookOAuth         *oauth2.Config
+	FacebookEncryptionKey string
 	GoogleOAuth           *oauth2.Config
-	providerEncryptionKey string
+	GoogleEncryptionKey   string
+	CoachifyEncryptionKey string
+	CoachifySecretKey     string
 }
 
 type MongoConfig struct {
@@ -47,11 +50,11 @@ func LoadConfig() *AppConfig {
 			Port:        getIntWithDefault("PORT", 8060),
 			Environment: getStringWithDefault("ENVIRONMENT", "development"),
 			MongoDB: MongoConfig{
-				URI: getStringRequired("MONGODB_URI"),
+				URI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),
 			},
 			Notification: NotificationConfig{
-				MailgunAPIKey: getStringRequired("MAILGUN_API_KEY"),
-				MailgunDomain: getStringRequired("MAILGUN_DOMAIN"),
+				MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost"),
 			},
 			IdentifierAPI: IdentifierAPIConfig{
 				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
@@ -63,6 +66,7 @@ func LoadConfig() *AppConfig {
 				Scopes:       []string{"public_profile", "email"},
 				Endpoint:     facebook.Endpoint,
 			},
+			FacebookEncryptionKey: getStringWithDefault("FACEBOOK_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			GoogleOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("GOOGLE_APP_ID", "597425356866-6vephqb542a7brgmk7sho06ojct1tqtt.apps.googleusercontent.com"),
 				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", "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"),
@@ -70,17 +74,14 @@ func LoadConfig() *AppConfig {
 				Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 				Endpoint:     google.Endpoint,
 			},
-			providerEncryptionKey: getStringRequired("PROVIDER_ENCRYPTION_KEY"),
+			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
+			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
+			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", "E3F9B6F9D7914B424E58DDF91AD86"),
 		}
 
-		validateConfig(cfg)
 		configInstance = cfg
 	})
 	return configInstance
-}
-
-func (c *AppConfig) GetProviderEncryptionKey() string {
-	return c.providerEncryptionKey
 }
 
 func getStringRequired(key string) string {
@@ -105,9 +106,9 @@ func getIntWithDefault(key string, defaultValue int) int {
 	return defaultValue
 }
 
-func validateConfig(cfg *AppConfig) {
-	// Add any additional validation logic here
-	if len(cfg.providerEncryptionKey) < 32 {
-		panic("provider encryption key must be at least 32 characters long")
-	}
-}
+// func validateConfig(cfg *AppConfig) {
+// 	// Add any additional validation logic here
+// 	if len(cfg.providerEncryptionKey) < 32 {
+// 		panic("provider encryption key must be at least 32 characters long")
+// 	}
+// }

@@ -41,7 +41,6 @@ type AuthService interface {
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
 	HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError)
-	LinkOAuthProvider(ctx context.Context, oauthUser db.OAuthUser) (*api.LoginResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
@@ -75,141 +74,7 @@ func NewAuthService(
 	}
 }
 
-func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) string {
-	provider, ok := s.providers[oauth2.ProviderType(providerType)]
-	if !ok {
-		return ""
-	}
-	return provider.GetLoginURL(state)
-}
-
-func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
-	provider, ok := s.providers[oauth2.ProviderType(providerType)]
-	if !ok {
-		return nil, &models.ApiError{
-			Code:  http.StatusBadRequest,
-			Error: models.ErrProviderNotFound,
-		}
-	}
-
-	// Exchange code for token
-	token, err := provider.ExchangeCode(ctx, code)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch user info
-	oauthUser, err := provider.GetUserInfo(ctx, token)
-	if err != nil {
-		return nil, err
-	}
-
-	//log.Printf("IBL: OAuth response from Facebook: %+v", oauthUser)
-
-	// Link OAuth provider with user account
-	user, apiErr := s.LinkOAuthProvider(ctx, *oauthUser)
-	if apiErr != nil {
-		return nil, apiErr
-	}
-
-	// Return response struct
-	return &api.OAuthResponse{
-		User: &user.User,
-	}, nil
-}
-
-// LinkOAuthProvider links or creates a user based on OAuth login
-func (s *AuthServiceImpl) LinkOAuthProvider(ctx context.Context, oauthUser db.OAuthUser) (*api.LoginResponse, *models.ApiError) {
-	// Find existing user by email
-	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
-	if err != nil {
-		return nil, err
-	}
-
-	if user == nil {
-		// Create new user
-		// Generate external ID for new user
-		id, apiErr := s.identifier.GenerateId(ctx, "user")
-		if apiErr != nil {
-			return nil, apiErr
-		}
-
-		user = mapping.ToDbUserFromOAuth(oauthUser, id.Code)
-		accessToken, refreshToken, apiErr := s.generateTokens(user)
-		user.Token = &accessToken
-		user.UserRefreshToken = &refreshToken
-		// Save new user in DB
-		_, err := s.userRepository.CreateUser(ctx, user)
-		if err != nil {
-			return nil, err
-		}
-		// Send confirmation email
-		dynamicData := map[string]string{
-			"message":  "Thank you for registering!",
-			"username": user.UserFirstname + " " + user.UserLastname,
-			"subject":  "Thank you for Your Registration",
-		}
-		notificationData := notification.Request{
-			To:          user.UserEmail,
-			DynamicData: dynamicData,
-		}
-
-		if _, err := s.notificationClient.Send(ctx, notificationData); err != nil {
-			return nil, err
-		}
-	} else {
-		if _, exists := user.Providers[oauthUser.ProviderType]; exists {
-			// Provider already exists, just log in the user
-			accessToken, refreshToken, apiErr := s.generateTokens(user)
-			user.Token = &accessToken
-			user.UserRefreshToken = &refreshToken
-			if apiErr != nil {
-				return nil, apiErr
-			}
-			if err := s.userRepository.Update(ctx, user.UserEmail, user); err != nil {
-				return nil, err
-			}
-			return &api.LoginResponse{
-				User: mapping.ToApiUser(user), // Dereference the apiUser pointer
-
-			}, nil
-		}
-
-		// Generate access and refresh tokens after update
-		accessToken, refreshToken, apiErr := s.generateTokens(user)
-		user.Token = &accessToken
-		user.UserRefreshToken = &refreshToken
-
-		if apiErr != nil {
-			return nil, apiErr
-		}
-		if err := s.userRepository.UpdateUserProviders(ctx, user.UserEmail, oauthUser.ProviderType, oauthUser.ProviderID); err != nil {
-			return nil, err
-		}
-	}
-	return &api.LoginResponse{
-		User: mapping.ToApiUser(user), // Dereference the apiUser pointer
-
-	}, nil
-}
-
-func (s *AuthServiceImpl) RefreshGoogleToken(user *db.User) error {
-	decryptedRefreshToken := utils.Decrypt(user.OAuthUser.RefreshToken, encryptionKey)
-	token := &oauth2.Token{
-		RefreshToken: decryptedRefreshToken,
-		Expiry:       time.Now().Add(-1 * time.Hour), // Force refresh
-	}
-
-	newToken, err := googleProvider.RefreshToken(context.Background(), token)
-	if err != nil {
-		return err
-	}
-
-	// Update user tokens in DB
-	user.OAuthUser.AccessToken = utils.Encrypt(newToken.AccessToken, encryptionKey)
-	user.OAuthUser.Expiry = newToken.Expiry
-	return s.userRepo.Update(context.Background(), user)
-}
+// Common methods
 
 func (s *AuthServiceImpl) generateTokens(user *db.User) (string, string, *models.ApiError) {
 	// Prepare user data for token generation
@@ -234,6 +99,25 @@ func (s *AuthServiceImpl) generateTokens(user *db.User) (string, string, *models
 	}
 
 	return accessToken, refreshToken, nil
+}
+
+func (s *AuthServiceImpl) generateAndSaveTokens(ctx context.Context, user *db.User) (*api.OAuthResponse, *models.ApiError) {
+
+	accessToken, refreshToken, apiErr := s.generateTokens(user)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	user.Token = &accessToken
+	user.UserRefreshToken = &refreshToken
+
+	if err := s.userRepository.UpdateUserProviders(ctx, user); err != nil {
+		return nil, err
+	}
+
+	return &api.OAuthResponse{
+		User: mapping.ToApiUser(user),
+	}, nil
 }
 
 func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.ApiUser, *models.ApiError) {
@@ -264,6 +148,162 @@ func (s AuthServiceImpl) GetUserByEmail(ctx context.Context, userEmail string) (
 	return &apiUser, nil
 }
 
+// Oauth signin Service
+func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) string {
+	provider, ok := s.providers[oauth2.ProviderType(providerType)]
+	if !ok {
+		return ""
+	}
+	return provider.GetLoginURL(state)
+}
+
+func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
+	provider, ok := s.providers[oauth2.ProviderType(providerType)]
+	if !ok {
+		return nil, &models.ApiError{
+			Code:  http.StatusBadRequest,
+			Error: models.ErrProviderNotFound,
+		}
+	}
+
+	// Exchange code for token
+	token, err := provider.ExchangeCode(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch user info
+	oauthUser, err := provider.GetUserInfo(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	// Check if provider is already linked to another account
+	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	if user != nil {
+		// log in existing user
+		return s.linkExistingUser(ctx, user, oauthUser)
+	} else {
+		// Create new user with OAuth provider
+		return s.createNewOAuthUser(ctx, oauthUser)
+	}
+	// Link provider to existing account
+	//log.Printf("IBL: OAuth response from Facebook: %+v", oauthUser)
+
+	// Link OAuth provider with user account
+	// user, apiErr := s.LinkOAuthProvider(ctx, *oauthUser)
+	// if apiErr != nil {
+	// 	return nil, apiErr
+	// }
+
+	// // Return response struct
+	// return &api.OAuthResponse{
+	// 	User: &user.User,
+	// }, nil
+}
+
+func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+	id, apiErr := s.identifier.GenerateId(ctx, "user")
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	newUser := mapping.ToDbUserFromOAuth(*oauthUser, id.Code)
+
+	// Generate tokens
+	accessToken, refreshToken, apiErr := s.generateTokens(newUser)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	newUser.Token = &accessToken
+	newUser.UserRefreshToken = &refreshToken
+
+	// Create User
+	_, err := s.userRepository.CreateUser(ctx, newUser)
+	if err != nil {
+		return nil, err
+	}
+	// Send confirmation email
+	dynamicData := map[string]string{
+		"message":  "Thank you for registering!",
+		"username": newUser.UserFirstname + " " + newUser.UserLastname,
+		"subject":  "Thank you for Your Registration",
+	}
+	notificationData := notification.Request{
+		To:          newUser.UserEmail,
+		DynamicData: dynamicData,
+	}
+
+	if _, err := s.notificationClient.Send(ctx, notificationData); err != nil {
+		return nil, err
+	}
+
+	return &api.OAuthResponse{
+		User: mapping.ToApiUser(newUser),
+	}, nil
+}
+
+func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+	// Generate new access and refresh tokens for the user.
+	accessToken, refreshToken, apiErr := s.generateTokens(user)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	user.Token = &accessToken
+	user.UserRefreshToken = &refreshToken
+
+	// Check if the provider already exists in the user's providers map.
+	// Provider exists: refresh the provider token.
+	// providerInstance, ok := s.providers[oauth2.ProviderType(oauthUser.ProviderType)]
+	// if !ok {
+	// 	return nil, &models.ApiError{
+	// 		Code:  http.StatusBadRequest,
+	// 		Error: models.ErrProviderNotFound,
+	// 	}
+	// }
+
+	// refreshedDetails, err := providerInstance.RefreshToken(ctx, providerData.RefreshToken)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// Update the provider details in the map with the refreshed token.
+	//user.Providers[oauthUser.ProviderType] = *refreshedDetails
+	// Provider does not exist in the user's providers map.
+	// Ensure the map is initialized.
+	if user.Providers == nil {
+		user.Providers = make(map[string]db.OAuthProviderDetails)
+	}
+
+	// Create new provider details from the oauthUser information.
+	newProviderDetails := db.OAuthProviderDetails{
+		ProviderID:     oauthUser.ProviderID,
+		Email:          oauthUser.Email,
+		FirstName:      oauthUser.FirstName,
+		LastName:       oauthUser.LastName,
+		ProfilePicture: oauthUser.ProfilePicture,
+		AccessToken:    oauthUser.AccessToken,
+		RefreshToken:   oauthUser.RefreshToken,
+		Expiry:         oauthUser.Expiry,
+	}
+	user.Providers[oauthUser.ProviderType] = newProviderDetails
+
+	// Update the user's last login time.
+	user.UserLastLogin = time.Now()
+
+	// Update the provider information in the database.
+	if err := s.userRepository.UpdateUserProviders(ctx, user); err != nil {
+		return nil, err
+	}
+
+	return &api.OAuthResponse{
+		User: mapping.ToApiUser(user),
+	}, nil
+}
+
+// Auth signin Service
 func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
 
 	// Password validation

@@ -67,6 +67,7 @@ var (
 	ErrFailedToFetchToken        = errors.New("failed to fetch refresh token")
 	ErrInvalidIDToken            = errors.New("invalid id token")
 	ErrTokenEncryptionFailed     = errors.New("token encryption failed")
+	ErrInvalidAudience           = errors.New("invalid audience")
 )
 
 // Error implements the error interface for ApiError.

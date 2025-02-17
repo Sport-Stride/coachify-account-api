@@ -70,7 +70,8 @@ func (app *App) setup() {
 		oauth2.ProviderFacebook,
 		config.FacebookOAuth.ClientID,
 		config.FacebookOAuth.ClientSecret,
-		config.FacebookOAuth.RedirectURL)
+		config.FacebookOAuth.RedirectURL,
+		config.FacebookEncryptionKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize Facebook provider: %v", err)
 	}
@@ -79,7 +80,9 @@ func (app *App) setup() {
 		oauth2.ProviderGoogle,
 		config.GoogleOAuth.ClientID,
 		config.GoogleOAuth.ClientSecret,
-		config.GoogleOAuth.RedirectURL)
+		config.GoogleOAuth.RedirectURL,
+		config.GoogleEncryptionKey,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize Google provider: %v", err)
 	}

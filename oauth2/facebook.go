@@ -13,10 +13,11 @@ import (
 )
 
 type FacebookProvider struct {
-	config *oauth2.Config
+	config        *oauth2.Config
+	encryptionKey string
 }
 
-func NewFacebookProvider(clientID, clientSecret, redirectURL string) *FacebookProvider {
+func NewFacebookProvider(clientID, clientSecret, redirectURL, encryptionKey string) *FacebookProvider {
 	return &FacebookProvider{
 		config: &oauth2.Config{
 			ClientID:     clientID,
@@ -25,6 +26,7 @@ func NewFacebookProvider(clientID, clientSecret, redirectURL string) *FacebookPr
 			Scopes:       []string{"public_profile", "email"},
 			Endpoint:     facebook.Endpoint,
 		},
+		encryptionKey: encryptionKey,
 	}
 }
 
@@ -95,4 +97,8 @@ func (p *FacebookProvider) GetUserInfo(ctx context.Context, token *oauth2.Token)
 		LastName:       fbUserInfo.LastName,
 		ProfilePicture: fbUserInfo.Picture.Data.URL,
 	}, nil
+}
+
+func (p *FacebookProvider) RefreshToken(ctx context.Context, encryptedRefreshToken string) (*db.OAuthProviderDetails, *models.ApiError) {
+	return nil, nil
 }
