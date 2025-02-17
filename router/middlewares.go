@@ -24,7 +24,7 @@ import (
 
 func initializeMiddlewares(r *gin.Engine) {
 	// add cors headers
-	r.Use(cors())
+	r.Use(CORS())
 	r.Use(RecoveryWithZap(utils.Logger, true))
 	// dump request in debug
 	if gin.Mode() == gin.DebugMode {
@@ -32,24 +32,52 @@ func initializeMiddlewares(r *gin.Engine) {
 	}
 
 }
-
-func cors() gin.HandlerFunc {
+func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Referrer, User-Agent, Authorization")
+		// Allow specific origins (replace "*" with your frontend URL in production)
+		allowedOrigin := "*"
+		if origin := c.Request.Header.Get("Origin"); origin != "" {
+			allowedOrigin = origin // Allow the requesting origin
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
+		// Allow specific HTTP methods
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS, PATCH")
+
+		// Allow specific headers
+		c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
+			"Origin",
+			"X-Requested-With",
+			"Content-Type",
+			"Accept",
+			"Authorization",
+			"Referrer",
+			"User-Agent",
+		}, ", "))
+
+		// Allow credentials (e.g., cookies, authorization headers)
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
-		if c.Request.Method == "OPTIONS" {
+		// Expose specific headers to the client
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
+
+		// Set security headers
+		c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'self';")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+
+		// Handle preflight requests
+		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent) // 204 No Content
 			return
 		}
-		// Passer à la suite des middlewares/handlers
+
+		// Pass to the next middleware/handler
 		c.Next()
 	}
 }
-
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		buf, _ := ioutil.ReadAll(c.Request.Body)

@@ -39,7 +39,7 @@ func (app *App) setup() {
 	config := utils.LoadConfig()
 
 	// Establish connection to MongoDB
-	clientOptions := options.Client().ApplyURI(config.MongoDB.MongoURI)
+	clientOptions := options.Client().ApplyURI(config.MongoDB.URI)
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
 		log.Fatal(err)
@@ -66,12 +66,23 @@ func (app *App) setup() {
 		config.Notification.MailgunAPIKey)
 
 	// Initialize OAuth2 providers
-	facebookProvider, err := oauth2.NewProvider(oauth2.ProviderFacebook, config.FacebookAppID, config.FacebookAppSecret, config.FacebookRedirectURL)
+	facebookProvider, err := oauth2.NewProvider(
+		oauth2.ProviderFacebook,
+		config.FacebookOAuth.ClientID,
+		config.FacebookOAuth.ClientSecret,
+		config.FacebookOAuth.RedirectURL,
+		config.FacebookEncryptionKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize Facebook provider: %v", err)
 	}
 
-	googleProvider, err := oauth2.NewProvider(oauth2.ProviderGoogle, config.GoogleAppID, config.GoogleAppSecret, config.GoogleRedirectURL)
+	googleProvider, err := oauth2.NewProvider(
+		oauth2.ProviderGoogle,
+		config.GoogleOAuth.ClientID,
+		config.GoogleOAuth.ClientSecret,
+		config.GoogleOAuth.RedirectURL,
+		config.GoogleEncryptionKey,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize Google provider: %v", err)
 	}
@@ -84,7 +95,7 @@ func (app *App) setup() {
 
 	// Initialize Services
 	servicesWrapper := services.InitServices(
-		config,
+		*config,
 		middleware,
 		*userRepo,
 		pwChecker,
@@ -96,7 +107,7 @@ func (app *App) setup() {
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)
 
-	app.Config = config
+	app.Config = *config
 	app.Router = r
 
 }

@@ -17,29 +17,29 @@ type UserResetPasswordCode struct {
 }
 
 type User struct {
-	ID                     primitive.ObjectID     `bson:"_id,omitempty"`
-	ExternalID             string                 `bson:"externalid"`
-	UserFirstname          string                 `bson:"firstname" validate:"required"`
-	UserLastname           string                 `bson:"lastname" validate:"required"`
-	UserEmail              string                 `bson:"email" validate:"required"`
-	UserPassword           string                 `bson:"password" validate:"required"`
-	UserRole               string                 `bson:"role" `
-	UserProfilePicture     string                 `bson:"profile_picture,omitempty"`
-	UserDescription        string                 `bson:"description,omitempty"`
-	UserPhoneNumber        string                 `bson:"phone_number,omitempty"`
-	Token                  *string                `bson:"token"`
-	Providers              map[string]string      `bson:"providers,omitempty"`
-	UserRefreshToken       *string                `bson:"refresh_token,omitempty"`
-	UserVerificationStatus bool                   `bson:"verification_status"`
-	Autologin              bool                   `bson:"autologin"`
-	UserGender             UserGender             `bson:"gender"`
-	UserStatus             UserStatus             `bson:"status"`
-	UserConfirmCode        *UserConfirmCode       `bson:"confirm_code"`
-	UserResetPasswordCode  *UserResetPasswordCode `bson:"reset_password_code"`
-	UserAddress            Address                `bson:"address,omitempty"`
-	UserCreatedAt          time.Time              `bson:"created_at"`
-	UserUpdatedAt          time.Time              `bson:"updated_at"`
-	UserLastLogin          time.Time              `bson:"last_login"`
+	ID                     primitive.ObjectID              `bson:"_id,omitempty"`
+	ExternalID             string                          `bson:"externalid,omitempty"`
+	UserFirstname          string                          `bson:"firstname" validate:"required"`
+	UserLastname           string                          `bson:"lastname" validate:"required"`
+	UserEmail              string                          `bson:"email" validate:"required"`
+	UserPassword           string                          `bson:"password" validate:"required"`
+	UserRole               string                          `bson:"role" `
+	UserProfilePicture     string                          `bson:"profile_picture,omitempty"`
+	UserDescription        string                          `bson:"description,omitempty"`
+	UserPhoneNumber        string                          `bson:"phone_number,omitempty"`
+	Token                  *string                         `bson:"token"`
+	Providers              map[string]OAuthProviderDetails `bson:"providers,omitempty"`
+	UserRefreshToken       *string                         `bson:"refresh_token,omitempty"`
+	UserVerificationStatus bool                            `bson:"verification_status"`
+	Autologin              bool                            `bson:"autologin"`
+	UserGender             UserGender                      `bson:"gender"`
+	UserStatus             UserStatus                      `bson:"status"`
+	UserConfirmCode        *UserConfirmCode                `bson:"confirm_code"`
+	UserResetPasswordCode  *UserResetPasswordCode          `bson:"reset_password_code"`
+	UserAddress            Address                         `bson:"address,omitempty"`
+	UserCreatedAt          time.Time                       `bson:"created_at"`
+	UserUpdatedAt          time.Time                       `bson:"updated_at"`
+	UserLastLogin          time.Time                       `bson:"last_login"`
 }
 
 type SearchUser struct {
@@ -113,10 +113,23 @@ type Address struct {
 }
 
 type OAuthUser struct {
-	FirstName      string
-	LastName       string
-	Email          string
-	ProfilePicture string
-	ProviderType   string
-	ProviderID     string
+	ProviderType   string    `bson:"provider_type"`
+	ProviderID     string    `bson:"provider_id"`
+	Email          string    `bson:"email"`
+	FirstName      string    `bson:"first_name"`
+	LastName       string    `bson:"last_name"`
+	ProfilePicture string    `bson:"profile_picture"`
+	AccessToken    string    `bson:"access_token"`  // Encrypted
+	RefreshToken   string    `bson:"refresh_token"` // Encrypted
+	Expiry         time.Time `bson:"expiry"`
+}
+type OAuthProviderDetails struct {
+	ProviderID     string    `bson:"provider_id"`
+	Email          string    `bson:"email"`
+	FirstName      string    `bson:"first_name"`
+	LastName       string    `bson:"last_name"`
+	ProfilePicture string    `bson:"profile_picture"`
+	AccessToken    string    `bson:"access_token"`  // Encrypted
+	RefreshToken   string    `bson:"refresh_token"` // Encrypted
+	Expiry         time.Time `bson:"expiry"`
 }

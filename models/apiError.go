@@ -12,6 +12,7 @@ type ApiError struct {
 }
 
 var (
+	ErrInvalidIdStringGeneration = errors.New("length must be greater than 0")
 	ErrInvalidIdFormat           = errors.New("invalid user ID format")
 	ErrInvalidInputInUpdateMask  = errors.New("invalid input: dataDB and dataReq cannot be nil")
 	ErrFailedToUpdateUser        = errors.New("failed to update user")
@@ -64,6 +65,9 @@ var (
 	ErrBadRequestToIdentifier    = errors.New("bad request to identifier service")
 	ErrUnexpectedStatusCode      = errors.New("unexpected status code from identifier service")
 	ErrFailedToFetchToken        = errors.New("failed to fetch refresh token")
+	ErrInvalidIDToken            = errors.New("invalid id token")
+	ErrTokenEncryptionFailed     = errors.New("token encryption failed")
+	ErrInvalidAudience           = errors.New("invalid audience")
 )
 
 // Error implements the error interface for ApiError.

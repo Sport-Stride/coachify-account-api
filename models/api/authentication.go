@@ -59,7 +59,7 @@ type ResetPasswordRequest struct {
 }
 
 type OAuthResponse struct {
-	User *ApiUser `json:"user"`
+	User ApiUser `json:"user"`
 }
 
 type CreateUserRequest struct {

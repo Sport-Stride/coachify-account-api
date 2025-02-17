@@ -4,6 +4,7 @@ import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -40,8 +41,7 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 		"role":  params.User.UserRole,
 	}
 
-	secretKey := []byte("E3F9B6F9D7914B424E58DDF91AD86")
-
+	secretKey := []byte(LoadConfig().CoachifySecretKey)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	signedToken, err := token.SignedString(secretKey)
@@ -64,5 +64,14 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 
 	fmt.Printf("Header après signature: %+v\n", parsedToken.Header)
 
-	return signedToken, nil
+	encryptedToken, err := Encrypt(signedToken, []byte(LoadConfig().CoachifyEncryptionKey))
+	if err != nil {
+		return "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrTokenEncryptionFailed,
+		}
+	}
+
+	log.Printf("IBL: encryptedToken : %+v, CoachifyEncryptionKey:  %+v", encryptedToken, LoadConfig().CoachifyEncryptionKey)
+	return encryptedToken, nil
 }

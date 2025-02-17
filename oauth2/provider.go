@@ -12,4 +12,5 @@ type Provider interface {
 	GetLoginURL(state string) string
 	ExchangeCode(ctx context.Context, code string) (*oauth2.Token, *models.ApiError)
 	GetUserInfo(ctx context.Context, token *oauth2.Token) (*db.OAuthUser, *models.ApiError)
+	RefreshToken(ctx context.Context, encryptedRefreshToken string) (*db.OAuthProviderDetails, *models.ApiError)
 }
