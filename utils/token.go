@@ -74,3 +74,35 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 	//log.Printf("IBL: encryptedToken : %+v, CoachifyEncryptionKey:  %+v", encryptedToken, LoadConfig().CoachifyEncryptionKey)
 	return encryptedToken, nil
 }
+
+// IsTokenExpired checks if a given JWT token is expired.
+// The tokenString must be a valid (decrypted) JWT token.
+func IsTokenExpired(tokenString string) (bool, error) {
+	// Decrypt the token string
+	decryptedToken, err := Decrypt(tokenString, []byte(LoadConfig().CoachifyEncryptionKey))
+	if err != nil {
+		// If decryption fails, treat the token as expired.
+		return true, err
+	}
+
+	// Parse the decrypted token
+	secretKey := []byte(LoadConfig().CoachifySecretKey)
+	token, err := jwt.Parse(decryptedToken, func(token *jwt.Token) (interface{}, error) {
+		return secretKey, nil
+	})
+	if err != nil {
+		// If token parsing fails, treat the token as expired.
+		return true, err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return true, fmt.Errorf("unable to parse token claims")
+	}
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return true, fmt.Errorf("exp claim is not present or invalid")
+	}
+	expirationTime := time.Unix(int64(exp), 0)
+	return time.Now().After(expirationTime), nil
+}
