@@ -4,7 +4,6 @@ import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -23,10 +22,10 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 
 	switch params.Type {
 	case "access":
-		expirationTime = 5 * time.Minute
+		expirationTime = 24 * time.Hour
 	case "refresh":
 		//30 * 24 * time.Hour
-		expirationTime = 15 * time.Minute
+		expirationTime = 30 * 24 * time.Hour
 	default:
 		return "", &models.ApiError{
 			Code:  http.StatusBadRequest, // Bad Request
@@ -72,6 +71,6 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 		}
 	}
 
-	log.Printf("IBL: encryptedToken : %+v, CoachifyEncryptionKey:  %+v", encryptedToken, LoadConfig().CoachifyEncryptionKey)
+	//log.Printf("IBL: encryptedToken : %+v, CoachifyEncryptionKey:  %+v", encryptedToken, LoadConfig().CoachifyEncryptionKey)
 	return encryptedToken, nil
 }

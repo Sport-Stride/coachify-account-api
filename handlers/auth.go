@@ -248,6 +248,14 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
 			return
 		}
+		// Retrieve the trusted external ID from the token claims (set by AuthMiddleware)
+		tokenUserID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		// Overwrite any external id from the request with the token value
+		req.User.ExternalID = tokenUserID.(string)
 
 		userUpdated, apiErr := wrapper.UpdateUser(c.Request.Context(), *req)
 		if apiErr != nil {

@@ -749,11 +749,11 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 
 func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError) {
 	// Fetch only the necessary fields (e.g., ExternalID) to verify the user exists
-	externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
-	if err != nil {
-		log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
-		return nil, err
-	}
+	// externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
+	// if err != nil {
+	// 	log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
+	// 	return nil, err
+	// }
 
 	// Apply update masks to the user data
 	updateFields, err := masks.UpdateUserMasks(&req)
@@ -763,7 +763,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	}
 
 	// Update user data in the repository
-	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, externalID, updateFields)
+	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, req.User.ExternalID, updateFields)
 	if err != nil {
 		log.Printf("UpdateUser: error updating user in database - %v", err)
 		return nil, err
