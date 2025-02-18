@@ -435,27 +435,63 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 
 	user.UserLastLogin = time.Now()
 	refreshTokenData := mapping.ToRefreshToken(user)
-	token, err := utils.CreateToken(utils.CreateTokenParams{
-		User: refreshTokenData,
-		Type: "access",
-	})
 
-	if err != nil {
-		return nil, err
+	var accessToken string
+	accessTokenExpired := true
+
+	// Check if the existing access token is valid.
+	if user.Token != nil {
+		expired, err := utils.IsTokenExpired(*user.Token)
+		if err == nil && !expired {
+			accessToken = *user.Token
+			accessTokenExpired = false
+		}
 	}
 
-	refreshToken, err := utils.CreateToken(utils.CreateTokenParams{
-		User: refreshTokenData,
-		Type: "refresh",
-	})
+	// If the access token is expired or missing, attempt to refresh it.
+	if accessTokenExpired {
+		refreshTokenValid := false
 
-	if err != nil {
+		// Check if the refresh token exists and is valid.
+		if user.UserRefreshToken != nil {
+			rExpired, err := utils.IsTokenExpired(*user.UserRefreshToken)
+			if err == nil && !rExpired {
+				refreshTokenValid = true
+			}
+		}
 
-		return nil, err
+		if refreshTokenValid {
+			// Refresh token is valid: generate a new access token.
+			accessToken, err = utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "access",
+			})
+			if err != nil {
+				return nil, err
+			}
+			user.Token = &accessToken
+		} else {
+			// Both tokens are invalid or missing: generate both new tokens.
+			accessToken, err = utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "access",
+			})
+			if err != nil {
+				return nil, err
+			}
+			user.Token = &accessToken
+
+			newRefreshToken, err := utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "refresh",
+			})
+			if err != nil {
+				return nil, err
+			}
+			user.UserRefreshToken = &newRefreshToken
+		}
 	}
 
-	user.Token = &token
-	user.UserRefreshToken = &refreshToken
 	if request.Autologin {
 		user.Autologin = true
 	}
@@ -749,11 +785,11 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 
 func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError) {
 	// Fetch only the necessary fields (e.g., ExternalID) to verify the user exists
-	externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
-	if err != nil {
-		log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
-		return nil, err
-	}
+	// externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
+	// if err != nil {
+	// 	log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
+	// 	return nil, err
+	// }
 
 	// Apply update masks to the user data
 	updateFields, err := masks.UpdateUserMasks(&req)
@@ -763,7 +799,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	}
 
 	// Update user data in the repository
-	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, externalID, updateFields)
+	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, req.User.ExternalID, updateFields)
 	if err != nil {
 		log.Printf("UpdateUser: error updating user in database - %v", err)
 		return nil, err

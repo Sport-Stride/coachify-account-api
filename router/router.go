@@ -47,7 +47,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.POST("/reset-password/init", handlers.InitResetPassword(services.AuthService))
 	userGroup.POST("/reset-password/confirm", handlers.ConfirmResetPassword(services.AuthService))
 	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
-	userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
+	//userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 	userGroup.GET("/", handlers.GetAllUsersPag(services.AuthService))
 	userGroup.DELETE("/", handlers.DeleteUser(services.AuthService))
 	userGroup.POST("/", handlers.AddUser(services.AuthService))
@@ -55,6 +55,17 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.GET("/get-user-by-id/:prefix", handlers.GetUserById(services.AuthService))
 	userGroup.GET("/get-user/:prefix", handlers.GetUserByExternalId(services.AuthService))
 
+	// Protected routes: Endpoints that require a valid JWT token.
+	protected := r.Group("/")
+	protected.Use(AuthMiddleware())
+	{
+		// Protected user endpoints.
+		userProtectedGroup := protected.Group("/user")
+		{
+			// The update endpoint ignores any client-provided external ID.
+			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
+		}
+	}
 	// fallback
 	r.NoRoute(handlers.NoRoute)
 }

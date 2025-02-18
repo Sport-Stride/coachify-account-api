@@ -187,7 +187,7 @@ func RecoveryWithZap(logger utils.LogWrapperObj, stack bool) gin.HandlerFunc {
 // Middleware to validate the JWT token
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		secretKey := []byte("E3F9B6F9D7914B424E58DDF91AD86")
+		secretKey := []byte(utils.LoadConfig().CoachifySecretKey)
 
 		// Retrieve the token from the Authorization header
 		authHeader := c.GetHeader("Authorization")
@@ -206,8 +206,15 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Extract the token
-		tokenString := parts[1]
-
+		encryptedTokenString := parts[1]
+		// Decrypt the token using AES-GCM
+		tokenString, err := utils.Decrypt(encryptedTokenString, []byte(utils.LoadConfig().CoachifyEncryptionKey))
+		if err != nil {
+			log.Printf("Token decryption failed: %v", err)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token encryption"})
+			c.Abort()
+			return
+		}
 		// Validate the token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			// Check if the signing method is correct
@@ -225,10 +232,19 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("AuthorizationToken", tokenString) // Set the token in context
 		log.Printf("Token set in context: %s", tokenString)
 
-		// Pass the user and token information in the context for use in the handlers
+		// Extract claims and set them in context (do not rely on client payload)
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			c.Set("userID", claims["id"])
-			c.Set("userRole", claims["role"])
+			// Ensure the 'id' claim exists and is a string
+			if id, ok := claims["id"].(string); ok {
+				c.Set("userID", id)
+			} else {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims: id missing"})
+				c.Abort()
+				return
+			}
+			if role, ok := claims["role"].(string); ok {
+				c.Set("userRole", role)
+			}
 		}
 
 		// Continue to the protected route
