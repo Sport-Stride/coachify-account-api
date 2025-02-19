@@ -563,7 +563,7 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		}
 	}
 
-	u.UserStatus = "Active"
+	u.UserStatus = "Complete-registration-1"
 	u.UserVerificationStatus = true
 	err = s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {
@@ -798,6 +798,12 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 		return nil, err
 	}
 
+	switch req.User.UserStatus {
+	case "Complete-registration-1":
+		updateFields["status"] = "Complete-registration-2"
+	case "Complete-registration-2":
+		updateFields["status"] = "Active"
+	}
 	// Update user data in the repository
 	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, req.User.ExternalID, updateFields)
 	if err != nil {
@@ -810,6 +816,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 
 	return &dataResp, nil
 }
+
 func (s *AuthServiceImpl) GetAllUsersPag(searchUser api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError) {
 	// Log the search query for debugging
 	utils.Logger.Info("Search query received", zap.Any("searchUser", searchUser))
