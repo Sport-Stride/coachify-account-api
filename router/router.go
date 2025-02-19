@@ -64,6 +64,13 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		{
 			// The update endpoint ignores any client-provided external ID.
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
+
+		}
+		coachProtectedGroup := protected.Group("/coach")
+		{
+			// The update endpoint ignores any client-provided external ID.
+			coachProtectedGroup.GET("/get-clients", handlers.GetClientsPaginated(services.CoachService))
+			coachProtectedGroup.POST("/invite", handlers.InviteClient(services.CoachService))
 		}
 	}
 	// fallback

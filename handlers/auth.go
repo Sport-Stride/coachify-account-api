@@ -266,6 +266,7 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, userUpdated)
 	}
 }
+
 func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Parse the request body into a SearchUser struct

@@ -12,6 +12,7 @@ import (
 
 type AppConfig struct {
 	Port                  int
+	BaseURL               BaseURLConfig
 	Environment           string
 	MongoDB               MongoConfig
 	Notification          NotificationConfig
@@ -22,6 +23,10 @@ type AppConfig struct {
 	GoogleEncryptionKey   string
 	CoachifyEncryptionKey string
 	CoachifySecretKey     string
+}
+
+type BaseURLConfig struct {
+	URL string
 }
 
 type MongoConfig struct {
@@ -49,6 +54,9 @@ func LoadConfig() *AppConfig {
 		cfg := &AppConfig{
 			Port:        getIntWithDefault("PORT", 8060),
 			Environment: getStringWithDefault("ENVIRONMENT", "development"),
+			BaseURL: BaseURLConfig{
+				URL: getStringWithDefault("BASE_URL", "http://localhost:8060"),
+			},
 			MongoDB: MongoConfig{
 				URI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),
 			},

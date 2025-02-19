@@ -54,7 +54,7 @@ type AuthServiceImpl struct {
 }
 
 func NewAuthService(
-	userRepository repositories.UserRepository,
+	userRepository *repositories.UserRepository,
 	pwChecker core.PasswordChecker,
 	middleware *jwt.GinJWTMiddleware,
 	activationManager core.ActivationManager,
@@ -65,7 +65,7 @@ func NewAuthService(
 ) *AuthServiceImpl {
 	return &AuthServiceImpl{
 		passwordChecker:    pwChecker,
-		userRepository:     userRepository,
+		userRepository:     *userRepository,
 		middleware:         middleware,
 		activationManager:  activationManager,
 		identifier:         identifier,
