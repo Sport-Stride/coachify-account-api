@@ -37,9 +37,17 @@ type User struct {
 	UserConfirmCode        *UserConfirmCode                `bson:"confirm_code"`
 	UserResetPasswordCode  *UserResetPasswordCode          `bson:"reset_password_code"`
 	UserAddress            Address                         `bson:"address,omitempty"`
+	Metadata               *UserMetadata                   `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	UserCreatedAt          time.Time                       `bson:"created_at"`
 	UserUpdatedAt          time.Time                       `bson:"updated_at"`
 	UserLastLogin          time.Time                       `bson:"last_login"`
+}
+type UserMetadata struct {
+	HowHeardAboutUs string   `bson:"how_heard_about_us,omitempty" json:"how_heard_about_us,omitempty"`
+	Profession      string   `bson:"profession,omitempty" json:"profession,omitempty"`
+	WorkPlace       string   `bson:"work_place,omitempty" json:"work_place,omitempty"`
+	ClientRange     string   `bson:"client_range,omitempty" json:"client_range,omitempty"`
+	Offerings       []string `bson:"offerings,omitempty" json:"offerings,omitempty"`
 }
 
 type SearchUser struct {
@@ -65,19 +73,20 @@ type SearchUser struct {
 }
 
 type UserRequest struct {
-	UserFirstname      string    `bson:"firstname" `
-	UserLastname       string    `bson:"lastname" `
-	UserEmail          string    `bson:"email"`
-	UserRole           string    `bson:"role"`
-	UserGender         string    `bson:"gender"`
-	UserStatus         string    `bson:"status"`
-	UserProfilePicture string    `bson:"profile_picture,omitempty"`
-	UserDescription    string    `bson:"description,omitempty"`
-	UserPhoneNumber    string    `bson:"phone_number,omitempty"`
-	Autologin          bool      `bson:"autologin"`
-	VerificationStatus bool      `bson:"verification_status"`
-	UserAddress        Address   `bson:"address,omitempty"`
-	UserUpdatedAt      time.Time `bson:"updated_at"`
+	UserFirstname      string        `bson:"firstname" `
+	UserLastname       string        `bson:"lastname" `
+	UserEmail          string        `bson:"email"`
+	UserRole           string        `bson:"role"`
+	UserGender         string        `bson:"gender"`
+	UserStatus         string        `bson:"status"`
+	UserProfilePicture string        `bson:"profile_picture,omitempty"`
+	UserDescription    string        `bson:"description,omitempty"`
+	UserPhoneNumber    string        `bson:"phone_number,omitempty"`
+	Autologin          bool          `bson:"autologin"`
+	VerificationStatus bool          `bson:"verification_status"`
+	UserAddress        Address       `bson:"address,omitempty"`
+	Metadata           *UserMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	UserUpdatedAt      time.Time     `bson:"updated_at"`
 }
 
 type UserResponse struct {
@@ -98,6 +107,7 @@ type UserResponse struct {
 	Autologin          bool               `bson:"autologin"`
 	VerificationStatus bool               `bson:"verification_status"`
 	Address            Address            `bson:"address,omitempty"`
+	Metadata           *UserMetadata      `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	CreatedAt          time.Time          `bson:"created_at"`
 	UpdatedAt          time.Time          `bson:"updated_at"`
 	LastLogin          time.Time          `bson:"last_login"`

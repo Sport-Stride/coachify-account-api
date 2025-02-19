@@ -114,6 +114,7 @@ func ToApiUser(dbUser *db.User) api.ApiUser {
 		ResetPasswordCode:  &resetPasswordCode,
 		RefreshToken:       dbUser.UserRefreshToken,
 		Token:              dbUser.Token,
+		Metadata:           dbUser.Metadata,
 		LastLogin:          dbUser.UserLastLogin,
 		ExternalID:         dbUser.ExternalID,
 		Autologin:          dbUser.Autologin,
@@ -142,6 +143,7 @@ func ToApiUserResponse(dbUser *db.UserResponse) api.ApiUserResponse {
 
 		RefreshToken: dbUser.RefreshToken,
 		Token:        dbUser.Token,
+		Metadata:     dbUser.Metadata,
 		LastLogin:    dbUser.LastLogin,
 		ExternalID:   dbUser.ExternalID,
 		Autologin:    dbUser.Autologin,
@@ -170,6 +172,7 @@ func ToUserResponse(user *db.User) db.UserResponse {
 		RefreshToken:       user.UserRefreshToken,
 		Role:               user.UserRole,
 		Autologin:          user.Autologin,
+		Metadata:           user.Metadata,
 	}
 }
 

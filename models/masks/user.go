@@ -21,6 +21,13 @@ const (
 	UserUpdateMaskUserPhoneNumber        = "phone_number"
 	UserUpdateMaskUserAddress            = "address"
 	UserUpdateMaskUserVerificationStatus = "verification_status"
+
+	// Masks for user metadata
+	UserUpdateMaskUserMetadataHowHeard    = "metadata.how_heard_about_us"
+	UserUpdateMaskUserMetadataProfession  = "metadata.profession"
+	UserUpdateMaskUserMetadataWorkPlace   = "metadata.work_place"
+	UserUpdateMaskUserMetadataClientRange = "metadata.client_range"
+	UserUpdateMaskUserMetadataOfferings   = "metadata.offerings"
 )
 
 func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
@@ -70,6 +77,33 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 
 		case UserUpdateMaskUserVerificationStatus:
 			updateFields["verification_status"] = req.User.VerificationStatus
+			// --- Metadata fields update ---
+		case UserUpdateMaskUserMetadataHowHeard:
+			// Ensure metadata is not nil before updating the nested field
+			if req.User.Metadata != nil {
+				updateFields["metadata.how_heard_about_us"] = req.User.Metadata.HowHeardAboutUs
+			}
+
+		case UserUpdateMaskUserMetadataProfession:
+			if req.User.Metadata != nil {
+				updateFields["metadata.profession"] = req.User.Metadata.Profession
+			}
+
+		case UserUpdateMaskUserMetadataWorkPlace:
+			if req.User.Metadata != nil {
+				updateFields["metadata.work_place"] = req.User.Metadata.WorkPlace
+			}
+
+		case UserUpdateMaskUserMetadataClientRange:
+			if req.User.Metadata != nil {
+				updateFields["metadata.client_range"] = req.User.Metadata.ClientRange
+			}
+
+		case UserUpdateMaskUserMetadataOfferings:
+			if req.User.Metadata != nil {
+				updateFields["metadata.offerings"] = req.User.Metadata.Offerings
+			}
+
 		}
 	}
 
