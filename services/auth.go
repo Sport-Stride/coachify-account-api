@@ -802,6 +802,8 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	case "Complete-registration-1":
 		updateFields["status"] = "Complete-registration-2"
 	case "Complete-registration-2":
+		updateFields["status"] = "Complete-registration-3"
+	case "Complete-registration-3":
 		updateFields["status"] = "Active"
 	}
 	// Update user data in the repository
