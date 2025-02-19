@@ -65,6 +65,7 @@ func (r *CoachRepository) GetAllCoachClientIDs(ctx context.Context, coachID stri
 
 	return clientIDs, nil
 }
+
 func (r *CoachRepository) GetCoachClientIDs(ctx context.Context, coachID string, search db.SearchClient) ([]string, int, *models.ApiError) {
 	filter := bson.M{"coach_id": coachID}
 	opts := options.Find().
@@ -75,21 +76,23 @@ func (r *CoachRepository) GetCoachClientIDs(ctx context.Context, coachID string,
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		utils.Logger.Error("Failed to find coach clients", zap.Error(err))
-		return nil, 0, &models.ApiError{
+		return []string{}, 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
 		}
 	}
 	defer cursor.Close(ctx)
 
-	var clientIDs []string
+	// Initialize the slice as an empty slice instead of nil.
+	clientIDs := []string{}
+
 	for cursor.Next(ctx) {
 		var result struct {
 			ClientID string `bson:"client_id"`
 		}
 		if err := cursor.Decode(&result); err != nil {
 			utils.Logger.Error("Failed to decode coach client", zap.Error(err))
-			return nil, 0, &models.ApiError{
+			return []string{}, 0, &models.ApiError{
 				Code:  http.StatusInternalServerError,
 				Error: models.ErrInternalError,
 			}
@@ -100,7 +103,7 @@ func (r *CoachRepository) GetCoachClientIDs(ctx context.Context, coachID string,
 	total, err := r.collection.CountDocuments(ctx, filter)
 	if err != nil {
 		utils.Logger.Error("Failed to count coach clients", zap.Error(err))
-		return nil, 0, &models.ApiError{
+		return []string{}, 0, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
 		}
@@ -131,17 +134,13 @@ func (r *CoachRepository) CreateCoachClient(ctx context.Context, coachClient *db
 	return nil
 }
 
-// repositories/user_repository.go
-func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
+func (r *CoachRepository) GetUserByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	filter := bson.M{"email": email}
 	var user db.User
 	err := r.collection.FindOne(ctx, filter).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, &models.ApiError{
-				Code:  http.StatusNotFound,
-				Error: models.ErrUserNotFound,
-			}
+			return nil, nil
 		}
 		utils.Logger.Error("failed to find user by email", zap.Error(err))
 		return nil, &models.ApiError{

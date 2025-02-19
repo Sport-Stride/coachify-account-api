@@ -42,25 +42,52 @@ func GetClientsPaginated(coachService services.CoachService) gin.HandlerFunc {
 
 func InviteClient(coachService services.CoachService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Extract coachID from the context
 		coachID, exists := c.Get("userID")
 		if !exists || coachID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
-		var createUserReq api.CreateUserRequest
-		if err := c.ShouldBindJSON(&createUserReq); err != nil {
+		// Parse the request body
+		var requestBody struct {
+			Email  string   `json:"email"`  // Single email
+			Emails []string `json:"emails"` // Multiple emails
+		}
+
+		if err := c.ShouldBindJSON(&requestBody); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 
-		// Call the updated InviteClient method which now accepts *api.CreateUserRequest.
-		resp, apiErr := coachService.InviteClient(c.Request.Context(), &createUserReq, coachID.(string))
-		if apiErr != nil {
-			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+		// Determine if the request is for a single email or multiple emails
+		if requestBody.Email != "" {
+			// Single email case
+			createUserReq := api.CreateUserRequest{
+				Email: requestBody.Email,
+			}
+
+			// Call the InviteClient method for a single email
+			resp, apiErr := coachService.InviteClient(c.Request.Context(), &createUserReq, coachID.(string))
+			if apiErr != nil {
+				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+				return
+			}
+
+			c.JSON(http.StatusCreated, resp)
+		} else if len(requestBody.Emails) > 0 {
+			// Multiple emails case
+			resp, apiErr := coachService.InviteMultipleClientsBulk(c.Request.Context(), requestBody.Emails, coachID.(string))
+			if apiErr != nil {
+				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+				return
+			}
+
+			c.JSON(http.StatusCreated, resp)
+		} else {
+			// No valid email(s) provided
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no valid email(s) provided"})
 			return
 		}
-
-		c.JSON(http.StatusCreated, resp)
 	}
 }

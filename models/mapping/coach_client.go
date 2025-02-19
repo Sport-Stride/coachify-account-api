@@ -39,7 +39,7 @@ func ToClientResponse(user db.UserResponse) api.ClientResponse {
 	}
 }
 
-func MapCoachClientInvitation(coachID, clientID, confirmCode string) *db.CoachClient {
+func MapCoachClientInvitation(coachID, clientID string) *db.CoachClient {
 	now := time.Now()
 	return &db.CoachClient{
 		CoachID:   coachID,

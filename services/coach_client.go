@@ -24,6 +24,7 @@ import (
 type CoachService interface {
 	GetClientsPaginated(ctx context.Context, coachID string, search api.SearchClient) ([]*api.ClientResponse, int, *models.ApiError)
 	InviteClient(ctx context.Context, req *api.CreateUserRequest, coachID string) (*api.RegisterResponse, *models.ApiError)
+	InviteMultipleClientsBulk(ctx context.Context, emails []string, coachID string) (*api.InviteClientResponse, *models.ApiError)
 }
 
 type CoachServiceImpl struct {
@@ -81,7 +82,7 @@ func (s *CoachServiceImpl) sendInvitationEmail(ctx context.Context, dbUser *db.U
 	// Prepare dynamic email data, including the temporary password.
 	confirmLink := fmt.Sprintf("%s/confirm-registration?code=%s", s.baseURL, dbUser.UserConfirmCode.Code)
 	dynamicData := map[string]string{
-		"message":  "Thank you for registering! Your temporary password is: " + plainPassword + ". Please confirm your email by clicking the following link: " + confirmLink,
+		"message":  "Thank you for registering! Your temporary password is: " + plainPassword + ". Please confirm your email by clicking the following link: " + confirmLink + " Coach :" + coachName,
 		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
 		"subject":  "Confirmation of Your Registration",
 	}
@@ -162,52 +163,71 @@ func (s *CoachServiceImpl) RegisterClient(ctx context.Context, req *api.CreateUs
 		RereshToken: refreshToken,
 	}
 
-	if req.Autologin {
-		token, err := utils.CreateToken(utils.CreateTokenParams{
-			User: refreshTokenData,
-			Type: "access",
-		})
-		if err != nil {
-			return nil, err
-		}
-		resp.AuthToken = token
-	}
+	// if req.Autologin {
+	// 	token, err := utils.CreateToken(utils.CreateTokenParams{
+	// 		User: refreshTokenData,
+	// 		Type: "access",
+	// 	})
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	resp.AuthToken = token
+	// }
 
 	return resp, nil
 }
 
 // InviteClient invites a single client.
+// InviteClient invites a single client.
 func (s *CoachServiceImpl) InviteClient(ctx context.Context, req *api.CreateUserRequest, coachID string) (*api.RegisterResponse, *models.ApiError) {
-	// Check if a user with the provided email exists.
-	user, err := s.userRepo.GetUserByEmail(ctx, req.Email)
+
+	user, err := s.userRepo.GetByEmailToInvite(ctx, req.Email)
+	if err != nil {
+		return nil, err
+	}
+	coachName, err := s.userRepo.GetUserNameByExternalID(ctx, coachID)
 	if err != nil {
 		return nil, err
 	}
 
 	var clientID string
+	var registerResponse *api.RegisterResponse
+
 	if user != nil {
 		clientID = user.ExternalID
-		// Check if an invitation from this coach already exists.
+
 		invitation, err := s.coachRepo.FindInvitation(ctx, clientID, coachID)
 		if err != nil {
 			return nil, err
 		}
+
 		if invitation != nil {
 			return nil, &models.ApiError{
 				Code:  http.StatusBadRequest,
 				Error: models.ErrClientAlreadyLinked,
 			}
 		}
+
+		userResp := mapping.ToUserResponse(user)
+		registerResponse = &api.RegisterResponse{
+			User:        mapping.ToApiUserResponse(&userResp),
+			AuthToken:   "",
+			RereshToken: "",
+		}
+	} else {
+		registerResponse, err = s.RegisterClient(ctx, req, coachName)
+		if err != nil {
+			return nil, err
+		}
+		clientID = registerResponse.User.ExternalID
 	}
 
-	coachName, err := s.userRepo.GetUserNameByExternalID(ctx, coachID)
-	if err != nil {
-		return nil, err
-	}
-	registerResponse, apiErr := s.RegisterClient(ctx, req, coachName)
-	if apiErr != nil {
+	invitationRecord := mapping.MapCoachClientInvitation(coachID, clientID)
+
+	if apiErr := s.coachRepo.CreateCoachClient(ctx, invitationRecord); apiErr != nil {
 		return nil, apiErr
 	}
+
 	return registerResponse, nil
 }
 
@@ -226,7 +246,7 @@ func (s *CoachServiceImpl) InviteMultipleClientsBulk(ctx context.Context, emails
 
 	// Process each email.
 	for _, email := range emails {
-		user, err := s.userRepo.GetUserByEmail(ctx, email)
+		user, err := s.userRepo.GetByEmailToInvite(ctx, email)
 		if err != nil {
 			failedEmails = append(failedEmails, email)
 			continue
@@ -323,11 +343,9 @@ func (s *CoachServiceImpl) InviteMultipleClientsBulk(ctx context.Context, emails
 				// Send invitation email.
 				s.sendInvitationEmail(ctx, user, plainPasswords[i], coachName)
 
+				invitationRecord := mapping.MapCoachClientInvitation(coachID, user.ExternalID)
 				// Accumulate invitation.
-				invitationsToInsert = append(invitationsToInsert, &db.CoachClient{
-					ClientID: user.ExternalID,
-					CoachID:  coachID,
-				})
+				invitationsToInsert = append(invitationsToInsert, invitationRecord)
 				successCount++
 			}
 		}
