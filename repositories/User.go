@@ -27,22 +27,91 @@ type UserRepository struct {
 	collection *mongo.Collection
 }
 
-func NewUserRepository(client *mongo.Client, dbName, collName string) *UserRepository {
-	// Create a unique index on the "email" field
+func NewUserRepository(db *mongo.Database, collName string) *UserRepository {
+	collection := db.Collection(collName)
 	indexModel := mongo.IndexModel{
-		Keys:    bson.M{"email": 1},              // Index on the "email" field
-		Options: options.Index().SetUnique(true), // Ensure the index is unique
+		Keys:    bson.M{"email": 1},              // index key
+		Options: options.Index().SetUnique(true), // unique index option
 	}
 
-	collection := client.Database(dbName).Collection(collName)
-	// Create the index
-	_, err := collection.Indexes().CreateOne(context.Background(), indexModel)
+	// Use a context with a timeout to avoid hanging indefinitely
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	indexName, err := collection.Indexes().CreateOne(ctx, indexModel)
 	if err != nil {
-		log.Fatalf("Failed to create unique index on email: %v", err)
+		return nil
 	}
-	return &UserRepository{
-		collection: collection}
+	fmt.Printf("Created index %s for collection %s\n", indexName, collName)
 
+	return &UserRepository{collection: collection}
+}
+
+func (r *UserRepository) CreateUsers(ctx context.Context, users []*db.User) ([]*db.User, error) {
+	if len(users) == 0 {
+		return nil, nil
+	}
+
+	// Convert users to a slice of interface{} for bulk insertion
+	var documents []interface{}
+	for _, user := range users {
+		documents = append(documents, user)
+	}
+
+	// Perform bulk insert
+	opts := options.InsertMany().SetOrdered(false) // SetOrdered(false) allows continuing on errors
+	result, err := r.collection.InsertMany(ctx, documents, opts)
+	if err != nil {
+		// Handle duplicate key errors or other MongoDB errors
+		if mongoErr, ok := err.(mongo.BulkWriteException); ok {
+			for _, writeErr := range mongoErr.WriteErrors {
+				fmt.Printf("Failed to insert user: %v\n", writeErr)
+			}
+		}
+		return nil, fmt.Errorf("failed to insert users: %w", err)
+	}
+
+	// Map inserted IDs back to users
+	for i, insertID := range result.InsertedIDs {
+		users[i].ID = insertID.(primitive.ObjectID) // Assuming ID is of type primitive.ObjectID
+	}
+
+	return users, nil
+}
+
+// GetUserNameByExternalID retrieves only the first and last name of a user using their external ID.
+func (r *UserRepository) GetUserNameByExternalID(ctx context.Context, externalID string) (string, *models.ApiError) {
+	// Create a filter to search by externalID.
+	filter := bson.M{"externalid": externalID}
+	// Use projection to retrieve only the firstname and lastname fields.
+	opts := options.FindOne().SetProjection(bson.M{"firstname": 1, "lastname": 1})
+
+	// Define a temporary struct to hold the result.
+	var result struct {
+		Firstname string `bson:"firstname"`
+		Lastname  string `bson:"lastname"`
+	}
+
+	// Query with projection.
+	err := r.collection.FindOne(ctx, filter, opts).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			utils.Logger.Info("No user found with externalID", zap.String("externalID", externalID))
+			return "", &models.ApiError{
+				Code:  http.StatusNotFound,
+				Error: models.ErrUserNotFound,
+			}
+		}
+		utils.Logger.Error("Error retrieving user by externalID", zap.Error(err))
+		return "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+
+	// Concatenate first name and last name to form the full name.
+	fullName := fmt.Sprintf("%s %s", result.Firstname, result.Lastname)
+	return fullName, nil
 }
 
 // GetUserById retrieves a user by their ID
@@ -723,6 +792,51 @@ func (r *UserRepository) GetUserByExternalIdUpdate(ctx context.Context, userId s
 
 	return &user, nil
 
+}
+
+func (r *UserRepository) GetUsersByExternalIds(ctx context.Context, externalIds []string) ([]db.UserResponse, *models.ApiError) {
+	// Build filter using the "$in" operator.
+	filter := bson.M{"externalid": bson.M{"$in": externalIds}}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		utils.Logger.Error("Failed to find users by external IDs", zap.Error(err))
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	defer cursor.Close(ctx)
+
+	// Collect users from cursor.
+	var users []db.User
+	for cursor.Next(ctx) {
+		var user db.User
+		if err := cursor.Decode(&user); err != nil {
+			utils.Logger.Error("Failed to decode user", zap.Error(err))
+			return nil, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrInternalError,
+			}
+		}
+		users = append(users, user)
+	}
+	if err := cursor.Err(); err != nil {
+		utils.Logger.Error("Cursor error", zap.Error(err))
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+
+	// Convert each db.User to a db.UserResponse.
+	var responses []db.UserResponse
+	for _, user := range users {
+		response := mapping.ToUserResponse(&user)
+		responses = append(responses, response)
+	}
+
+	return responses, nil
 }
 
 // GetUserByExternalId retrieves a user by their external_id

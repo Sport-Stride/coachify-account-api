@@ -4,9 +4,13 @@ import (
 	"coachify-account-api/models"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
-	"math/rand"
+	"math/big"
+
 	"net/http"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Encrypt encrypts a plaintext string using AES-GCM and returns a base64-encoded ciphertext.
@@ -93,4 +97,100 @@ func GenerateRandomString(length int) (string, *models.ApiError) {
 
 	// Trim the string to the desired length
 	return randomString[:length], nil
+}
+
+// Character sets used to generate a strong password.
+var (
+	lowercase = "abcdefghijklmnopqrstuvwxyz"
+	uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digits    = "0123456789"
+	special   = "!@#$%^&*()-_=+[]{}|;:,.<>/?"
+)
+
+// GenerateStrongPassword creates a strong 8-character password ensuring
+// at least one character from each category (lowercase, uppercase, digit, special).
+func GenerateStrongPassword() (string, *models.ApiError) {
+	passwordLength := 8
+	password := make([]byte, passwordLength)
+	categories := []string{lowercase, uppercase, digits, special}
+
+	// Ensure at least one character from each category.
+	for i := 0; i < len(categories); i++ {
+		char, err := randomChar(categories[i])
+		if err != nil {
+			return "", &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrInternalError,
+			}
+		}
+		password[i] = char
+	}
+
+	// Fill the rest of the password with random characters from all categories.
+	allChars := lowercase + uppercase + digits + special
+	for i := len(categories); i < passwordLength; i++ {
+		char, err := randomChar(allChars)
+		if err != nil {
+			return "", &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrInternalError,
+			}
+		}
+		password[i] = char
+	}
+
+	// Shuffle the generated password to avoid predictable placements.
+	shuffle(password)
+	return string(password), nil
+}
+
+// randomChar returns a random character from the given charset.
+func randomChar(charset string) (byte, error) {
+	max := big.NewInt(int64(len(charset)))
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return 0, err
+	}
+	return charset[n.Int64()], nil
+}
+
+// shuffle shuffles a slice of bytes in place using the Fisher-Yates algorithm.
+func shuffle(a []byte) {
+	for i := len(a) - 1; i > 0; i-- {
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			continue
+		}
+		j := int(jBig.Int64())
+		a[i], a[j] = a[j], a[i]
+	}
+}
+
+// HashPassword hashes a plain-text password using bcrypt.
+func HashPassword(password string) (string, *models.ApiError) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	return string(bytes), nil
+}
+
+// GenerateAndHashPassword generates a strong password and returns both the plain text
+// and the hashed version.
+func GenerateAndHashPassword() (plain string, hashed string, err *models.ApiError) {
+	plain, err = GenerateStrongPassword()
+	if err != nil {
+		return "", "", &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	hashed, err = HashPassword(plain)
+	if err != nil {
+		return "", "", err
+	}
+	return plain, hashed, nil
 }

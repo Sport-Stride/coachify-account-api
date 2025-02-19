@@ -58,10 +58,15 @@ func (app *App) setup() {
 	pwChecker := core.NewPasswordChecker()
 
 	// Initialize repositories
+	db := client.Database("users")
 
 	activationManager := core.NewSimpleActivationManager()
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
-	userRepo := repositories.NewUserRepository(app.DB, "users", "users")
+	if err != nil {
+		log.Fatalf("Failed to initialize identifier: %v", err)
+	}
+	coachRepo := repositories.NewCoachRepository(db, "coach_clients")
+	userRepo := repositories.NewUserRepository(db, "users")
 	notification := notification.NewNotificationClient(config.Notification.MailgunDomain,
 		config.Notification.MailgunAPIKey)
 
@@ -97,7 +102,8 @@ func (app *App) setup() {
 	servicesWrapper := services.InitServices(
 		*config,
 		middleware,
-		*userRepo,
+		userRepo,
+		coachRepo,
 		pwChecker,
 		activationManager,
 		identifier,

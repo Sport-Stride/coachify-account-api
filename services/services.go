@@ -12,12 +12,14 @@ import (
 )
 
 type Services struct {
-	AuthService AuthService
+	AuthService  AuthService
+	CoachService CoachService
 }
 
 func InitServices(config utils.AppConfig,
 	middleware *jwt.GinJWTMiddleware,
-	userRepo repositories.UserRepository,
+	userRepo *repositories.UserRepository,
+	coachRepo *repositories.CoachRepository,
 	pwChecker core.PasswordChecker,
 	activationManager core.ActivationManager,
 	identfier *identifier.IdentifierClient,
@@ -35,8 +37,18 @@ func InitServices(config utils.AppConfig,
 		notification,
 		providers,
 	)
+
+	coachService := NewCoachService(
+		coachRepo,
+		userRepo,
+		notification,
+		identfier,
+		activationManager,
+		config.BaseURL.URL,
+	)
 	return &Services{
-		AuthService: authService,
+		AuthService:  authService,
+		CoachService: coachService,
 	}
 
 }

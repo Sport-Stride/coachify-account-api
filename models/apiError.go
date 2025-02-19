@@ -68,6 +68,7 @@ var (
 	ErrInvalidIDToken            = errors.New("invalid id token")
 	ErrTokenEncryptionFailed     = errors.New("token encryption failed")
 	ErrInvalidAudience           = errors.New("invalid audience")
+	ErrClientAlreadyLinked       = errors.New("client is already linked to another coach")
 )
 
 // Error implements the error interface for ApiError.
