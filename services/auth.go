@@ -353,7 +353,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
-	dbUser.UserStatus = "ToConfirm"
+	dbUser.UserStatus = db.ToConfirm
 
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
@@ -897,7 +897,7 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
-	dbUser.UserStatus = "ToConfirm"
+	dbUser.UserStatus = db.ToConfirm
 
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {

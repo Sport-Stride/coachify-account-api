@@ -147,7 +147,7 @@ func (s *CoachServiceImpl) RegisterClient(ctx context.Context, req *api.CreateUs
 
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
-	dbUser.UserStatus = "ToConfirm"
+	dbUser.UserStatus = db.ToConfirm
 
 	inserted, err := s.userRepo.CreateUser(ctx, dbUser)
 	if err != nil {
@@ -322,7 +322,7 @@ func (s *CoachServiceImpl) InviteMultipleClientsBulk(ctx context.Context, emails
 
 			dbUser.Token = &accessToken
 			dbUser.UserRefreshToken = &refreshToken
-			dbUser.UserStatus = "ToConfirm"
+			dbUser.UserStatus = db.ToConfirm
 
 			usersToInsert = append(usersToInsert, dbUser)
 			plainPasswords = append(plainPasswords, plainPassword)
