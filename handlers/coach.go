@@ -91,3 +91,41 @@ func InviteClient(coachService services.CoachService) gin.HandlerFunc {
 		}
 	}
 }
+func CheckClient(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Extract coachID from the context
+		coachID, exists := c.Get("userID")
+		if !exists || coachID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		// Parse the request body
+		var requestBody struct {
+			Email  string   `json:"email"`  // Single email
+			Emails []string `json:"emails"` // Multiple emails
+		}
+
+		if err := c.ShouldBindJSON(&requestBody); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		// Determine if the request is for a single email or multiple emails
+		if requestBody.Email != "" {
+
+			// Call the InviteClient method for a single email
+			resp, apiErr := coachService.CheckClient(c.Request.Context(), requestBody.Email, coachID.(string))
+			if apiErr != nil {
+				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+				return
+			}
+
+			c.JSON(200, resp)
+		} else {
+			// No valid email(s) provided
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no valid email(s) provided"})
+			return
+		}
+	}
+}

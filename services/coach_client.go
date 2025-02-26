@@ -22,6 +22,7 @@ import (
 
 // services/coach_service.go
 type CoachService interface {
+	CheckClient(ctx context.Context, email string, coachID string) (*api.CheckClientResponse, *models.ApiError)
 	GetClientsPaginated(ctx context.Context, coachID string, search api.SearchClient) ([]*api.ClientResponse, int, *models.ApiError)
 	InviteClient(ctx context.Context, req *api.CreateUserRequest, coachID string) (*api.RegisterResponse, *models.ApiError)
 	InviteMultipleClientsBulk(ctx context.Context, emails []string, coachID string) (*api.InviteClientResponse, *models.ApiError)
@@ -178,7 +179,41 @@ func (s *CoachServiceImpl) RegisterClient(ctx context.Context, req *api.CreateUs
 }
 
 // InviteClient invites a single client.
-// InviteClient invites a single client.
+func (s *CoachServiceImpl) CheckClient(ctx context.Context, email string, coachID string) (*api.CheckClientResponse, *models.ApiError) {
+	// Get user by email
+	user, err := s.userRepo.CheckEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get coach name
+	coachName, err := s.userRepo.GetUserNameByExternalID(ctx, coachID)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &api.CheckClientResponse{
+		CoachName: coachName,
+	}
+
+	if user == nil {
+		response.UserExists = false
+		return response, nil
+	} else {
+		response.UserExists = true
+	}
+
+	// Check existing relationship
+	_, err = s.coachRepo.FindInvitation(ctx, user.ExternalID, coachID)
+	if err == nil {
+		response.AlreadyLinked = false
+		return response, nil
+	} else {
+		response.UserExists = true
+		return response, nil
+	}
+}
+
 func (s *CoachServiceImpl) InviteClient(ctx context.Context, req *api.CreateUserRequest, coachID string) (*api.RegisterResponse, *models.ApiError) {
 
 	user, err := s.userRepo.GetByEmailToInvite(ctx, req.Email)

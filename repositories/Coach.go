@@ -158,13 +158,15 @@ func (r *CoachRepository) FindInvitation(ctx context.Context, clientID, coachID 
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
-		utils.Logger.Error("Failed to find invitation", zap.Error(err))
 		return nil, &models.ApiError{
 			Code:  http.StatusInternalServerError,
 			Error: models.ErrInternalError,
 		}
 	}
-	return &invitation, nil
+	return nil, &models.ApiError{
+		Code:  http.StatusBadRequest,
+		Error: models.ErrClientAlreadyLinked,
+	}
 }
 
 func (r *CoachRepository) CreateInvitations(ctx context.Context, invitations []*db.CoachClient) error {

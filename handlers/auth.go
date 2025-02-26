@@ -68,6 +68,16 @@ func GetUserByEmail(service services.AuthService) gin.HandlerFunc {
 	}
 }
 
+func CheckEmail(service services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		entity, err := service.CheckEmail(ctx, ctx.Param("prefix"))
+		if err != nil {
+			ctx.JSON(err.Code, gin.H{"error": err.Error.Error()})
+		} else {
+			ctx.JSON(200, entity)
+		}
+	}
+}
 func GetUserById(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		entity, err := service.GetUserById(ctx, ctx.Param("prefix"))
