@@ -118,15 +118,7 @@ func (r *UserRepository) GetUserNameByExternalID(ctx context.Context, externalID
 func (r *UserRepository) GetUserById(ctx context.Context, userId string) (*db.User, *models.ApiError) {
 	var user db.User
 
-	objID, err := primitive.ObjectIDFromHex(userId)
-	if err != nil {
-		return nil, &models.ApiError{
-			Code:  http.StatusBadRequest,
-			Error: models.ErrInvalidIdFormat,
-		}
-	}
-
-	err = r.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+	err := r.collection.FindOne(ctx, bson.M{"externalid": userId}).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, &models.ApiError{
