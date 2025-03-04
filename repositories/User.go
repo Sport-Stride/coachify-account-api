@@ -496,6 +496,35 @@ func (r *UserRepository) GetByEmailToInvite(ctx context.Context, email string) (
 }
 
 // GetByEmail retrieves a user by email
+func (r *UserRepository) CheckEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
+	var user db.User
+
+	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		utils.Logger.Error("Error retrieving user from the database", zap.String("email", email), zap.Error(err))
+
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrRetrievingUser,
+		}
+	}
+	if user.UserStatus == db.Blocked {
+		utils.Logger.Info("user banned",
+			zap.String("email", user.UserEmail),
+			zap.String("status", string(user.UserStatus)),
+		)
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrUserBlocked,
+		}
+	}
+	return &user, nil
+}
+
+// GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	var user db.User
 

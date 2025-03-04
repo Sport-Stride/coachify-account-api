@@ -27,6 +27,7 @@ import (
 type AuthService interface {
 	GetUserById(ctx context.Context, userId string) (*api.ApiUser, *models.ApiError)
 	GetUserByEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError)
+	CheckEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError)
 	Register(ctx context.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError
 	ResendConfirmEmail(ctx context.Context, email string) *models.ApiError
@@ -134,6 +135,19 @@ func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.A
 	return &apiUser, nil
 }
 
+func (s AuthServiceImpl) CheckEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError) {
+	user, err := s.userRepository.CheckEmail(ctx, userEmail)
+	if err != nil {
+
+		return nil, err
+	}
+
+	// Convert the user to the API model
+	apiUser := mapping.ToApiUser(user)
+
+	// Return the converted API user and no error
+	return &apiUser, nil
+}
 func (s AuthServiceImpl) GetUserByEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError) {
 	user, err := s.userRepository.GetByEmail(ctx, userEmail)
 	if err != nil {

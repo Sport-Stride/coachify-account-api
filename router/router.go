@@ -52,6 +52,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.DELETE("/", handlers.DeleteUser(services.AuthService))
 	userGroup.POST("/", handlers.AddUser(services.AuthService))
 	userGroup.GET("/get-user-by-email/:prefix", handlers.GetUserByEmail(services.AuthService))
+	userGroup.GET("/check-email/:prefix", handlers.GetUserByEmail(services.AuthService))
 	userGroup.GET("/get-user-by-id/:prefix", handlers.GetUserById(services.AuthService))
 	userGroup.GET("/get-user/:prefix", handlers.GetUserByExternalId(services.AuthService))
 
@@ -69,6 +70,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		coachProtectedGroup := protected.Group("/coach")
 		{
 			// The update endpoint ignores any client-provided external ID.
+			coachProtectedGroup.POST("/check-client", handlers.CheckClient(services.CoachService))
 			coachProtectedGroup.GET("/get-clients", handlers.GetClientsPaginated(services.CoachService))
 			coachProtectedGroup.POST("/invite", handlers.InviteClient(services.CoachService))
 		}
