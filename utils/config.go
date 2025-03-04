@@ -52,10 +52,10 @@ func LoadConfig() *AppConfig {
 		viper.AutomaticEnv()
 
 		cfg := &AppConfig{
-			Port:        getIntWithDefault("PORT", 8060),
+			Port:        getIntWithDefault("PORT", 8086),
 			Environment: getStringWithDefault("ENVIRONMENT", "development"),
 			BaseURL: BaseURLConfig{
-				URL: getStringWithDefault("BASE_URL", "http://localhost:8060"),
+				URL: getStringWithDefault("BASE_URL", "http://localhost:8086"),
 			},
 			MongoDB: MongoConfig{
 				URI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),

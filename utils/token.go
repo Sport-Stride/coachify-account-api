@@ -35,6 +35,7 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 
 	claims := jwt.MapClaims{
 		"id":    params.User.ExternalID,
+		"name":  params.User.UserFirstname + " " + params.User.UserLastname,
 		"email": params.User.UserEmail,
 		"exp":   time.Now().Add(expirationTime).Unix(),
 		"role":  params.User.UserRole,

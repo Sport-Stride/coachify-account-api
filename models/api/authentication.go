@@ -159,10 +159,12 @@ type UserRequest struct {
 }
 
 type RefreshToken struct {
-	ExternalID   string  `json:"external_id,omitempty"`
-	UserEmail    string  `bson:"email" validate:"required"`
-	UserRole     string  `json:"role"`
-	RefreshToken *string `json:"refresh_token,omitempty"`
+	ExternalID    string  `json:"external_id,omitempty"`
+	UserFirstname string  `json:"firstname" validate:"required"`
+	UserLastname  string  `json:"lastname" validate:"required"`
+	UserEmail     string  `bson:"email" validate:"required"`
+	UserRole      string  `json:"role"`
+	RefreshToken  *string `json:"refresh_token,omitempty"`
 }
 
 type GetUserConfirm struct {

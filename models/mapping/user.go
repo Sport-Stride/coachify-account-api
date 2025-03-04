@@ -58,10 +58,12 @@ func ToDbUserFromOAuth(oauthUser db.OAuthUser, externalid string) *db.User {
 
 func ToRefreshToken(dbUser *db.User) api.RefreshToken {
 	return api.RefreshToken{
-		ExternalID:   dbUser.ExternalID,
-		UserEmail:    dbUser.UserEmail,
-		UserRole:     dbUser.UserRole,
-		RefreshToken: dbUser.UserRefreshToken,
+		ExternalID:    dbUser.ExternalID,
+		UserFirstname: dbUser.UserFirstname,
+		UserLastname:  dbUser.UserLastname,
+		UserEmail:     dbUser.UserEmail,
+		UserRole:      dbUser.UserRole,
+		RefreshToken:  dbUser.UserRefreshToken,
 	}
 }
 
