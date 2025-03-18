@@ -35,10 +35,10 @@ func initializeMiddlewares(r *gin.Engine) {
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Allow specific origins (replace "*" with your frontend URL in production)
-		allowedOrigin := "http://localhost:3000"
-		// if origin := c.Request.Header.Get("Origin"); origin != "" {
-		// 	allowedOrigin = origin // Allow the requesting origin
-		// }
+		allowedOrigin := "*"
+		if origin := c.Request.Header.Get("Origin"); origin != "" {
+			allowedOrigin = origin // Allow the requesting origin
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
 		// Allow specific HTTP methods
