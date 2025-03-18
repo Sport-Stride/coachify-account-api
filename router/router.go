@@ -7,14 +7,19 @@ import (
 	"coachify-account-api/services"
 	"coachify-account-api/utils"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func InitializeRouter(services *services.Services) *gin.Engine {
 	// Set the default gin router
 	r := gin.New()
-
-	r.Use(gin.Recovery())
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"https://www.tampl.io, http://localhost"}
+	config.AllowAllOrigins = true
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Content-Length", "X-Requested-With", "Accept", "Referrer", "User-Agent", "X-Auth-Token"}
+	r.Use(cors.New(config))
 
 	// Initialize middlewares
 	initializeMiddlewares(r)
