@@ -60,6 +60,7 @@ func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
 func OAuth2ServerSideCallback(authService services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Bind the incoming JSON to a db.OAuthUser object.
+		providerType := ctx.Param("provider")
 		var oauthUser db.OAuthUser
 		if err := ctx.ShouldBindJSON(&oauthUser); err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
@@ -70,7 +71,7 @@ func OAuth2ServerSideCallback(authService services.AuthService) gin.HandlerFunc 
 		}
 
 		// Call the updated HandleOAuthLogin method.
-		resp, apiErr := authService.HandleOAuthLogin(ctx, &oauthUser)
+		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, &oauthUser)
 		if apiErr != nil {
 			ctx.JSON(apiErr.Code, gin.H{
 				"error": apiErr.Error.Error(),

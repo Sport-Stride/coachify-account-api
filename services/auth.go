@@ -41,7 +41,7 @@ type AuthService interface {
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
-	HandleOAuthLogin(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError)
+	HandleOAuthLogin(ctx context.Context, providerTyep string, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
@@ -218,13 +218,13 @@ func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) s
 //		// 	User: &user.User,
 //		// }, nil
 //	}
-func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType string, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
 	// Check if a user with this email already exists
 	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
 	if err != nil {
 		return nil, err
 	}
-
+	oauthUser.ProviderType = providerType
 	if user != nil {
 		// Existing user: link provider details or log them in
 		return s.linkExistingUser(ctx, user, oauthUser)

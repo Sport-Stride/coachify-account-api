@@ -133,6 +133,17 @@ type OAuthUser struct {
 	RefreshToken   string    `bson:"refresh_token"` // Encrypted
 	Expiry         time.Time `bson:"expiry"`
 }
+
+type OAuthUserApi struct {
+	ProviderID     string    `json:"provider_id"`
+	Email          string    `json:"email"`
+	FirstName      string    `json:"first_name"`
+	LastName       string    `json:"last_name"`
+	ProfilePicture string    `json:"profile_picture"`
+	AccessToken    string    `json:"access_token"`  // Encrypted
+	RefreshToken   string    `json:"refresh_token"` // Encrypted
+	Expiry         time.Time `json:"expiry"`
+}
 type OAuthProviderDetails struct {
 	ProviderID     string    `bson:"provider_id"`
 	Email          string    `bson:"email"`
