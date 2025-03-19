@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/services"
 	"coachify-account-api/utils"
@@ -28,25 +29,52 @@ func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
 	}
 }
 
-func OAuth2Callback(authService services.AuthService) gin.HandlerFunc {
+// func OAuth2Callback(authService services.AuthService) gin.HandlerFunc {
+// 	return func(ctx *gin.Context) {
+// 		providerType := ctx.Param("provider")
+// 		code := ctx.Query("code")
+// 		receivedState := ctx.Query("state")
+// 		if providerType == "" || code == "" || receivedState == "" {
+// 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth callback request"})
+// 			return
+// 		}
+// 		// Retrieve the stored state (e.g., from a cookie or session)
+// 		storedState, err := ctx.Cookie("oauth_state")
+// 		if err != nil || storedState != receivedState {
+// 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
+// 			return
+// 		}
+// 		// Call auth service to handle OAuth logic
+// 		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, code)
+// 		if apiErr != nil {
+// 			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+// 			return
+// 		}
+
+//			ctx.JSON(http.StatusOK, gin.H{
+//				"message": "User logged in successfully",
+//				"user":    resp.User,
+//			})
+//		}
+//	}
+func OAuth2ServerSideCallback(authService services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		providerType := ctx.Param("provider")
-		code := ctx.Query("code")
-		receivedState := ctx.Query("state")
-		if providerType == "" || code == "" || receivedState == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth callback request"})
+		// Bind the incoming JSON to a db.OAuthUser object.
+		var oauthUser db.OAuthUser
+		if err := ctx.ShouldBindJSON(&oauthUser); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid OAuth user payload",
+				"details": err.Error(),
+			})
 			return
 		}
-		// Retrieve the stored state (e.g., from a cookie or session)
-		storedState, err := ctx.Cookie("oauth_state")
-		if err != nil || storedState != receivedState {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
-			return
-		}
-		// Call auth service to handle OAuth logic
-		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, code)
+
+		// Call the updated HandleOAuthLogin method.
+		resp, apiErr := authService.HandleOAuthLogin(ctx, &oauthUser)
 		if apiErr != nil {
-			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			ctx.JSON(apiErr.Code, gin.H{
+				"error": apiErr.Error.Error(),
+			})
 			return
 		}
 

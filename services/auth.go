@@ -41,7 +41,7 @@ type AuthService interface {
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
-	HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError)
+	HandleOAuthLogin(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
@@ -171,54 +171,68 @@ func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) s
 	return provider.GetLoginURL(state)
 }
 
-func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
-	provider, ok := s.providers[oauth2.ProviderType(providerType)]
-	if !ok {
-		return nil, &models.ApiError{
-			Code:  http.StatusBadRequest,
-			Error: models.ErrProviderNotFound,
-		}
-	}
+// func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
+// 	provider, ok := s.providers[oauth2.ProviderType(providerType)]
+// 	if !ok {
+// 		return nil, &models.ApiError{
+// 			Code:  http.StatusBadRequest,
+// 			Error: models.ErrProviderNotFound,
+// 		}
+// 	}
 
-	// Exchange code for token
-	token, err := provider.ExchangeCode(ctx, code)
-	if err != nil {
-		return nil, err
-	}
+// 	// Exchange code for token
+// 	token, err := provider.ExchangeCode(ctx, code)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	// Fetch user info
-	oauthUser, err := provider.GetUserInfo(ctx, token)
-	if err != nil {
-		return nil, err
-	}
-	// Check if provider is already linked to another account
+// 	// Fetch user info
+// 	oauthUser, err := provider.GetUserInfo(ctx, token)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	// Check if provider is already linked to another account
+// 	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if user != nil {
+// 		// log in existing user
+// 		return s.linkExistingUser(ctx, user, oauthUser)
+// 	} else {
+// 		// Create new user with OAuth provider
+// 		return s.createNewOAuthUser(ctx, oauthUser)
+// 	}
+// 	// Link provider to existing account
+// 	//log.Printf("IBL: OAuth response from Facebook: %+v", oauthUser)
+
+// 	// Link OAuth provider with user account
+// 	// user, apiErr := s.LinkOAuthProvider(ctx, *oauthUser)
+// 	// if apiErr != nil {
+// 	// 	return nil, apiErr
+// 	// }
+
+//		// // Return response struct
+//		// return &api.OAuthResponse{
+//		// 	User: &user.User,
+//		// }, nil
+//	}
+func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+	// Check if a user with this email already exists
 	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
 	if err != nil {
 		return nil, err
 	}
 
 	if user != nil {
-		// log in existing user
+		// Existing user: link provider details or log them in
 		return s.linkExistingUser(ctx, user, oauthUser)
-	} else {
-		// Create new user with OAuth provider
-		return s.createNewOAuthUser(ctx, oauthUser)
 	}
-	// Link provider to existing account
-	//log.Printf("IBL: OAuth response from Facebook: %+v", oauthUser)
 
-	// Link OAuth provider with user account
-	// user, apiErr := s.LinkOAuthProvider(ctx, *oauthUser)
-	// if apiErr != nil {
-	// 	return nil, apiErr
-	// }
-
-	// // Return response struct
-	// return &api.OAuthResponse{
-	// 	User: &user.User,
-	// }, nil
+	// No user exists, create a new one using the OAuth user info
+	return s.createNewOAuthUser(ctx, oauthUser)
 }
-
 func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
 	id, apiErr := s.identifier.GenerateId(ctx, "user")
 	if apiErr != nil {
