@@ -41,7 +41,7 @@ type AuthService interface {
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
-	HandleOAuthLogin(ctx context.Context, providerTyep string, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError)
+	HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
@@ -218,7 +218,26 @@ func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) s
 //		// 	User: &user.User,
 //		// }, nil
 //	}
-func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType string, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
+	provider, ok := s.providers[oauth2.ProviderType(providerType)]
+	if !ok {
+		return nil, &models.ApiError{
+			Code:  http.StatusBadRequest,
+			Error: models.ErrProviderNotFound,
+		}
+	}
+
+	// Exchange code for token
+	token, err := provider.ExchangeCode(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch user info
+	oauthUser, err := provider.GetUserInfo(ctx, token)
+	if err != nil {
+		return nil, err
+	}
 	// Check if a user with this email already exists
 	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
 	if err != nil {
