@@ -31,26 +31,27 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 }
 
 // ToDbUserFromGoogleProfile maps a GoogleProfile payload to a new User model for the database.
-func ToDbUserFromGoogleProfile(googleProfile db.GoogleProfile, externalid string) *db.User {
+// ToDbUserFromGoogleProfile maps a GoogleLoginRequest payload to a new User model for the database.
+func ToDbUserFromGoogleProfile(googleLoginRequest db.GoogleLoginRequest, externalid string) *db.User {
 	return &db.User{
 		ExternalID:         externalid,
-		UserFirstname:      googleProfile.GivenName,
-		UserLastname:       googleProfile.FamilyName,
-		UserEmail:          googleProfile.Email,
-		UserProfilePicture: googleProfile.Picture,
+		UserFirstname:      googleLoginRequest.Profile.GivenName,
+		UserLastname:       googleLoginRequest.Profile.FamilyName,
+		UserEmail:          googleLoginRequest.Profile.Email,
+		UserProfilePicture: googleLoginRequest.Profile.Picture,
 		UserStatus:         db.Active, // Active because it's an OAuth login
 		UserCreatedAt:      time.Now(),
 		UserUpdatedAt:      time.Now(),
 		Providers: map[string]db.OAuthProviderDetails{
-			googleProfile.ProviderType: {
-				ProviderID:     googleProfile.Sub,
-				Email:          googleProfile.Email,
-				FirstName:      googleProfile.GivenName,
-				LastName:       googleProfile.FamilyName,
-				ProfilePicture: googleProfile.Picture,
-				AccessToken:    "",                              // Not provided in GoogleProfile
-				RefreshToken:   "",                              // Not provided in GoogleProfile
-				Expiry:         time.Unix(googleProfile.Exp, 0), // Convert Exp from epoch to time.Time
+			googleLoginRequest.Profile.ProviderType: {
+				ProviderID:     googleLoginRequest.Profile.Sub,
+				Email:          googleLoginRequest.Profile.Email,
+				FirstName:      googleLoginRequest.Profile.GivenName,
+				LastName:       googleLoginRequest.Profile.FamilyName,
+				ProfilePicture: googleLoginRequest.Profile.Picture,
+				AccessToken:    googleLoginRequest.Account.AccessToken,
+				RefreshToken:   googleLoginRequest.Account.RefreshToken,
+				Expiry:         time.Unix(googleLoginRequest.Account.ExpiresAt, 0), // Convert ExpiresAt from epoch seconds to time.Time
 			},
 		},
 	}

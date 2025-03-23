@@ -228,26 +228,26 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	}
 
 	// Fetch user info
-	_, err := provider.ValidateToken(ctx, oauth.Token)
+	_, err := provider.ValidateToken(ctx, oauth.Account.IdToken)
 	if err != nil {
 		return nil, err
 	}
-	oauthUser := oauth.Profile
+
 	// Check if a user with this email already exists
-	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
+	user, err := s.userRepository.GetByEmailCheck(ctx, oauth.Profile.Email)
 	if err != nil {
 		return nil, err
 	}
-	oauthUser.ProviderType = providerType
+	oauth.Profile.ProviderType = providerType
 	if user != nil {
 		// Existing user: link provider details or log them in
-		return s.linkExistingUser(ctx, user, oauthUser)
+		return s.linkExistingUser(ctx, user, oauth)
 	}
 
 	// No user exists, create a new one using the OAuth user info
-	return s.createNewOAuthUser(ctx, oauthUser)
+	return s.createNewOAuthUser(ctx, oauth)
 }
-func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleProfile) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	id, apiErr := s.identifier.GenerateId(ctx, "user")
 	if apiErr != nil {
 		return nil, apiErr
@@ -288,7 +288,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}, nil
 }
 
-func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleProfile) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	// Generate new access and refresh tokens for the user.
 	accessToken, refreshToken, apiErr := s.generateTokens(user)
 	if apiErr != nil {
@@ -318,19 +318,19 @@ func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, o
 	if user.Providers == nil {
 		user.Providers = make(map[string]db.OAuthProviderDetails)
 	}
-	expiryTime := time.Unix(oauthUser.Exp, 0)
+	expiryTime := time.Unix(oauthUser.Account.ExpiresAt, 0)
 	// Create new provider details from the oauthUser information.
 	newProviderDetails := db.OAuthProviderDetails{
-		ProviderID:     oauthUser.Sub,
-		Email:          oauthUser.Email,
-		FirstName:      oauthUser.GivenName,
-		LastName:       oauthUser.FamilyName,
-		ProfilePicture: oauthUser.Picture,
-		AccessToken:    "",
-		RefreshToken:   "",
-		Expiry:         expiryTime,
+		ProviderID:     oauthUser.Profile.Sub,
+		Email:          oauthUser.Profile.Email,
+		FirstName:      oauthUser.Profile.GivenName,
+		LastName:       oauthUser.Profile.FamilyName,
+		ProfilePicture: oauthUser.Profile.Picture,
+		AccessToken:    oauthUser.Account.AccessToken,  // Use the provided access token
+		RefreshToken:   oauthUser.Account.RefreshToken, // Use the provided refresh token
+		Expiry:         expiryTime,                     // Converted expiry time
 	}
-	user.Providers[oauthUser.ProviderType] = newProviderDetails
+	user.Providers[oauthUser.Profile.ProviderType] = newProviderDetails
 
 	// Update the user's last login time.
 	user.UserLastLogin = time.Now()

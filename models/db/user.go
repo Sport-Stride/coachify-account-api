@@ -137,8 +137,21 @@ type OAuthUser struct {
 
 // GoogleLoginRequest represents the payload from NextAuth for Google authentication.
 type GoogleLoginRequest struct {
-	Token   string        `json:"token"`
+	Account GoogleAccount `json:"account"`
 	Profile GoogleProfile `json:"profile"`
+}
+
+type GoogleAccount struct {
+	AccessToken       string `bson:"access_token" json:"access_token"`
+	ExpiresIn         int64  `bson:"expires_in" json:"expires_in"`
+	RefreshToken      string `bson:"refresh_token" json:"refresh_token"`
+	Scope             string `bson:"scope" json:"scope"`
+	TokenType         string `bson:"token_type" json:"token_type"`
+	IdToken           string `bson:"id_token" json:"id_token"`
+	ExpiresAt         int64  `bson:"expires_at" json:"expires_at"`
+	Provider          string `bson:"provider" json:"provider"`
+	Type              string `bson:"type" json:"type"`
+	ProviderAccountId string `bson:"provider_account_id" json:"providerAccountId"`
 }
 
 // GoogleProfile represents the details received from Google.
