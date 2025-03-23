@@ -123,15 +123,15 @@ type Address struct {
 }
 
 type OAuthUser struct {
-	ProviderType   string    `bson:"provider_type"`
-	ProviderID     string    `bson:"provider_id"`
-	Email          string    `bson:"email"`
-	FirstName      string    `bson:"first_name"`
-	LastName       string    `bson:"last_name"`
-	ProfilePicture string    `bson:"profile_picture"`
-	AccessToken    string    `bson:"access_token"`  // Encrypted
-	RefreshToken   string    `bson:"refresh_token"` // Encrypted
-	Expiry         time.Time `bson:"expiry"`
+	ProviderType   string    `bson:"provider_type" json:"provider_type"`
+	ProviderID     string    `bson:"provider_id" json:"provider_id"`
+	Email          string    `bson:"email" json:"email"`
+	FirstName      string    `bson:"first_name" json:"first_name"`
+	LastName       string    `bson:"last_name" json:"last_name"`
+	ProfilePicture string    `bson:"profile_picture" json:"profile_picture"`
+	AccessToken    string    `bson:"access_token" json:"access_token"`   // Encrypted
+	RefreshToken   string    `bson:"refresh_token" json:"refresh_token"` // Encrypted
+	Expiry         time.Time `bson:"expiry" json:"expiry"`
 }
 
 type OAuthUserApi struct {
