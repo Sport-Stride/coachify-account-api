@@ -47,6 +47,27 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2
 	return token, nil
 }
 
+func (p *GoogleProvider) ValidateToken(ctx context.Context, idToken string) (bool, *models.ApiError) {
+
+	// Validate the ID token with Google's certificates
+	payload, err := idtoken.Validate(ctx, idToken, p.config.ClientID)
+	if err != nil {
+		return false, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: fmt.Errorf("invalid ID token: %v", err),
+		}
+	}
+
+	// Validate audience
+	if payload.Claims["aud"].(string) != p.config.ClientID {
+		return false, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidAudience,
+		}
+
+	}
+	return true, nil
+}
 func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (*db.OAuthUser, *models.ApiError) {
 	// Validate ID token instead of using userinfo endpoint
 	idToken, ok := token.Extra("id_token").(string)

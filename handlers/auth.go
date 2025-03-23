@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/services"
 	"coachify-account-api/utils"
@@ -60,17 +61,17 @@ func OAuth2ServerSideCallback(authService services.AuthService) gin.HandlerFunc 
 	return func(ctx *gin.Context) {
 		// Bind the incoming JSON to a db.OAuthUser object.
 		providerType := ctx.Param("provider")
-		// var oauthUser db.OAuthUser
-		// if err := ctx.ShouldBindJSON(&oauthUser); err != nil {
-		// 	ctx.JSON(http.StatusBadRequest, gin.H{
-		// 		"error":   "Invalid OAuth user payload",
-		// 		"details": err.Error(),
-		// 	})
-		// 	return
-		// }
-		code := ctx.Query("code")
+		var oauthUser db.GoogleLoginRequest
+		if err := ctx.ShouldBindJSON(&oauthUser); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid OAuth user payload",
+				"details": err.Error(),
+			})
+			return
+		}
+
 		// Call the updated HandleOAuthLogin method.
-		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, code)
+		resp, apiErr := authService.HandleOAuthLogin(ctx, providerType, oauthUser)
 		if apiErr != nil {
 			ctx.JSON(apiErr.Code, gin.H{
 				"error": apiErr.Error.Error(),

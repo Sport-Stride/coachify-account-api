@@ -41,7 +41,7 @@ type AuthService interface {
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
-	HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError)
+	HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
@@ -218,7 +218,7 @@ func (s *AuthServiceImpl) GetOAuth2LoginURL(providerType string, state string) s
 //		// 	User: &user.User,
 //		// }, nil
 //	}
-func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, code string) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	provider, ok := s.providers[oauth2.ProviderType(providerType)]
 	if !ok {
 		return nil, &models.ApiError{
@@ -227,17 +227,12 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, co
 		}
 	}
 
-	// Exchange code for token
-	token, err := provider.ExchangeCode(ctx, code)
-	if err != nil {
-		return nil, err
-	}
-
 	// Fetch user info
-	oauthUser, err := provider.GetUserInfo(ctx, token)
+	_, err := provider.ValidateToken(ctx, oauth.Token)
 	if err != nil {
 		return nil, err
 	}
+	oauthUser := oauth.Profile
 	// Check if a user with this email already exists
 	user, err := s.userRepository.GetByEmailCheck(ctx, oauthUser.Email)
 	if err != nil {
@@ -252,13 +247,13 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType, co
 	// No user exists, create a new one using the OAuth user info
 	return s.createNewOAuthUser(ctx, oauthUser)
 }
-func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleProfile) (*api.OAuthResponse, *models.ApiError) {
 	id, apiErr := s.identifier.GenerateId(ctx, "user")
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	newUser := mapping.ToDbUserFromOAuth(*oauthUser, id.Code)
+	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
 
 	// Generate tokens
 	accessToken, refreshToken, apiErr := s.generateTokens(newUser)
@@ -293,7 +288,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser *db.
 	}, nil
 }
 
-func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser *db.OAuthUser) (*api.OAuthResponse, *models.ApiError) {
+func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleProfile) (*api.OAuthResponse, *models.ApiError) {
 	// Generate new access and refresh tokens for the user.
 	accessToken, refreshToken, apiErr := s.generateTokens(user)
 	if apiErr != nil {
@@ -323,17 +318,17 @@ func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, o
 	if user.Providers == nil {
 		user.Providers = make(map[string]db.OAuthProviderDetails)
 	}
-
+	expiryTime := time.Unix(oauthUser.Exp, 0)
 	// Create new provider details from the oauthUser information.
 	newProviderDetails := db.OAuthProviderDetails{
-		ProviderID:     oauthUser.ProviderID,
+		ProviderID:     oauthUser.Sub,
 		Email:          oauthUser.Email,
-		FirstName:      oauthUser.FirstName,
-		LastName:       oauthUser.LastName,
-		ProfilePicture: oauthUser.ProfilePicture,
-		AccessToken:    oauthUser.AccessToken,
-		RefreshToken:   oauthUser.RefreshToken,
-		Expiry:         oauthUser.Expiry,
+		FirstName:      oauthUser.GivenName,
+		LastName:       oauthUser.FamilyName,
+		ProfilePicture: oauthUser.Picture,
+		AccessToken:    "",
+		RefreshToken:   "",
+		Expiry:         expiryTime,
 	}
 	user.Providers[oauthUser.ProviderType] = newProviderDetails
 

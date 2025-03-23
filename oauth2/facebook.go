@@ -5,11 +5,13 @@ import (
 	"coachify-account-api/models/db"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/facebook"
+	"google.golang.org/api/idtoken"
 )
 
 type FacebookProvider struct {
@@ -44,7 +46,27 @@ func (p *FacebookProvider) ExchangeCode(ctx context.Context, code string) (*oaut
 	}
 	return token, nil
 }
+func (p *FacebookProvider) ValidateToken(ctx context.Context, idToken string) (bool, *models.ApiError) {
 
+	// Validate the ID token with Google's certificates
+	payload, err := idtoken.Validate(ctx, idToken, p.config.ClientID)
+	if err != nil {
+		return false, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: fmt.Errorf("invalid ID token: %v", err),
+		}
+	}
+
+	// Validate audience
+	if payload.Claims["aud"].(string) != p.config.ClientID {
+		return false, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidAudience,
+		}
+
+	}
+	return true, nil
+}
 func (p *FacebookProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (*db.OAuthUser, *models.ApiError) {
 	client := p.config.Client(ctx, token)
 	resp, err := client.Get("https://graph.facebook.com/v13.0/me?fields=id,first_name,last_name,email,picture")

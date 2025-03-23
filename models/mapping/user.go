@@ -30,6 +30,32 @@ func CreateToDbUser(req *api.CreateUserRequest, encryptedPassword string, id str
 	}
 }
 
+// ToDbUserFromGoogleProfile maps a GoogleProfile payload to a new User model for the database.
+func ToDbUserFromGoogleProfile(googleProfile db.GoogleProfile, externalid string) *db.User {
+	return &db.User{
+		ExternalID:         externalid,
+		UserFirstname:      googleProfile.GivenName,
+		UserLastname:       googleProfile.FamilyName,
+		UserEmail:          googleProfile.Email,
+		UserProfilePicture: googleProfile.Picture,
+		UserStatus:         db.Active, // Active because it's an OAuth login
+		UserCreatedAt:      time.Now(),
+		UserUpdatedAt:      time.Now(),
+		Providers: map[string]db.OAuthProviderDetails{
+			googleProfile.ProviderType: {
+				ProviderID:     googleProfile.Sub,
+				Email:          googleProfile.Email,
+				FirstName:      googleProfile.GivenName,
+				LastName:       googleProfile.FamilyName,
+				ProfilePicture: googleProfile.Picture,
+				AccessToken:    "",                              // Not provided in GoogleProfile
+				RefreshToken:   "",                              // Not provided in GoogleProfile
+				Expiry:         time.Unix(googleProfile.Exp, 0), // Convert Exp from epoch to time.Time
+			},
+		},
+	}
+}
+
 // ToDbUserFromOAuth maps an OAuthUser struct to a new User model for the database
 func ToDbUserFromOAuth(oauthUser db.OAuthUser, externalid string) *db.User {
 	return &db.User{

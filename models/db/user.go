@@ -129,11 +129,35 @@ type OAuthUser struct {
 	FirstName      string    `bson:"first_name" json:"first_name"`
 	LastName       string    `bson:"last_name" json:"last_name"`
 	ProfilePicture string    `bson:"profile_picture" json:"profile_picture"`
+	IDToken        string    `bson:"id_token" json:"id_token"`           // New field for the ID token from the provider
 	AccessToken    string    `bson:"access_token" json:"access_token"`   // Encrypted
 	RefreshToken   string    `bson:"refresh_token" json:"refresh_token"` // Encrypted
 	Expiry         time.Time `bson:"expiry" json:"expiry"`
 }
 
+// GoogleLoginRequest represents the payload from NextAuth for Google authentication.
+type GoogleLoginRequest struct {
+	Token   string        `json:"token"`
+	Profile GoogleProfile `json:"profile"`
+}
+
+// GoogleProfile represents the details received from Google.
+type GoogleProfile struct {
+	Iss           string `json:"iss"`
+	Azp           string `json:"azp"`
+	Aud           string `json:"aud"`
+	Sub           string `json:"sub"`
+	ProviderType  string `bson:"provider_type" json:"provider_type"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	AtHash        string `json:"at_hash"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Iat           int64  `json:"iat"`
+	Exp           int64  `json:"exp"`
+}
 type OAuthUserApi struct {
 	ProviderID     string    `json:"provider_id"`
 	Email          string    `json:"email"`
