@@ -262,7 +262,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
-
+	newUser.UserStatus = "Complete-registration-1"
 	// Create User
 	_, err := s.userRepository.CreateUser(ctx, newUser)
 	if err != nil {
