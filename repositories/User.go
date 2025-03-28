@@ -562,9 +562,11 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 	// Define the projection to retrieve only the required fields
 	projection := bson.M{
 		"token":         1,
+		"externalid":    1,
 		"refresh_token": 1,
 		"firstname":     1,
 		"lastname":      1,
+		"role":          1,
 		"email":         1,
 		"providers":     1,
 	}
