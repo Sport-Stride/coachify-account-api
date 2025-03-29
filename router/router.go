@@ -16,11 +16,12 @@ func InitializeRouter(services *services.Services) *gin.Engine {
 	r := gin.New()
 	r.Use(
 		cors.New(cors.Config{
-			AllowAllOrigins: true,
-			AllowMethods:    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:    []string{"Origin", "Content-Type", "Content-Length", "X-Requested-With", "Accept", "Referrer", "User-Agent", "X-Auth-Token", "x-api-key"},
-		}),
-	)
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "authorization", "X-Requested-With", "X-Auth-Token", "x-api-key", "Referrer", "User-Agent"},
+			ExposeHeaders:    []string{"Content-Length", "Content-Type", "Authorization", "authorization"},
+			AllowCredentials: true,
+			MaxAge:           12 * time.Hour,
+		}))
 
 	// Initialize middlewares
 	initializeMiddlewares(r)
