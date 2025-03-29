@@ -40,22 +40,22 @@ func CORS() gin.HandlerFunc {
 			allowedOrigin = origin // Allow the requesting origin
 		}
 		log.Printf("IBL: allowed origin is %s", allowedOrigin)
-		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		//c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
 		// Allow specific HTTP methods
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS, PATCH")
+		//c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS, PATCH")
 
 		// Allow specific headers
-		c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
-			"Origin",
-			"X-Requested-With",
-			"Content-Type",
-			"Accept",
-			"Authorization",
-			"authorization",
-			"Referrer",
-			"User-Agent",
-		}, ", "))
+		// c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
+		// 	"Origin",
+		// 	"X-Requested-With",
+		// 	"Content-Type",
+		// 	"Accept",
+		// 	"Authorization",
+		// 	"authorization",
+		// 	"Referrer",
+		// 	"User-Agent",
+		// }, ", "))
 
 		// Allow credentials (e.g., cookies, authorization headers)
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -63,6 +63,13 @@ func CORS() gin.HandlerFunc {
 		// Expose specific headers to the client
 		//c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS, PATCH")
+
+		// Explicitly allow the "Authorization" header among others
+		//c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, Referrer, User-Agent")
+
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		// Set security headers
 		c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'self';")
