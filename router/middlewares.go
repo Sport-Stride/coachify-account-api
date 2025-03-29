@@ -235,6 +235,14 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Extract claims and set them in context (do not rely on client payload)
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 			// Ensure the 'id' claim exists and is a string
+			// Print out all claims
+			for key, value := range claims {
+				log.Printf("Token Claim - %s: %v", key, value)
+			}
+
+			// Alternative method to get all claims as a map
+			allClaims := map[string]interface{}(claims)
+			log.Printf("All Token Claims: %+v", allClaims)
 			if id, ok := claims["id"].(string); ok {
 				c.Set("userID", id)
 			} else {
