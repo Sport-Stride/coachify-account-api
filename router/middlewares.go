@@ -52,6 +52,7 @@ func CORS() gin.HandlerFunc {
 			"Content-Type",
 			"Accept",
 			"Authorization",
+			"authorization",
 			"Referrer",
 			"User-Agent",
 		}, ", "))
