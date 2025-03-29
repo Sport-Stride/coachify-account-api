@@ -15,10 +15,10 @@ func InitializeRouter(services *services.Services) *gin.Engine {
 	// Set the default gin router
 	r := gin.New()
 	r.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
+		AllowOrigins:     []string{"*"}, // Consider limiting this in production
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "authorization", "X-Requested-With", "X-Auth-Token", "x-api-key", "Referrer", "User-Agent"},
-		ExposeHeaders:    []string{"Content-Length", "Content-Type", "Authorization", "authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-Auth-Token", "x-api-key", "Referrer", "User-Agent"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))

@@ -24,7 +24,7 @@ import (
 
 func initializeMiddlewares(r *gin.Engine) {
 	// add cors headers
-	r.Use(CORS())
+	//r.Use(CORS())
 	r.Use(RecoveryWithZap(utils.Logger, true))
 	// dump request in debug
 	if gin.Mode() == gin.DebugMode {
