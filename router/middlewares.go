@@ -39,6 +39,7 @@ func CORS() gin.HandlerFunc {
 		if origin := c.Request.Header.Get("Origin"); origin != "" {
 			allowedOrigin = origin // Allow the requesting origin
 		}
+		log.Printf("IBL: allowed origin is %s", allowedOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
 		// Allow specific HTTP methods

@@ -77,6 +77,94 @@ func NewAuthService(
 
 // Common methods
 
+// TokenData contains all tokens needed for authentication
+type TokenData struct {
+	AccessToken  string
+	RefreshToken string
+	IsNewAccess  bool
+	IsNewRefresh bool
+}
+
+// ValidateAndRefreshTokens checks and refreshes tokens as needed
+func (s *AuthServiceImpl) ValidateAndRefreshTokens(user *db.User) (*TokenData, *models.ApiError) {
+	result := &TokenData{
+		IsNewAccess:  false,
+		IsNewRefresh: false,
+	}
+
+	refreshTokenData := mapping.ToRefreshToken(user)
+	accessTokenExpired := true
+
+	// Check if the existing access token is valid
+	if user.Token != nil {
+		expired, err := utils.IsTokenExpired(*user.Token)
+		if err == nil && !expired {
+			result.AccessToken = *user.Token
+			accessTokenExpired = false
+			claims, _ := utils.GetTokenClaims(*user.Token)
+			if claims != nil {
+				utils.Logger.Info("Valid token for user",
+					zap.String("userId", fmt.Sprintf("%v", user.ID)),
+					zap.String("userId in token", fmt.Sprintf("%v", claims["id"])),
+					zap.String("email", user.UserEmail),
+					zap.String("tokenType", fmt.Sprintf("%v", claims["token_type"])))
+			}
+		}
+	}
+
+	// If the access token is expired or missing, attempt to refresh it
+	if accessTokenExpired {
+		refreshTokenValid := false
+
+		// Check if the refresh token exists and is valid
+		if user.UserRefreshToken != nil {
+			rExpired, err := utils.IsTokenExpired(*user.UserRefreshToken)
+			if err == nil && !rExpired {
+				refreshTokenValid = true
+				result.RefreshToken = *user.UserRefreshToken
+			}
+		}
+
+		if refreshTokenValid {
+			// Refresh token is valid: generate a new access token
+			newAccessToken, err := utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "access",
+			})
+			if err != nil {
+				return nil, err
+			}
+			result.AccessToken = newAccessToken
+			result.IsNewAccess = true
+		} else {
+			// Both tokens are invalid or missing: generate both new tokens
+			newAccessToken, err := utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "access",
+			})
+			if err != nil {
+				return nil, err
+			}
+			result.AccessToken = newAccessToken
+			result.IsNewAccess = true
+
+			newRefreshToken, err := utils.CreateToken(utils.CreateTokenParams{
+				User: refreshTokenData,
+				Type: "refresh",
+			})
+			if err != nil {
+				return nil, err
+			}
+			result.RefreshToken = newRefreshToken
+			result.IsNewRefresh = true
+		}
+	} else if user.UserRefreshToken != nil {
+		result.RefreshToken = *user.UserRefreshToken
+	}
+
+	return result, nil
+}
+
 func (s *AuthServiceImpl) generateTokens(user *db.User) (string, string, *models.ApiError) {
 	// Prepare user data for token generation
 	refreshTokenData := mapping.ToRefreshToken(user)
@@ -238,6 +326,7 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("IBL: user is %v", user == nil)
 	oauth.Profile.ProviderType = providerType
 	if user != nil {
 		// Existing user: link provider details or log them in
@@ -290,12 +379,20 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 
 func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	// Generate new access and refresh tokens for the user.
-	accessToken, refreshToken, apiErr := s.generateTokens(user)
-	if apiErr != nil {
-		return nil, apiErr
+	log.Printf("IBL: linkExistingUser")
+	// Use the refactored token validation
+	tokenData, err := s.ValidateAndRefreshTokens(user)
+	if err != nil {
+		return nil, err
 	}
-	user.Token = &accessToken
-	user.UserRefreshToken = &refreshToken
+	// Update user with new tokens if needed
+	if tokenData.IsNewAccess {
+		user.Token = &tokenData.AccessToken
+	}
+
+	if tokenData.IsNewRefresh {
+		user.UserRefreshToken = &tokenData.RefreshToken
+	}
 
 	// Check if the provider already exists in the user's providers map.
 	// Provider exists: refresh the provider token.
@@ -476,62 +573,19 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 	}
 
 	user.UserLastLogin = time.Now()
-	refreshTokenData := mapping.ToRefreshToken(user)
-
-	var accessToken string
-	accessTokenExpired := true
-
-	// Check if the existing access token is valid.
-	if user.Token != nil {
-		expired, err := utils.IsTokenExpired(*user.Token)
-		if err == nil && !expired {
-			accessToken = *user.Token
-			accessTokenExpired = false
-		}
+	// Use the refactored token validation
+	tokenData, err := s.ValidateAndRefreshTokens(user)
+	if err != nil {
+		return nil, err
 	}
 
-	// If the access token is expired or missing, attempt to refresh it.
-	if accessTokenExpired {
-		refreshTokenValid := false
+	// Update user with new tokens if needed
+	if tokenData.IsNewAccess {
+		user.Token = &tokenData.AccessToken
+	}
 
-		// Check if the refresh token exists and is valid.
-		if user.UserRefreshToken != nil {
-			rExpired, err := utils.IsTokenExpired(*user.UserRefreshToken)
-			if err == nil && !rExpired {
-				refreshTokenValid = true
-			}
-		}
-
-		if refreshTokenValid {
-			// Refresh token is valid: generate a new access token.
-			accessToken, err = utils.CreateToken(utils.CreateTokenParams{
-				User: refreshTokenData,
-				Type: "access",
-			})
-			if err != nil {
-				return nil, err
-			}
-			user.Token = &accessToken
-		} else {
-			// Both tokens are invalid or missing: generate both new tokens.
-			accessToken, err = utils.CreateToken(utils.CreateTokenParams{
-				User: refreshTokenData,
-				Type: "access",
-			})
-			if err != nil {
-				return nil, err
-			}
-			user.Token = &accessToken
-
-			newRefreshToken, err := utils.CreateToken(utils.CreateTokenParams{
-				User: refreshTokenData,
-				Type: "refresh",
-			})
-			if err != nil {
-				return nil, err
-			}
-			user.UserRefreshToken = &newRefreshToken
-		}
+	if tokenData.IsNewRefresh {
+		user.UserRefreshToken = &tokenData.RefreshToken
 	}
 
 	if request.Autologin {
