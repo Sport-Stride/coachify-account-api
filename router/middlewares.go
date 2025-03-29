@@ -61,8 +61,8 @@ func CORS() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		// Expose specific headers to the client
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
-
+		//c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "*")
 		// Set security headers
 		c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'self';")
