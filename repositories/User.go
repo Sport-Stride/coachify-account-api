@@ -570,6 +570,7 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 		"status":        1,
 		"email":         1,
 		"providers":     1,
+		"metadata":      1,
 	}
 
 	err := r.collection.FindOne(ctx, bson.M{"email": email}, options.FindOne().SetProjection(projection)).Decode(&user)
