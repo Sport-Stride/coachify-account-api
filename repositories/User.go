@@ -567,6 +567,7 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 		"firstname":     1,
 		"lastname":      1,
 		"role":          1,
+		"status":        1,
 		"email":         1,
 		"providers":     1,
 	}
