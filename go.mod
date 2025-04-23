@@ -7,7 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/appleboy/gin-jwt/v2 v2.10.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/spf13/viper v1.13.0
 	github.com/stretchr/testify v1.10.0
 	go.mongodb.org/mongo-driver v1.17.3
