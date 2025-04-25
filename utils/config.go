@@ -62,7 +62,7 @@ func LoadConfig() *AppConfig {
 			},
 			Notification: NotificationConfig{
 				MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
-				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost"),
+				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost:8080"),
 			},
 			IdentifierAPI: IdentifierAPIConfig{
 				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),

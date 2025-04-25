@@ -94,12 +94,13 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		}
 		coachProtectedGroup := protected.Group("/coach")
 		{
-			// The update endpoint ignores any client-provided external ID.
-			coachProtectedGroup.POST("/check-client", handlers.CheckClient(services.CoachService))
-			coachProtectedGroup.GET("/get-clients", handlers.GetClientsPaginated(services.CoachService))
 			coachProtectedGroup.POST("/invite", handlers.InviteClient(services.CoachService))
+			coachProtectedGroup.GET("/invitations", handlers.ListInvitations(services.CoachService))
+			coachProtectedGroup.DELETE("/invitation/:code", handlers.DeleteInvitation(services.CoachService))
 		}
 	}
+	r.POST("/register-with-invite", handlers.RegisterWithInvitation(services.AuthService, services.CoachService))
+
 	// fallback
 	r.NoRoute(handlers.NoRoute)
 }

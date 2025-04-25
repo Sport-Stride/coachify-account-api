@@ -41,6 +41,7 @@ func InitServices(config utils.AppConfig,
 	coachService := NewCoachService(
 		coachRepo,
 		userRepo,
+		authService,
 		notification,
 		identfier,
 		activationManager,
