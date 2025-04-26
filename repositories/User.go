@@ -84,7 +84,7 @@ func (r *UserRepository) GetUserNameByExternalID(ctx context.Context, externalID
 	// Create a filter to search by externalID.
 	filter := bson.M{"externalid": externalID}
 	// Use projection to retrieve only the firstname and lastname fields.
-	opts := options.FindOne().SetProjection(bson.M{"firstname": 1, "lastname": 1})
+	opts := options.FindOne()
 
 	// Define a temporary struct to hold the result.
 	var result struct {
