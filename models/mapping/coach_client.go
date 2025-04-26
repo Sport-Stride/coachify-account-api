@@ -39,17 +39,17 @@ func ToClientResponse(user db.UserResponse) api.ClientResponse {
 	}
 }
 
-func MapCoachClientInvitation(coachID, clientID string) *db.CoachClient {
-	now := time.Now()
-	return &db.CoachClient{
-		CoachID:   coachID,
-		ClientID:  clientID,
-		Status:    "invited",
-		InvitedAt: now,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-}
+// func MapCoachClientInvitation(coachID, clientID string) *db.CoachClient {
+// 	now := time.Now()
+// 	return &db.CoachClient{
+// 		CoachID:   coachID,
+// 		ClientID:  clientID,
+// 		Status:    "invited",
+// 		InvitedAt: now,
+// 		CreatedAt: now,
+// 		UpdatedAt: now,
+// 	}
+// }
 
 // InviteToCreateUserRequest maps an InviteClientRequest to a CreateUserRequest.
 func InviteToCreateUserRequest(req *api.CreateUserRequest, encryptedPassword string, id string, confirmCode db.UserConfirmCode) *db.User {

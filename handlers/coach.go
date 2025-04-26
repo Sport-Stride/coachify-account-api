@@ -9,123 +9,87 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetClientsPaginated(coachService services.CoachService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Retrieve coachID from token claims set by AuthMiddleware.
-		coachID, exists := c.Get("userID")
-		if !exists || coachID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: coach not found in token"})
-			return
-		}
-
-		// Bind query parameters into the SearchClient struct.
-		var searchReq api.SearchClient
-		if err := c.ShouldBindQuery(&searchReq); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameters: " + err.Error()})
-			return
-		}
-
-		// Call the service method to fetch paginated clients.
-		clients, total, apiErr := coachService.GetClientsPaginated(c.Request.Context(), coachID.(string), searchReq)
-		if apiErr != nil {
-			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
-			return
-		}
-
-		// Return the paginated response.
-		c.JSON(http.StatusOK, api.PaginatedClientResponse{
-			Clients: clients,
-			Total:   total,
-		})
-	}
-}
-
 func InviteClient(coachService services.CoachService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract coachID from the context
 		coachID, exists := c.Get("userID")
 		if !exists || coachID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-
-		// Parse the request body
-		var requestBody struct {
-			Email  string   `json:"email"`  // Single email
-			Emails []string `json:"emails"` // Multiple emails
+		var req struct {
+			Email  string   `json:"email"`
+			Emails []string `json:"emails"`
 		}
-
-		if err := c.ShouldBindJSON(&requestBody); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-
-		// Determine if the request is for a single email or multiple emails
-		if requestBody.Email != "" {
-			// Single email case
-			createUserReq := api.CreateUserRequest{
-				Email: requestBody.Email,
-			}
-
-			// Call the InviteClient method for a single email
-			resp, apiErr := coachService.InviteClient(c.Request.Context(), &createUserReq, coachID.(string))
-			if apiErr != nil {
-				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+		if req.Email != "" {
+			if err := coachService.InviteClient(c.Request.Context(), req.Email, coachID.(string)); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-
-			c.JSON(http.StatusCreated, resp)
-		} else if len(requestBody.Emails) > 0 {
-			// Multiple emails case
-			resp, apiErr := coachService.InviteMultipleClientsBulk(c.Request.Context(), requestBody.Emails, coachID.(string))
-			if apiErr != nil {
-				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
-				return
-			}
-
-			c.JSON(http.StatusCreated, resp)
+			c.JSON(http.StatusCreated, gin.H{"message": "Invitation sent"})
+		} else if len(req.Emails) > 0 {
+			success, failed := coachService.InviteMultipleClientsBulk(c.Request.Context(), req.Emails, coachID.(string))
+			c.JSON(http.StatusCreated, gin.H{
+				"message":       "Bulk invitations processed",
+				"successful":    success,
+				"failed_emails": failed,
+			})
 		} else {
-			// No valid email(s) provided
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no valid email(s) provided"})
-			return
 		}
 	}
 }
-func CheckClient(coachService services.CoachService) gin.HandlerFunc {
+
+// Handler for registration with invitation code
+func RegisterWithInvitation(authService services.AuthService, coachService services.CoachService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract coachID from the context
+		var req struct {
+			Code string `json:"invite_code" binding:"required"`
+			api.CreateUserRequest
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		resp, err := coachService.RegisterClientWithInvitation(c.Request.Context(), req.Code, &req.CreateUserRequest)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, resp)
+	}
+}
+
+// CRUD endpoints for invitations (list, delete)
+func ListInvitations(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		coachID, exists := c.Get("userID")
 		if !exists || coachID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-
-		// Parse the request body
-		var requestBody struct {
-			Email  string   `json:"email"`  // Single email
-			Emails []string `json:"emails"` // Multiple emails
-		}
-
-		if err := c.ShouldBindJSON(&requestBody); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		invs, err := coachService.ListInvitations(c.Request.Context(), coachID.(string))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Determine if the request is for a single email or multiple emails
-		if requestBody.Email != "" {
-
-			// Call the InviteClient method for a single email
-			resp, apiErr := coachService.CheckClient(c.Request.Context(), requestBody.Email, coachID.(string))
-			if apiErr != nil {
-				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
-				return
-			}
-
-			c.JSON(200, resp)
-		} else {
-			// No valid email(s) provided
-			c.JSON(http.StatusBadRequest, gin.H{"error": "no valid email(s) provided"})
+		c.JSON(http.StatusOK, invs)
+	}
+}
+func DeleteInvitation(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := c.Param("code")
+		if code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
 			return
 		}
+		if err := coachService.DeleteInvitation(c.Request.Context(), code); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Invitation deleted"})
 	}
 }

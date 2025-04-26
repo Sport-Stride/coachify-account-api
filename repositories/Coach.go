@@ -36,6 +36,82 @@ func NewCoachRepository(db *mongo.Database, collName string) *CoachRepository {
 	return &CoachRepository{collection: collection}
 }
 
+// Create a single invitation
+func (r *CoachRepository) CreateInvitation(ctx context.Context, invitation *db.CoachClientInvitation) error {
+	invitation.CreatedAt = time.Now()
+	invitation.UpdatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, invitation)
+	return err
+}
+
+// Bulk create invitations
+func (r *CoachRepository) CreateInvitations(ctx context.Context, invitations []*db.CoachClientInvitation) error {
+	if len(invitations) == 0 {
+		return nil
+	}
+	var docs []interface{}
+	now := time.Now()
+	for _, inv := range invitations {
+		inv.CreatedAt = now
+		inv.UpdatedAt = now
+		docs = append(docs, inv)
+	}
+	_, err := r.collection.InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	return err
+}
+
+// Find invitation by code
+func (r *CoachRepository) FindInvitationByCode(ctx context.Context, code string) (*db.CoachClientInvitation, error) {
+	var inv db.CoachClientInvitation
+	err := r.collection.FindOne(ctx, bson.M{"code": code}).Decode(&inv)
+	if err != nil {
+		return nil, err
+	}
+	return &inv, nil
+}
+
+// Update invitation status
+func (r *CoachRepository) UpdateInvitationStatus(ctx context.Context, code string, status db.InvitationStatus) error {
+	update := bson.M{
+		"$set": bson.M{
+			"status":     status,
+			"updated_at": time.Now(),
+			"accepted_at": func() *time.Time {
+				if status == db.InvitationAccepted {
+					t := time.Now()
+					return &t
+				}
+				return nil
+			}(),
+		},
+	}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"code": code}, update)
+	return err
+}
+
+// Delete invitation
+func (r *CoachRepository) DeleteInvitation(ctx context.Context, code string) error {
+	_, err := r.collection.DeleteOne(ctx, bson.M{"code": code})
+	return err
+}
+
+// List invitations for a coach
+func (r *CoachRepository) ListInvitations(ctx context.Context, coachID string) ([]*db.CoachClientInvitation, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{"coach_id": coachID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var invitations []*db.CoachClientInvitation
+	for cursor.Next(ctx) {
+		var inv db.CoachClientInvitation
+		if err := cursor.Decode(&inv); err == nil {
+			invitations = append(invitations, &inv)
+		}
+	}
+	return invitations, nil
+}
+
 // GetAllCoachClientIDs retrieves all distinct client IDs associated with the given coach.
 func (r *CoachRepository) GetAllCoachClientIDs(ctx context.Context, coachID string) ([]string, *models.ApiError) {
 	filter := bson.M{"coach_id": coachID}
@@ -112,28 +188,6 @@ func (r *CoachRepository) GetCoachClientIDs(ctx context.Context, coachID string,
 	return clientIDs, int(total), nil
 }
 
-// repositories/coach_repository.go
-func (r *CoachRepository) CreateCoachClient(ctx context.Context, coachClient *db.CoachClient) *models.ApiError {
-	coachClient.CreatedAt = time.Now()
-	coachClient.UpdatedAt = time.Now()
-
-	_, err := r.collection.InsertOne(ctx, coachClient)
-	if err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return &models.ApiError{
-				Code:  http.StatusConflict,
-				Error: models.ErrClientAlreadyLinked,
-			}
-		}
-		utils.Logger.Error("failed to create coach client", zap.Error(err))
-		return &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-	return nil
-}
-
 func (r *CoachRepository) GetUserByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	filter := bson.M{"email": email}
 	var user db.User
@@ -149,64 +203,6 @@ func (r *CoachRepository) GetUserByEmail(ctx context.Context, email string) (*db
 		}
 	}
 	return &user, nil
-}
-
-func (r *CoachRepository) FindInvitation(ctx context.Context, clientID, coachID string) (*db.CoachClient, *models.ApiError) {
-	var invitation db.CoachClient
-	err := r.collection.FindOne(ctx, bson.M{"client_id": clientID, "coach_id": coachID}).Decode(&invitation)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil, nil
-		}
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-	return nil, &models.ApiError{
-		Code:  http.StatusBadRequest,
-		Error: models.ErrClientAlreadyLinked,
-	}
-}
-
-func (r *CoachRepository) CreateInvitations(ctx context.Context, invitations []*db.CoachClient) error {
-	if len(invitations) == 0 {
-		return nil
-	}
-
-	var models []mongo.WriteModel
-
-	for _, inv := range invitations {
-		// Build a filter based on the composite key: coachID and userExternalID.
-		filter := bson.M{
-			"coach_id":  inv.CoachID,
-			"client_id": inv.ClientID,
-		}
-
-		// Prepare the update document.
-		// Using $set will update only the fields present in the provided invitation structure.
-		// You can customize this if only a subset of fields should be updated.
-		update := bson.M{"$set": inv}
-
-		// Create an upsert model: update if exists, insert if not.
-		model := mongo.NewUpdateOneModel().
-			SetFilter(filter).
-			SetUpdate(update).
-			SetUpsert(true)
-
-		models = append(models, model)
-	}
-
-	// Use unordered bulk write to improve performance and allow parallel execution.
-	opts := options.BulkWrite().SetOrdered(false)
-
-	// Execute the bulk write operation.
-	_, err := r.collection.BulkWrite(ctx, models, opts)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (r *CoachRepository) CreateInvitationsA(ctx context.Context, clientIDs []string, coachID string) error {
@@ -239,21 +235,5 @@ func (r *CoachRepository) CreateInvitationsA(ctx context.Context, clientIDs []st
 		return fmt.Errorf("failed to insert invitations: %w", err)
 	}
 
-	return nil
-}
-
-func (r *CoachRepository) CreateInvitationsBulk(ctx context.Context, invitations []*db.CoachClient) *models.ApiError {
-	docs := make([]interface{}, len(invitations))
-	for i, inv := range invitations {
-		docs[i] = inv
-	}
-	_, err := r.collection.InsertMany(ctx, docs)
-	if err != nil {
-		utils.Logger.Error("Failed to create bulk invitations", zap.Error(err))
-		return &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
 	return nil
 }
