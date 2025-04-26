@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"coachify-account-api/core"
+	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
 	"coachify-account-api/pkg/identifier"
@@ -19,6 +20,7 @@ type CoachService interface {
 	RegisterClientWithInvitation(ctx context.Context, code string, req *api.CreateUserRequest) (*api.RegisterResponse, error)
 	ListInvitations(ctx context.Context, coachID string) ([]*db.CoachClientInvitation, error)
 	DeleteInvitation(ctx context.Context, code string) error
+	GetAllCoachClientIDs(ctx context.Context, coachID string) ([]string, *models.ApiError)
 }
 
 type CoachServiceImpl struct {
@@ -48,6 +50,13 @@ func NewCoachService(
 		activationManager:  ac,
 		baseURL:            baseURL,
 	}
+}
+func (s *CoachServiceImpl) GetAllCoachClientIDs(ctx context.Context, coachID string) ([]string, *models.ApiError) {
+	clientIDs, err := s.coachRepo.GetAllCoachClientIDs(ctx, coachID)
+	if err != nil {
+		return nil, err
+	}
+	return clientIDs, nil
 }
 
 // Invite a single client (send email, do not register user)
