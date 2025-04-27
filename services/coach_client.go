@@ -21,6 +21,7 @@ type CoachService interface {
 	ListInvitations(ctx context.Context, coachID string) ([]*db.CoachClientInvitation, error)
 	DeleteInvitation(ctx context.Context, code string) error
 	GetAllCoachClientIDs(ctx context.Context, coachID string) ([]string, *models.ApiError)
+	GetAllCoachClientDetails(ctx context.Context, coachID string) ([]map[string]interface{}, *models.ApiError)
 }
 
 type CoachServiceImpl struct {
@@ -57,6 +58,11 @@ func (s *CoachServiceImpl) GetAllCoachClientIDs(ctx context.Context, coachID str
 		return nil, err
 	}
 	return clientIDs, nil
+}
+
+func (s *CoachServiceImpl) GetAllCoachClientDetails(ctx context.Context, coachID string) ([]map[string]interface{}, *models.ApiError) {
+	// Pass the user collection from userRepo to the repository method
+	return s.coachRepo.GetAllCoachClientDetails(ctx, coachID)
 }
 
 // Invite a single client (send email, do not register user)

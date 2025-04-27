@@ -115,5 +115,25 @@ func GetAllCoachClientIDs(coachService services.CoachService) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"client_ids": clientIDs})
 	}
+}
 
+func GetAllCoachClientDetails(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenUserID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		coachID, ok := tokenUserID.(string)
+		if !ok || coachID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+			return
+		}
+		clients, err := coachService.GetAllCoachClientDetails(c.Request.Context(), coachID)
+		if err != nil {
+			c.JSON(err.Code, gin.H{"error": err.Error})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"clients": clients})
+	}
 }

@@ -97,7 +97,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.POST("/invite", handlers.InviteClient(services.CoachService))
 			coachProtectedGroup.GET("/invitations", handlers.ListInvitations(services.CoachService))
 			coachProtectedGroup.DELETE("/invitation/:code", handlers.DeleteInvitation(services.CoachService))
-			coachProtectedGroup.GET("/get-clients", handlers.GetAllCoachClientIDs(services.CoachService))
+			coachProtectedGroup.GET("/get-clients", handlers.GetAllCoachClientDetails(services.CoachService))
 		}
 	}
 	r.POST("/register-with-invite", handlers.RegisterWithInvitation(services.AuthService, services.CoachService))

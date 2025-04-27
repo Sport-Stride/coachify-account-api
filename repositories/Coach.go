@@ -19,9 +19,10 @@ import (
 
 type CoachRepository struct {
 	collection *mongo.Collection
+	userColl   *mongo.Collection
 }
 
-func NewCoachRepository(db *mongo.Database, collName string) *CoachRepository {
+func NewCoachRepository(db *mongo.Database, collName string, userColl *mongo.Collection) *CoachRepository {
 	collection := db.Collection(collName)
 
 	// Create unique index on client_id
@@ -33,7 +34,7 @@ func NewCoachRepository(db *mongo.Database, collName string) *CoachRepository {
 		utils.Logger.Fatal("failed to create client_id index", zap.Error(err))
 	}
 
-	return &CoachRepository{collection: collection}
+	return &CoachRepository{collection: collection, userColl: userColl}
 }
 
 // Create a single invitation
@@ -239,13 +240,13 @@ func (r *CoachRepository) CreateInvitationsA(ctx context.Context, clientIDs []st
 }
 
 // GetAllCoachClientDetails retrieves all client details (externalid, firstname, lastname, profile_picture) for a given coach.
-func (r *CoachRepository) GetAllCoachClientDetails(ctx context.Context, coachID string, userCollection *mongo.Collection) ([]map[string]interface{}, *models.ApiError) {
+func (r *CoachRepository) GetAllCoachClientDetails(ctx context.Context, coachID string) ([]map[string]interface{}, *models.ApiError) {
 	pipeline := mongo.Pipeline{
 		// Match coach_id
 		{{Key: "$match", Value: bson.D{{Key: "coach_id", Value: coachID}}}},
 		// Join with users collection
 		{{Key: "$lookup", Value: bson.D{
-			{Key: "from", Value: userCollection.Name()},
+			{Key: "from", Value: r.userColl.Name()},
 			{Key: "localField", Value: "client_id"},
 			{Key: "foreignField", Value: "externalid"},
 			{Key: "as", Value: "user"},
