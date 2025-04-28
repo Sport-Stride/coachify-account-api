@@ -65,8 +65,10 @@ func (app *App) setup() {
 	if err != nil {
 		log.Fatalf("Failed to initialize identifier: %v", err)
 	}
-	coachRepo := repositories.NewCoachRepository(db, "coach_clients")
-	userRepo := repositories.NewUserRepository(db, "users")
+	userColl := db.Collection("users")
+	userRepo := repositories.NewUserRepository(userColl)
+	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
+
 	notification := notification.NewNotificationClient(config.Notification.MailgunDomain,
 		config.Notification.MailgunAPIKey)
 

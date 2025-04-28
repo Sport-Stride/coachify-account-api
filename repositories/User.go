@@ -27,24 +27,24 @@ type UserRepository struct {
 	collection *mongo.Collection
 }
 
-func NewUserRepository(db *mongo.Database, collName string) *UserRepository {
-	collection := db.Collection(collName)
-	indexModel := mongo.IndexModel{
-		Keys:    bson.M{"email": 1},              // index key
-		Options: options.Index().SetUnique(true), // unique index option
-	}
+func NewUserRepository(userColl *mongo.Collection) *UserRepository {
+	// collection := db.Collection(collName)
+	// indexModel := mongo.IndexModel{
+	// 	Keys:    bson.M{"email": 1},              // index key
+	// 	Options: options.Index().SetUnique(true), // unique index option
+	// }
 
-	// Use a context with a timeout to avoid hanging indefinitely
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// // Use a context with a timeout to avoid hanging indefinitely
+	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// defer cancel()
 
-	indexName, err := collection.Indexes().CreateOne(ctx, indexModel)
-	if err != nil {
-		return nil
-	}
-	fmt.Printf("Created index %s for collection %s\n", indexName, collName)
+	// indexName, err := collection.Indexes().CreateOne(ctx, indexModel)
+	// if err != nil {
+	// 	return nil
+	// }
+	// fmt.Printf("Created index %s for collection %s\n", indexName, collName)
 
-	return &UserRepository{collection: collection}
+	return &UserRepository{collection: userColl}
 }
 
 func (r *UserRepository) CreateUsers(ctx context.Context, users []*db.User) ([]*db.User, error) {
@@ -84,7 +84,7 @@ func (r *UserRepository) GetUserNameByExternalID(ctx context.Context, externalID
 	// Create a filter to search by externalID.
 	filter := bson.M{"externalid": externalID}
 	// Use projection to retrieve only the firstname and lastname fields.
-	opts := options.FindOne().SetProjection(bson.M{"firstname": 1, "lastname": 1})
+	opts := options.FindOne()
 
 	// Define a temporary struct to hold the result.
 	var result struct {
