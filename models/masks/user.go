@@ -73,7 +73,26 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 			updateFields["phone_number"] = req.User.UserPhoneNumber
 
 		case UserUpdateMaskUserAddress:
-			updateFields["address"] = req.User.UserAddress
+			if (req.User.UserAddress != api.Address{}) {
+				if req.User.UserAddress.City != nil {
+					updateFields["address.city"] = req.User.UserAddress.City
+				}
+				if req.User.UserAddress.Country != nil {
+					updateFields["address.country"] = req.User.UserAddress.Country
+				}
+				if req.User.UserAddress.Line1 != nil {
+					updateFields["address.line1"] = req.User.UserAddress.Line1
+				}
+				if req.User.UserAddress.Line2 != nil {
+					updateFields["address.line2"] = req.User.UserAddress.Line2
+				}
+				if req.User.UserAddress.PostalCode != nil {
+					updateFields["address.postal_code"] = req.User.UserAddress.PostalCode
+				}
+				if req.User.UserAddress.State != nil {
+					updateFields["address.state"] = req.User.UserAddress.State
+				}
+			}
 
 		case UserUpdateMaskUserVerificationStatus:
 			updateFields["verification_status"] = req.User.VerificationStatus
