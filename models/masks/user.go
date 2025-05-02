@@ -4,6 +4,7 @@ import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
+	"log"
 	"net/http"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -72,8 +73,37 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 		case UserUpdateMaskUserPhoneNumber:
 			updateFields["phone_number"] = req.User.UserPhoneNumber
 
-		case UserUpdateMaskUserAddress:
-			updateFields["address"] = req.User.UserAddress
+		case "address.city":
+			if req.User.UserAddress.City != nil {
+				updateFields["address.city"] = req.User.UserAddress.City
+				log.Printf("[DEBUG] address.city updated: %v", req.User.UserAddress.City)
+			}
+
+		case "address.country":
+			if req.User.UserAddress.Country != nil {
+				updateFields["address.country"] = req.User.UserAddress.Country
+				log.Printf("[DEBUG] address.country updated: %v", req.User.UserAddress.Country)
+			}
+		case "address.line1":
+			if req.User.UserAddress.Line1 != nil {
+				updateFields["address.line1"] = req.User.UserAddress.Line1
+				log.Printf("[DEBUG] address.line1 updated: %v", req.User.UserAddress.Line1)
+			}
+		case "address.line2":
+			if req.User.UserAddress.Line2 != nil {
+				updateFields["address.line2"] = req.User.UserAddress.Line2
+				log.Printf("[DEBUG] address.line2 updated: %v", req.User.UserAddress.Line2)
+			}
+		case "address.postal_code":
+			if req.User.UserAddress.PostalCode != nil {
+				updateFields["address.postal_code"] = req.User.UserAddress.PostalCode
+				log.Printf("[DEBUG] address.postal_code updated: %v", req.User.UserAddress.PostalCode)
+			}
+		case "address.state":
+			if req.User.UserAddress.State != nil {
+				updateFields["address.state"] = req.User.UserAddress.State
+				log.Printf("[DEBUG] address.state updated: %v", req.User.UserAddress.State)
+			}
 
 		case UserUpdateMaskUserVerificationStatus:
 			updateFields["verification_status"] = req.User.VerificationStatus
