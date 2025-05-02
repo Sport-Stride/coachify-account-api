@@ -24,8 +24,8 @@ func InitServices(config utils.AppConfig,
 	pwChecker core.PasswordChecker,
 	activationManager core.ActivationManager,
 	identfier *identifier.IdentifierClient,
-	invitation *invitation.InvitationClient,
 	notification *notification.NotificationClient,
+	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 ) *Services {
 
@@ -36,8 +36,8 @@ func InitServices(config utils.AppConfig,
 		middleware,
 		activationManager,
 		identfier,
-		invitation,
 		notification,
+		invitation,
 		providers,
 	)
 

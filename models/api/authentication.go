@@ -168,6 +168,7 @@ type RefreshToken struct {
 }
 
 type GetUserConfirm struct {
+	UserExternalID         string              `bson:"external_id,omitempty"`
 	UserVerificationStatus bool                `bson:"verification_status"`
 	UserRole               string              `bson:"role"`
 	UserStatus             db.UserStatus       `bson:"status"`

@@ -18,6 +18,7 @@ type AppConfig struct {
 	Notification          NotificationConfig
 	IdentifierAPI         IdentifierAPIConfig
 	InvitationAPI         InvitationAPIConfig
+	ChatAPI               ChatAPIConfig
 	FacebookOAuth         *oauth2.Config
 	FacebookEncryptionKey string
 	GoogleOAuth           *oauth2.Config
@@ -43,6 +44,9 @@ type IdentifierAPIConfig struct {
 	URL string
 }
 type InvitationAPIConfig struct {
+	URL string
+}
+type ChatAPIConfig struct {
 	URL string
 }
 
@@ -73,6 +77,9 @@ func LoadConfig() *AppConfig {
 			},
 			InvitationAPI: InvitationAPIConfig{
 				URL: getStringWithDefault("INVITATION_API_URL", "http://localhost:8087"),
+			},
+			ChatAPI: ChatAPIConfig{
+				URL: getStringWithDefault("CHAT_API_URL", "http://localhost:8088"),
 			},
 			FacebookOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),

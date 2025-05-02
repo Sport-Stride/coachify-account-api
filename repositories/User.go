@@ -656,6 +656,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 
 	filter := bson.M{"email": email}
 	projection := bson.M{
+		"externalid":          1,
 		"verification_status": 1,
 		"role":                1,
 		"status":              1,
@@ -663,8 +664,9 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		"email":               1,
 		"updated_at":          1,
 	}
-	// Execute the query
+	// Execute the queryExternalID             string                          `bson:"externalid,omitempty"`
 	var result struct {
+		ExternalID             string              `bson:"externalid"`
 		UserVerificationStatus bool                `bson:"verification_status"`
 		UserRole               string              `bson:"role"`
 		UserStatus             db.UserStatus       `bson:"status"`
@@ -694,6 +696,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		}
 	}
 	resultToApi := &api.GetUserConfirm{
+		UserExternalID:         result.ExternalID,
 		UserVerificationStatus: result.UserVerificationStatus,
 		UserRole:               result.UserRole,
 		UserStatus:             result.UserStatus,
@@ -701,6 +704,8 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		UserEmail:              result.UserEmail,
 		UserUpdatedAt:          result.UserUpdatedAt,
 	}
+	log.Printf("USER EXTERNAL ID is %s", resultToApi.UserExternalID)
+
 	return resultToApi, nil
 }
 

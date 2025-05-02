@@ -62,8 +62,8 @@ func NewAuthService(
 	middleware *jwt.GinJWTMiddleware,
 	activationManager core.ActivationManager,
 	identifier *identifier.IdentifierClient,
-	invitation *invitation.InvitationClient,
 	notificationClient *notification.NotificationClient,
+	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 
 ) *AuthServiceImpl {
@@ -667,13 +667,10 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 
 	} else {
 		u.UserStatus = db.Active
-		log.Printf("user email %s", u.UserEmail)
-		_, err := s.invitation.AcceptInvitation(ctx, u.UserEmail, u.UserEmail)
+		log.Printf("Invitation Id and email , %s , %s", u.UserExternalID, u.UserEmail)
+		_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail)
 		if err != nil {
-			return &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrInvitationNotAccepted,
-			}
+			return err
 		}
 	}
 

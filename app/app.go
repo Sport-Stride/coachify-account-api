@@ -71,6 +71,7 @@ func (app *App) setup() {
 	if err != nil {
 		log.Fatalf("Failed to initialize invitation: %v", err)
 	}
+
 	userColl := db.Collection("users")
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
@@ -115,8 +116,8 @@ func (app *App) setup() {
 		pwChecker,
 		activationManager,
 		identifier,
-		invitation,
 		notification,
+		invitation,
 		providers,
 	)
 	// Initialize Router
