@@ -657,6 +657,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 	filter := bson.M{"email": email}
 	projection := bson.M{
 		"verification_status": 1,
+		"role":                1,
 		"status":              1,
 		"confirm_code":        1,
 		"email":               1,
@@ -665,6 +666,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 	// Execute the query
 	var result struct {
 		UserVerificationStatus bool                `bson:"verification_status"`
+		UserRole               string              `bson:"role"`
 		UserStatus             db.UserStatus       `bson:"status"`
 		UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
 		UserEmail              string              `bson:"email" validate:"required"`
@@ -693,6 +695,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 	}
 	resultToApi := &api.GetUserConfirm{
 		UserVerificationStatus: result.UserVerificationStatus,
+		UserRole:               result.UserRole,
 		UserStatus:             result.UserStatus,
 		UserConfirmCode:        result.UserConfirmCode,
 		UserEmail:              result.UserEmail,

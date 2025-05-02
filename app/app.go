@@ -4,6 +4,7 @@ import (
 	"coachify-account-api/core"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/repositories"
 	"context"
@@ -62,8 +63,13 @@ func (app *App) setup() {
 
 	activationManager := core.NewSimpleActivationManager()
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
+
 	if err != nil {
 		log.Fatalf("Failed to initialize identifier: %v", err)
+	}
+	invitation, err := invitation.NewInvitationClient(config.InvitationAPI)
+	if err != nil {
+		log.Fatalf("Failed to initialize invitation: %v", err)
 	}
 	userColl := db.Collection("users")
 	userRepo := repositories.NewUserRepository(userColl)
@@ -109,6 +115,7 @@ func (app *App) setup() {
 		pwChecker,
 		activationManager,
 		identifier,
+		invitation,
 		notification,
 		providers,
 	)

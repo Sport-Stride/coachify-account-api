@@ -169,6 +169,7 @@ type RefreshToken struct {
 
 type GetUserConfirm struct {
 	UserVerificationStatus bool                `bson:"verification_status"`
+	UserRole               string              `bson:"role"`
 	UserStatus             db.UserStatus       `bson:"status"`
 	UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
 	UserEmail              string              `bson:"email" validate:"required"`

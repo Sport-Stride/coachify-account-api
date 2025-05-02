@@ -4,6 +4,7 @@ import (
 	"coachify-account-api/core"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/repositories"
 	"coachify-account-api/utils"
@@ -23,6 +24,7 @@ func InitServices(config utils.AppConfig,
 	pwChecker core.PasswordChecker,
 	activationManager core.ActivationManager,
 	identfier *identifier.IdentifierClient,
+	invitation *invitation.InvitationClient,
 	notification *notification.NotificationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 ) *Services {
@@ -34,6 +36,7 @@ func InitServices(config utils.AppConfig,
 		middleware,
 		activationManager,
 		identfier,
+		invitation,
 		notification,
 		providers,
 	)

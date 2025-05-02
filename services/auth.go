@@ -9,6 +9,7 @@ import (
 	"coachify-account-api/models/masks"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/identifier"
+	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"context"
 	"fmt"
@@ -50,6 +51,7 @@ type AuthServiceImpl struct {
 	activationManager  core.ActivationManager
 	middleware         *jwt.GinJWTMiddleware
 	identifier         *identifier.IdentifierClient
+	invitation         *invitation.InvitationClient
 	notificationClient *notification.NotificationClient
 	providers          map[oauth2.ProviderType]oauth2.Provider
 }
@@ -60,6 +62,7 @@ func NewAuthService(
 	middleware *jwt.GinJWTMiddleware,
 	activationManager core.ActivationManager,
 	identifier *identifier.IdentifierClient,
+	invitation *invitation.InvitationClient,
 	notificationClient *notification.NotificationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 
@@ -70,6 +73,7 @@ func NewAuthService(
 		middleware:         middleware,
 		activationManager:  activationManager,
 		identifier:         identifier,
+		invitation:         invitation,
 		notificationClient: notificationClient,
 		providers:          providers,
 	}
@@ -658,8 +662,21 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 			Error: models.ErrInvalidConfirmationCode,
 		}
 	}
+	if u.UserRole == "coach" {
+		u.UserStatus = db.ComReg1
 
-	u.UserStatus = "Complete-registration-1"
+	} else {
+		u.UserStatus = db.Active
+		log.Printf("user email %s", u.UserEmail)
+		_, err := s.invitation.AcceptInvitation(ctx, u.UserEmail, u.UserEmail)
+		if err != nil {
+			return &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrInvitationNotAccepted,
+			}
+		}
+	}
+
 	u.UserVerificationStatus = true
 	err = s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {

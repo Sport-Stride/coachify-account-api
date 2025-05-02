@@ -38,6 +38,7 @@ var (
 	ErrInvalidPassword           = errors.New("the password must contain at least 8 characters, one uppercase letter, one lowercase letter, and one symbol")
 	ErrUserAlreadyVerified       = errors.New("user already verified")
 	ErrInvalidConfirmationCode   = errors.New("invalid confirmation code")
+	ErrInvitationNotAccepted     = errors.New("invitation not accepted")
 	ErrUserBlocked               = errors.New("account is blocked")
 	ErrAccountNotConfirmed       = errors.New("account not confirmed")
 	ErrAuthenticationFailed      = errors.New("authentication failed")

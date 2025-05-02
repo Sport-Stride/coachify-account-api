@@ -17,6 +17,7 @@ type AppConfig struct {
 	MongoDB               MongoConfig
 	Notification          NotificationConfig
 	IdentifierAPI         IdentifierAPIConfig
+	InvitationAPI         InvitationAPIConfig
 	FacebookOAuth         *oauth2.Config
 	FacebookEncryptionKey string
 	GoogleOAuth           *oauth2.Config
@@ -39,6 +40,9 @@ type NotificationConfig struct {
 }
 
 type IdentifierAPIConfig struct {
+	URL string
+}
+type InvitationAPIConfig struct {
 	URL string
 }
 
@@ -66,6 +70,9 @@ func LoadConfig() *AppConfig {
 			},
 			IdentifierAPI: IdentifierAPIConfig{
 				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+			},
+			InvitationAPI: InvitationAPIConfig{
+				URL: getStringWithDefault("INVITATION_API_URL", "http://localhost:8087"),
 			},
 			FacebookOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
