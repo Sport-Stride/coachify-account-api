@@ -355,7 +355,22 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
-	newUser.UserStatus = "Complete-registration-1"
+
+	if newUser.UserRole == "coach" {
+		newUser.UserStatus = db.ComReg1
+
+	} else {
+		newUser.UserStatus = db.Active
+		log.Printf("Invitation Id and email , %s , %s", newUser.ExternalID, newUser.UserEmail)
+		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail)
+		if err != nil {
+			return nil, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrInvitationNotAccepted,
+			}
+		}
+	}
+	newUser.UserStatus = db.ComReg1
 	// Create User
 	_, err := s.userRepository.CreateUser(ctx, newUser)
 	if err != nil {

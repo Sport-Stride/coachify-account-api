@@ -42,6 +42,7 @@ func ToDbUserFromGoogleProfile(googleLoginRequest db.GoogleLoginRequest, externa
 		UserStatus:         db.Active, // Active because it's an OAuth login
 		UserCreatedAt:      time.Now(),
 		UserUpdatedAt:      time.Now(),
+		UserRole:           googleLoginRequest.Role,
 		Providers: map[string]db.OAuthProviderDetails{
 			googleLoginRequest.Profile.ProviderType: {
 				ProviderID:     googleLoginRequest.Profile.Sub,

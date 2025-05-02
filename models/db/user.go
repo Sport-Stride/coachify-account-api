@@ -139,6 +139,7 @@ type OAuthUser struct {
 type GoogleLoginRequest struct {
 	Account GoogleAccount `json:"account"`
 	Profile GoogleProfile `json:"profile"`
+	Role    string        `json:"role"`
 }
 
 type GoogleAccount struct {
