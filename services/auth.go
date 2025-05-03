@@ -351,7 +351,9 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 
 	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
 	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
-	s.coachService.AddCoachClient(ctx, coachId, newUser.ExternalID)
+	if role == "client" {
+		s.coachService.AddCoachClient(ctx, coachId, newUser.ExternalID)
+	}
 	if Rolerr != nil {
 		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 	}
@@ -538,7 +540,10 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
 	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
-	s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
+	if role == "client" {
+		s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
+	}
+
 	if Rolerr != nil {
 		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 	}
