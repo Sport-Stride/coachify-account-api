@@ -347,7 +347,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 
 	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
-
+	newUser.UserRole = s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
 	// Generate tokens
 	accessToken, refreshToken, apiErr := s.generateTokens(newUser)
 	if apiErr != nil {
@@ -529,7 +529,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
-
+	dbUser.UserRole = s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
 
@@ -1092,4 +1092,13 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 	}
 
 	return resp, nil
+}
+
+// setUserRoleByInvitation checks invitation and sets the user role accordingly
+func (s *AuthServiceImpl) setUserRoleByInvitation(ctx context.Context, email string) string {
+	exists, _ := s.invitation.CheckInvitationByEmail(ctx, email)
+	if exists {
+		return "client"
+	}
+	return "coach"
 }

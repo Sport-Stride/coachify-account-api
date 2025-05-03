@@ -17,6 +17,7 @@ type InvitationClient struct {
 	httpClient           *http.Client
 	baseURL              string
 	validateEndpoint     string
+	checkEmailEndpoint   string
 	acceptInviteEndpoint string
 }
 
@@ -55,8 +56,42 @@ func NewInvitationClient(cfg utils.InvitationAPIConfig) (*InvitationClient, erro
 		},
 		baseURL:              cfg.URL,
 		validateEndpoint:     "%s/api/invitations/validate",
+		checkEmailEndpoint:   "%s/api/invitations/check",
 		acceptInviteEndpoint: "%s/api/invitations/accept",
 	}, nil
+}
+
+// CheckInvitationByEmail checks if an email exists in the invitation list
+func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email string) (bool, *models.ApiError) {
+	url := fmt.Sprintf(c.checkEmailEndpoint, c.baseURL)
+	payload := map[string]string{"email": email}
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return false, models.NewApiError(http.StatusInternalServerError, err)
+	}
+	req, err := c.do(ctx, http.MethodPost, url, jsonBody)
+	if err != nil {
+		return false, models.NewApiError(http.StatusInternalServerError, err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, models.NewApiError(http.StatusInternalServerError, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, models.NewApiError(http.StatusInternalServerError, err)
+	}
+	if resp.StatusCode == http.StatusOK {
+		var result struct {
+			Exists bool `json:"exists"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return false, models.NewApiError(http.StatusInternalServerError, err)
+		}
+		return result.Exists, nil
+	}
+	return false, nil
 }
 
 // ValidateInvitation validates an invitation by ID and email
