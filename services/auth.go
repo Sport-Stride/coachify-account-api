@@ -378,7 +378,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 			}
 		}
 	}
-	newUser.UserStatus = db.ComReg1
+
 	// Create User
 	_, err := s.userRepository.CreateUser(ctx, newUser)
 	if err != nil {
