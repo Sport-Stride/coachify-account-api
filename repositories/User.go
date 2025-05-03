@@ -555,7 +555,25 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*db.User
 	}
 	return &user, nil
 }
+func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, error) {
+	count, err := r.collection.CountDocuments(
+		ctx,
+		bson.M{"email": email},
+		options.Count().SetLimit(1),
+	)
 
+	if err != nil {
+		// Log the error
+		utils.Logger.Error("error checking email existence",
+			zap.String("email", email),
+			zap.Error(err),
+		)
+		return false, err
+	}
+
+	// Return true if count > 0, false otherwise
+	return count > 0, nil
+}
 func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db.User, *models.ApiError) {
 	var user db.User
 

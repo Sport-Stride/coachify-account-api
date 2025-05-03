@@ -464,6 +464,23 @@ func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, o
 // Auth signin Service
 func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
 
+	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
+
+	if errEmail != nil {
+		return nil, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: errEmail,
+		}
+	}
+
+	if userExists {
+		// User already exists, return an appropriate error
+		return nil, &models.ApiError{
+			Code:  http.StatusConflict,
+			Error: models.ErrUserAlreadyExists,
+		}
+	}
+
 	// Password validation
 	if !core.ValidatePassword(req.Password) {
 		return nil, &models.ApiError{
