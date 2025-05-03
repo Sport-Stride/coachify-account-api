@@ -2,8 +2,6 @@ package repositories
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -35,208 +33,6 @@ func NewCoachRepository(db *mongo.Database, collName string, userColl *mongo.Col
 	}
 
 	return &CoachRepository{collection: collection, userColl: userColl}
-}
-
-// Create a single invitation
-func (r *CoachRepository) CreateInvitation(ctx context.Context, invitation *db.CoachClientInvitation) error {
-	invitation.CreatedAt = time.Now()
-	invitation.UpdatedAt = time.Now()
-	_, err := r.collection.InsertOne(ctx, invitation)
-	return err
-}
-
-// Bulk create invitations
-func (r *CoachRepository) CreateInvitations(ctx context.Context, invitations []*db.CoachClientInvitation) error {
-	if len(invitations) == 0 {
-		return nil
-	}
-	var docs []interface{}
-	now := time.Now()
-	for _, inv := range invitations {
-		inv.CreatedAt = now
-		inv.UpdatedAt = now
-		docs = append(docs, inv)
-	}
-	_, err := r.collection.InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
-	return err
-}
-
-// Find invitation by code
-func (r *CoachRepository) FindInvitationByCode(ctx context.Context, code string) (*db.CoachClientInvitation, error) {
-	var inv db.CoachClientInvitation
-	err := r.collection.FindOne(ctx, bson.M{"code": code}).Decode(&inv)
-	if err != nil {
-		return nil, err
-	}
-	return &inv, nil
-}
-
-// Update invitation status
-func (r *CoachRepository) UpdateInvitationStatus(ctx context.Context, code string, status db.InvitationStatus) error {
-	update := bson.M{
-		"$set": bson.M{
-			"status":     status,
-			"updated_at": time.Now(),
-			"accepted_at": func() *time.Time {
-				if status == db.InvitationAccepted {
-					t := time.Now()
-					return &t
-				}
-				return nil
-			}(),
-		},
-	}
-	_, err := r.collection.UpdateOne(ctx, bson.M{"code": code}, update)
-	return err
-}
-
-// Delete invitation
-func (r *CoachRepository) DeleteInvitation(ctx context.Context, code string) error {
-	_, err := r.collection.DeleteOne(ctx, bson.M{"code": code})
-	return err
-}
-
-// List invitations for a coach
-func (r *CoachRepository) ListInvitations(ctx context.Context, coachID string) ([]*db.CoachClientInvitation, error) {
-	cursor, err := r.collection.Find(ctx, bson.M{"coach_id": coachID})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	var invitations []*db.CoachClientInvitation
-	for cursor.Next(ctx) {
-		var inv db.CoachClientInvitation
-		if err := cursor.Decode(&inv); err == nil {
-			invitations = append(invitations, &inv)
-		}
-	}
-	return invitations, nil
-}
-
-// GetAllCoachClientIDs retrieves all distinct client IDs associated with the given coach.
-func (r *CoachRepository) GetAllCoachClientIDs(ctx context.Context, coachID string) ([]string, *models.ApiError) {
-	filter := bson.M{"coach_id": coachID}
-
-	// Use Distinct to fetch all unique client_id values.
-	results, err := r.collection.Distinct(ctx, "client_id", filter)
-	if err != nil {
-		utils.Logger.Error("Failed to retrieve distinct client IDs", zap.Error(err))
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-
-	clientIDs := make([]string, 0, len(results))
-	for _, v := range results {
-		if idStr, ok := v.(string); ok {
-			clientIDs = append(clientIDs, idStr)
-		} else {
-			utils.Logger.Error("Unexpected type for client_id", zap.Any("value", v))
-			return nil, &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrInternalError,
-			}
-		}
-	}
-
-	return clientIDs, nil
-}
-
-func (r *CoachRepository) GetCoachClientIDs(ctx context.Context, coachID string, search db.SearchClient) ([]string, int, *models.ApiError) {
-	filter := bson.M{"coach_id": coachID}
-	opts := options.Find().
-		SetProjection(bson.M{"client_id": 1}).
-		SetSkip(int64((search.Page - 1) * search.Size)).
-		SetLimit(int64(search.Size))
-
-	cursor, err := r.collection.Find(ctx, filter, opts)
-	if err != nil {
-		utils.Logger.Error("Failed to find coach clients", zap.Error(err))
-		return []string{}, 0, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-	defer cursor.Close(ctx)
-
-	// Initialize the slice as an empty slice instead of nil.
-	clientIDs := []string{}
-
-	for cursor.Next(ctx) {
-		var result struct {
-			ClientID string `bson:"client_id"`
-		}
-		if err := cursor.Decode(&result); err != nil {
-			utils.Logger.Error("Failed to decode coach client", zap.Error(err))
-			return []string{}, 0, &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrInternalError,
-			}
-		}
-		clientIDs = append(clientIDs, result.ClientID)
-	}
-
-	total, err := r.collection.CountDocuments(ctx, filter)
-	if err != nil {
-		utils.Logger.Error("Failed to count coach clients", zap.Error(err))
-		return []string{}, 0, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-
-	return clientIDs, int(total), nil
-}
-
-func (r *CoachRepository) GetUserByEmail(ctx context.Context, email string) (*db.User, *models.ApiError) {
-	filter := bson.M{"email": email}
-	var user db.User
-	err := r.collection.FindOne(ctx, filter).Decode(&user)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
-		}
-		utils.Logger.Error("failed to find user by email", zap.Error(err))
-		return nil, &models.ApiError{
-			Code:  http.StatusInternalServerError,
-			Error: models.ErrInternalError,
-		}
-	}
-	return &user, nil
-}
-
-func (r *CoachRepository) CreateInvitationsA(ctx context.Context, clientIDs []string, coachID string) error {
-	if len(clientIDs) == 0 {
-		return nil
-	}
-
-	// Prepare invitations for bulk insert
-	var invitations []interface{}
-	for _, clientID := range clientIDs {
-		invitation := bson.M{
-			"coach_id":   coachID,
-			"client_id":  clientID,
-			"status":     "pending",
-			"created_at": time.Now(),
-			"updated_at": time.Now(),
-		}
-		invitations = append(invitations, invitation)
-	}
-
-	// Perform bulk insert
-	opts := options.InsertMany().SetOrdered(false) // Continue on errors
-	_, err := r.collection.InsertMany(ctx, invitations, opts)
-	if err != nil {
-		if mongoErr, ok := err.(mongo.BulkWriteException); ok {
-			for _, writeErr := range mongoErr.WriteErrors {
-				fmt.Printf("Failed to insert invitation: %v\n", writeErr)
-			}
-		}
-		return fmt.Errorf("failed to insert invitations: %w", err)
-	}
-
-	return nil
 }
 
 // GetAllCoachClientDetails retrieves all client details (externalid, firstname, lastname, profile_picture) for a given coach.
@@ -282,4 +78,67 @@ func (r *CoachRepository) GetAllCoachClientDetails(ctx context.Context, coachID 
 	}
 
 	return results, nil
+}
+
+// AddCoachClient creates a direct coach-client relationship.
+func (r *CoachRepository) AddCoachClient(ctx context.Context, coachID, clientID string) error {
+	doc := db.CoachClient{
+		CoachID:   coachID,
+		ClientID:  clientID,
+		CreatedAt: time.Now(),
+	}
+	_, err := r.collection.InsertOne(ctx, doc)
+	return err
+}
+
+// ListCoachClients returns a paginated and filtered list of coach-client relationships
+func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]db.CoachClient, int, error) {
+	filter := bson.M{"coach_id": query.CoachID}
+	if query.ClientID != "" {
+		filter["client_id"] = query.ClientID
+	}
+	if !query.FromDate.IsZero() {
+		filter["created_at"] = bson.M{"$gte": query.FromDate}
+	}
+	if !query.ToDate.IsZero() {
+		if f, ok := filter["created_at"].(bson.M); ok {
+			f["$lte"] = query.ToDate
+			filter["created_at"] = f
+		} else {
+			filter["created_at"] = bson.M{"$lte": query.ToDate}
+		}
+	}
+	page := query.Page
+	if page < 1 {
+		page = 1
+	}
+	size := query.Size
+	if size < 1 {
+		size = 10
+	}
+	opts := options.Find().SetSkip(int64((page - 1) * size)).SetLimit(int64(size))
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+	var results []db.CoachClient
+	for cursor.Next(ctx) {
+		var cc db.CoachClient
+		if err := cursor.Decode(&cc); err == nil {
+			results = append(results, cc)
+		}
+	}
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return results, 0, err
+	}
+	return results, int(total), nil
+}
+
+// DissociateCoachClient removes a coach-client relationship
+func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
+	filter := bson.M{"coach_id": coachID, "client_id": clientID}
+	_, err := r.collection.DeleteOne(ctx, filter)
+	return err
 }

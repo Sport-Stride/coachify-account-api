@@ -94,13 +94,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		}
 		coachProtectedGroup := protected.Group("/coach")
 		{
-			coachProtectedGroup.POST("/invite", handlers.InviteClient(services.CoachService))
-			coachProtectedGroup.GET("/invitations", handlers.ListInvitations(services.CoachService))
-			coachProtectedGroup.DELETE("/invitation/:code", handlers.DeleteInvitation(services.CoachService))
-			coachProtectedGroup.GET("/get-clients", handlers.GetAllCoachClientDetails(services.CoachService))
+
+			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
+			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
 		}
 	}
-	r.POST("/register-with-invite", handlers.RegisterWithInvitation(services.AuthService, services.CoachService))
 
 	// fallback
 	r.NoRoute(handlers.NoRoute)

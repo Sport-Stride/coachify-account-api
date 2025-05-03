@@ -47,6 +47,7 @@ type AuthService interface {
 
 type AuthServiceImpl struct {
 	userRepository     repositories.UserRepository
+	coachService       CoachService
 	passwordChecker    core.PasswordChecker
 	activationManager  core.ActivationManager
 	middleware         *jwt.GinJWTMiddleware
@@ -58,6 +59,7 @@ type AuthServiceImpl struct {
 
 func NewAuthService(
 	userRepository *repositories.UserRepository,
+	coachService CoachService,
 	pwChecker core.PasswordChecker,
 	middleware *jwt.GinJWTMiddleware,
 	activationManager core.ActivationManager,
@@ -70,6 +72,7 @@ func NewAuthService(
 	return &AuthServiceImpl{
 		passwordChecker:    pwChecker,
 		userRepository:     *userRepository,
+		coachService:       coachService,
 		middleware:         middleware,
 		activationManager:  activationManager,
 		identifier:         identifier,
@@ -347,7 +350,12 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 
 	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
-	newUser.UserRole = s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
+	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
+	s.coachService.AddCoachClient(ctx, coachId, newUser.ExternalID)
+	if Rolerr != nil {
+		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+	}
+	newUser.UserRole = role
 	// Generate tokens
 	accessToken, refreshToken, apiErr := s.generateTokens(newUser)
 	if apiErr != nil {
@@ -529,7 +537,12 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
-	dbUser.UserRole = s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
+	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
+	s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
+	if Rolerr != nil {
+		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+	}
+	dbUser.UserRole = role
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
 
@@ -1095,10 +1108,13 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 }
 
 // setUserRoleByInvitation checks invitation and sets the user role accordingly
-func (s *AuthServiceImpl) setUserRoleByInvitation(ctx context.Context, email string) string {
-	exists, _ := s.invitation.CheckInvitationByEmail(ctx, email)
-	if exists {
-		return "client"
+func (s *AuthServiceImpl) setUserRoleByInvitation(ctx context.Context, email string) (string, string, error) {
+	exists, coach_external_id, err := s.invitation.CheckInvitationByEmail(ctx, email)
+	if err != nil {
+		return "", "", err.Error
 	}
-	return "coach"
+	if exists {
+		return "client", coach_external_id, nil
+	}
+	return "coach", coach_external_id, nil
 }

@@ -28,10 +28,17 @@ func InitServices(config utils.AppConfig,
 	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 ) *Services {
-
+	coachService := NewCoachService(
+		coachRepo,
+		notification,
+		identfier,
+		activationManager,
+		config.BaseURL.URL,
+	)
 	// Initialisez AuthServiceImpl avec les dépendances
 	authService := NewAuthService(
 		userRepo,
+		coachService,
 		pwChecker,
 		middleware,
 		activationManager,
@@ -41,15 +48,6 @@ func InitServices(config utils.AppConfig,
 		providers,
 	)
 
-	coachService := NewCoachService(
-		coachRepo,
-		userRepo,
-		authService,
-		notification,
-		identfier,
-		activationManager,
-		config.BaseURL.URL,
-	)
 	return &Services{
 		AuthService:  authService,
 		CoachService: coachService,

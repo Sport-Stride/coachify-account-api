@@ -73,7 +73,7 @@ func LoadConfig() *AppConfig {
 				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost:8080"),
 			},
 			IdentifierAPI: IdentifierAPIConfig{
-				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+				URL: getStringWithDefault("IDENTIFIER_API_URL", "https://coachify-identifier-api-176ecee2c6dd.herokuapp.com"),
 			},
 			InvitationAPI: InvitationAPIConfig{
 				URL: getStringWithDefault("INVITATION_API_URL", "http://localhost:8087"),

@@ -61,37 +61,38 @@ func NewInvitationClient(cfg utils.InvitationAPIConfig) (*InvitationClient, erro
 	}, nil
 }
 
-// CheckInvitationByEmail checks if an email exists in the invitation list
-func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email string) (bool, *models.ApiError) {
+// CheckInvitationByEmail checks if an email exists in the invitation list and returns the coach external id if exists
+func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email string) (exists bool, coachExternalID string, apiErr *models.ApiError) {
 	url := fmt.Sprintf(c.checkEmailEndpoint, c.baseURL)
 	payload := map[string]string{"email": email}
 	jsonBody, err := json.Marshal(payload)
 	if err != nil {
-		return false, models.NewApiError(http.StatusInternalServerError, err)
+		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
 	req, err := c.do(ctx, http.MethodPost, url, jsonBody)
 	if err != nil {
-		return false, models.NewApiError(http.StatusInternalServerError, err)
+		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, models.NewApiError(http.StatusInternalServerError, err)
+		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, models.NewApiError(http.StatusInternalServerError, err)
+		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
 	if resp.StatusCode == http.StatusOK {
 		var result struct {
-			Exists bool `json:"exists"`
+			Exists          bool   `json:"exists"`
+			CoachExternalID string `json:"coach_external_id"`
 		}
 		if err := json.Unmarshal(body, &result); err != nil {
-			return false, models.NewApiError(http.StatusInternalServerError, err)
+			return false, "", models.NewApiError(http.StatusInternalServerError, err)
 		}
-		return result.Exists, nil
+		return result.Exists, result.CoachExternalID, nil
 	}
-	return false, nil
+	return false, "", nil
 }
 
 // ValidateInvitation validates an invitation by ID and email
