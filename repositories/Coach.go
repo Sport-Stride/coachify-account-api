@@ -91,8 +91,8 @@ func (r *CoachRepository) AddCoachClient(ctx context.Context, coachID, clientID 
 	return err
 }
 
-// ListCoachClients returns a paginated and filtered list of coach-client relationships
-func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]db.CoachClient, int, error) {
+// ListCoachClients returns a paginated and filtered list of coach-client relationships with enriched user details
+func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
 	filter := bson.M{"coach_id": query.CoachID}
 	if query.ClientID != "" {
 		filter["client_id"] = query.ClientID
@@ -116,24 +116,91 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	if size < 1 {
 		size = 10
 	}
-	opts := options.Find().SetSkip(int64((page - 1) * size)).SetLimit(int64(size))
-	cursor, err := r.collection.Find(ctx, filter, opts)
+
+	pipeline := mongo.Pipeline{
+		// Match coach_id and filters
+		bson.D{
+			{Key: "$match", Value: filter},
+		},
+		// Join with users collection
+		bson.D{
+			{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: r.userColl.Name()},
+				{Key: "localField", Value: "client_id"},
+				{Key: "foreignField", Value: "externalid"},
+				{Key: "as", Value: "user"},
+			}},
+		},
+		// Unwind user array
+		bson.D{
+			{Key: "$unwind", Value: bson.D{
+				{Key: "path", Value: "$user"},
+				{Key: "preserveNullAndEmptyArrays", Value: false},
+			}},
+		},
+		// Project required user fields
+		bson.D{
+			{Key: "$project", Value: bson.D{
+				{Key: "externalid", Value: "$user.externalid"},
+				{Key: "firstname", Value: "$user.firstname"},
+				{Key: "lastname", Value: "$user.lastname"},
+				{Key: "profile_picture", Value: "$user.profile_picture"},
+				{Key: "email", Value: "$user.email"},
+				{Key: "phone_number", Value: "$user.phone_number"},
+				{Key: "address", Value: "$user.address"},
+				{Key: "status", Value: "$user.status"},
+				{Key: "created_at", Value: 1},
+			}},
+		},
+		// Sort by created_at desc (optional, can be parameterized)
+		bson.D{
+			{Key: "$sort", Value: bson.D{
+				{Key: "created_at", Value: -1},
+			}},
+		},
+		// Pagination
+		bson.D{
+			{Key: "$skip", Value: int64((page - 1) * size)},
+		},
+		bson.D{
+			{Key: "$limit", Value: int64(size)},
+		},
+	}
+
+	totalCountPipeline := mongo.Pipeline{
+		bson.D{
+			{Key: "$match", Value: filter},
+		},
+		bson.D{
+			{Key: "$count", Value: "total"},
+		},
+	}
+
+	// Get paginated results
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
-	var results []db.CoachClient
-	for cursor.Next(ctx) {
-		var cc db.CoachClient
-		if err := cursor.Decode(&cc); err == nil {
-			results = append(results, cc)
+	var results []map[string]interface{}
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, 0, err
+	}
+
+	// Get total count
+	total := 0
+	totalCursor, err := r.collection.Aggregate(ctx, totalCountPipeline)
+	if err == nil {
+		var totalResult []bson.M
+		totalCursor.All(ctx, &totalResult)
+		if len(totalResult) > 0 {
+			if t, ok := totalResult[0]["total"].(int32); ok {
+				total = int(t)
+			}
 		}
 	}
-	total, err := r.collection.CountDocuments(ctx, filter)
-	if err != nil {
-		return results, 0, err
-	}
-	return results, int(total), nil
+
+	return results, total, nil
 }
 
 // DissociateCoachClient removes a coach-client relationship

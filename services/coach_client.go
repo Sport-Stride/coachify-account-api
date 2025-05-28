@@ -10,8 +10,10 @@ import (
 )
 
 // services/coach_service.go
+// Update CoachService interface to match new enriched return type
+// ListCoachClients returns enriched client details as []map[string]interface{}
 type CoachService interface {
-	ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]db.CoachClient, int, error)
+	ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error)
 	DissociateCoachClient(ctx context.Context, coachID, clientID string) error
 	AddCoachClient(ctx context.Context, coachID, clientID string) error
 }
@@ -41,7 +43,8 @@ func NewCoachService(
 	}
 }
 
-func (s *CoachServiceImpl) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]db.CoachClient, int, error) {
+// Update CoachServiceImpl to match new return type
+func (s *CoachServiceImpl) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
 	return s.coachRepo.ListCoachClients(ctx, query)
 }
 
