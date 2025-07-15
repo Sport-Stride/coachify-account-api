@@ -1,70 +1,205 @@
 package notification
 
 import (
-	"coachify-account-api/models"
+	"bytes"
+	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
+	"coachify-account-api/utils"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"log"
 	"net/http"
-	"strings"
-
-	"github.com/mailgun/mailgun-go/v4"
+	"time"
 )
 
-// NotificationClient represents the client for sending notifications via Mailgun.
+// NotificationClient handles communication with the notification API
 type NotificationClient struct {
-	mgClient mailgun.Mailgun
+	httpClient           *http.Client
+	baseURL              string
+	notificationEndpoint string
 }
 
-// NewNotificationClient creates a new NotificationClient with Mailgun.
-func NewNotificationClient(domain, apiKey string) *NotificationClient {
-	mgClient := mailgun.NewMailgun(domain, apiKey)
+// NewNotificationClient initializes a new client for the notification service
+func NewNotificationClient(cfg utils.NotificationAPIConfig) (*NotificationClient, error) {
 	return &NotificationClient{
-		mgClient: mgClient,
+		httpClient: &http.Client{
+			Timeout: 50 * time.Second,
+		},
+		baseURL:              cfg.URL,
+		notificationEndpoint: "/emails", // Fixed endpoint without format specifier
+	}, nil
+}
+
+// SendInvitationMail sends an invitation email via the notification API
+func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+
+	// Construct the endpoint URL correctly
+	url := c.baseURL + c.notificationEndpoint // Direct concatenation without formatting
+	log.Printf("Sending email to %s at %s", dbUser.UserEmail, url)
+	// Build the request body
+	requestBody := map[string]interface{}{
+		"to":           dbUser.UserEmail,
+		"templateName": utils.LoadConfig().ConfirmationCodeTemplatePending,
+		"dynamicData": map[string]string{
+			"message":  "Thank you for registering! Here is your confirmation code: " + dbUser.UserConfirmCode.Code,
+			"subject":  "Confirmation of Your Registration",
+			"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := c.do(ctx, http.MethodPost, url, jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyResp, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted:
+		return nil
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid request: %s", string(bodyResp))
+	case http.StatusInternalServerError:
+		return fmt.Errorf("server error: %s", string(bodyResp))
+	default:
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyResp))
+	}
+
+}
+
+// SendConfirmationEmail sends a confirmation email
+func (c *NotificationClient) SendConfirmationEmail(ctx context.Context, dbUser *db.User) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().ConfirmationCodeTemplatePending
+	dynamicData := map[string]string{
+		"message":  "Thank you for registering! Here is your confirmation code: " + dbUser.UserConfirmCode.Code,
+		"subject":  "Confirmation of Your Registration",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
+// SendResendConfirmationEmail sends a resend confirmation email
+func (c *NotificationClient) SendResendConfirmationEmail(ctx context.Context, dbUser *db.User) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().ResendConfirmationTemplate
+	dynamicData := map[string]string{
+		"message":  "Here is your new confirmation code: " + dbUser.UserConfirmCode.Code,
+		"subject":  "Resend Confirmation Code",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
+// SendResetPasswordEmail sends a reset password email
+func (c *NotificationClient) SendResetPasswordEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().ResetPasswordTemplate
+	dynamicData := map[string]string{
+		"message":  "You requested a password reset. Here is your reset code: " + dbUser.UserResetPasswordCode.Code,
+		"subject":  "Reset Your Password",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
+// SendConfirmResetPasswordEmail sends a confirmation of password reset
+func (c *NotificationClient) SendConfirmResetPasswordEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().ConfirmResetPasswordTemplate
+	dynamicData := map[string]string{
+		"message":  "Your password has been successfully reset.",
+		"subject":  "Password Reset Confirmation",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
+// Send a welcome email after confirmation
+func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, dbUser *db.User) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().WelcomeTemplate
+	dynamicData := map[string]string{
+		"message":  "Welcome to our platform !",
+		"subject":  "Welcome to Our Community!",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+		"validation_link" : "https://app.coachify.training/auth/signin",
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
+// sendEmail is a helper to send an email with a template and dynamic data
+func (c *NotificationClient) sendEmail(ctx context.Context, to, template string, dynamicData map[string]string) error {
+	url := c.baseURL + c.notificationEndpoint
+	requestBody := map[string]interface{}{
+		"to":           to,
+		"templateName": template,
+		"dynamicData":  dynamicData,
+	}
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	req, err := c.do(ctx, http.MethodPost, url, jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	bodyResp, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted:
+		return nil
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid request: %s", string(bodyResp))
+	case http.StatusInternalServerError:
+		return fmt.Errorf("server error: %s", string(bodyResp))
+	default:
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyResp))
 	}
 }
 
-// Send sends an email via Mailgun.
-func (c *NotificationClient) Send(ctx context.Context, req Request, template ...string) (*Response, *models.ApiError) {
-	// Create the email message
-	url := "https://sandbox.api.mailtrap.io/api/send/2370532"
-	method := "POST"
-
-	messageText := req.DynamicData["message"]
-	fmt.Println("Dynamic Message Data:", messageText) // 🔍 Debug log
-
-	payload := strings.NewReader(fmt.Sprintf(`{
-		"from": {"email": "hello@example.com", "name": "Mailtrap Test"},
-		"to": [{"email": "khaledlajili11@gmail.com"}],
-		"subject": "You are awesome!",
-		"text": "Congrats for sending test email with Mailtrap! %s",
-		"category": "Integration Test"
-	}`, messageText))
-
-	client := &http.Client{}
-	req1, err := http.NewRequest(method, url, payload)
-
-	req1.Header.Add("Authorization", "Bearer 7475bbc0b2f03ef8a90a71161170aff3")
-	req1.Header.Add("Content-Type", "application/json")
-
-	res, err := client.Do(req1)
+// do creates an HTTP request with context and headers
+func (c *NotificationClient) do(ctx context.Context, method, url string, body []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
 	if err != nil {
-		fmt.Println(err)
-
+		return nil, err
 	}
-	defer res.Body.Close()
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println(err)
-
-	}
-
-	fmt.Println(string(body))
-
-	// Return the response
-	return &Response{
-		Message: "Email sent successfully",
-		ID:      "id",
-	}, nil
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
 }

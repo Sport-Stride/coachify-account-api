@@ -18,6 +18,11 @@ type AppConfig struct {
 	Notification          NotificationConfig
 	IdentifierAPI         IdentifierAPIConfig
 	InvitationAPI         InvitationAPIConfig
+	NotificationAPI 	  NotificationAPIConfig
+	ConfirmationCodeTemplatePending   string
+	ResendConfirmationTemplate       string
+	ResetPasswordTemplate            string
+	ConfirmResetPasswordTemplate     string
 	ChatAPI               ChatAPIConfig
 	FacebookOAuth         *oauth2.Config
 	FacebookEncryptionKey string
@@ -25,6 +30,7 @@ type AppConfig struct {
 	GoogleEncryptionKey   string
 	CoachifyEncryptionKey string
 	CoachifySecretKey     string
+	WelcomeTemplate        string
 }
 
 type BaseURLConfig struct {
@@ -41,6 +47,9 @@ type NotificationConfig struct {
 }
 
 type IdentifierAPIConfig struct {
+	URL string
+}
+type NotificationAPIConfig struct {
 	URL string
 }
 type InvitationAPIConfig struct {
@@ -76,7 +85,14 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("IDENTIFIER_API_URL", "https://coachify-identifier-api-176ecee2c6dd.herokuapp.com"),
 			},
 			InvitationAPI: InvitationAPIConfig{
-				URL: getStringWithDefault("INVITATION_API_URL", "http://localhost:8087"),
+				URL: getStringWithDefault("INVITATION_API_URL", "https://coachify-invitation-api-8120654c460c.herokuapp.com"),
+			},
+			ConfirmationCodeTemplatePending: getStringWithDefault("CONFIRMATION_CODE_TEMPLATE_PENDING", "confirmation_code_pending"),
+			ResendConfirmationTemplate:       getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),
+			ResetPasswordTemplate:            getStringWithDefault("RESET_PASSWORD_TEMPLATE", "reset_password"),
+			ConfirmResetPasswordTemplate:     getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
+			NotificationAPI: NotificationAPIConfig{
+				URL: getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
 			},
 			ChatAPI: ChatAPIConfig{
 				URL: getStringWithDefault("CHAT_API_URL", "http://localhost:8088"),
@@ -90,8 +106,8 @@ func LoadConfig() *AppConfig {
 			},
 			FacebookEncryptionKey: getStringWithDefault("FACEBOOK_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			GoogleOAuth: &oauth2.Config{
-				ClientID:     getStringWithDefault("GOOGLE_APP_ID", "1091267835475-c2d6n42uusnfg8ih3hv96v83gmfiqi61.apps.googleusercontent.com"),
-				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", "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"),
+				ClientID:     getStringWithDefault("GOOGLE_APP_ID", "597425356866-6vephqb542a7brgmk7sho06ojct1tqtt.apps.googleusercontent.com"),
+				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", "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"),
 				RedirectURL:  getStringWithDefault("GOOGLE_REDIRECT_URL", "http://localhost:8060/oauth/google/callback"),
 				Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 				Endpoint:     google.Endpoint,
@@ -99,6 +115,7 @@ func LoadConfig() *AppConfig {
 			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", "E3F9B6F9D7914B424E58DDF91AD86"),
+			WelcomeTemplate:        getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
 		}
 
 		configInstance = cfg

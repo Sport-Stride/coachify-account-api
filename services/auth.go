@@ -386,21 +386,14 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	if err != nil {
 		return nil, err
 	}
-	// Send confirmation email
-	dynamicData := map[string]string{
-		"message":  "Thank you for registering!",
-		"username": newUser.UserFirstname + " " + newUser.UserLastname,
-		"subject":  "Thank you for Your Registration",
-	}
-	notificationData := notification.Request{
-		To:          newUser.UserEmail,
-		DynamicData: dynamicData,
-	}
-
-	if _, err := s.notificationClient.Send(ctx, notificationData); err != nil {
+	// Get the user from the database using email
+	user, err := s.userRepository.GetByEmail(ctx, newUser.UserEmail)
+	if err != nil {
 		return nil, err
 	}
-
+	if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
+		log.Printf("Failed to send confirmation email: %v", err)
+	}
 	return &api.OAuthResponse{
 		User: mapping.ToApiUser(newUser),
 	}, nil
@@ -540,6 +533,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
 	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
+	
 	if role == "client" {
 		s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
 	}
@@ -547,6 +541,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	if Rolerr != nil {
 		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 	}
+	
 	dbUser.UserRole = role
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
@@ -554,30 +549,22 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		return nil, err
 	}
 
-	// Prepare dynamic data for the email
-	dynamicData := map[string]string{
-		"message":  "Thank you for registering! Here is your confirmation code: " + dbUser.UserConfirmCode.Code,
-		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
-		"subject":  "Confirmation of Your Registration",
-	}
+	// Send confirmation email
+	go func() {
+		
+		bgCtx := context.Background()
+		er := s.notificationClient.SendMail(bgCtx, dbUser)
+		if er != nil {
+			// Log error if sending fails
+			fmt.Printf("Failed to send email: %v\n", er.Error)
 
-	// Create the notification request
-	data := notification.Request{
-		To:          dbUser.UserEmail, // Recipient's email
-		DynamicData: dynamicData,      // Dynamic content
-	}
-
+		} else {
+			// Log success response
+			fmt.Println("Email sent successfully!")
+		}
+	}()
 	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
-	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
 
-	} else {
-		// Log success response
-		fmt.Println("Email sent successfully!", res)
-	}
 
 	resp := &api.RegisterResponse{
 		User:        mapping.ToApiUserResponse(inserted),
@@ -664,8 +651,7 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		return err
 	}
 
-	fmt.Printf("Code: %s\n", u.UserConfirmCode.Code)
-
+	// Check if the confirmation code is expired or missing
 	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
 		confirmCode := &db.UserConfirmCode{
 			Code:           s.activationManager.GenerateCode(),
@@ -679,27 +665,16 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 			return err
 		}
 
-		dynamicData := map[string]string{
-			"message": "Thank you for registering! Here is your confirmation code: " + u.UserConfirmCode.Code,
-			"subject": "Confirmation of Your Registration",
+		// Get the user from the database using email
+		user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
+		if err != nil {
+			return err
+		}
+		// Send confirmation email using notification client
+		if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
+			log.Printf("Failed to send confirmation email: %v", err)
 		}
 
-		// Create the notification request
-		data := notification.Request{
-			To:          u.UserEmail, // Recipient's email
-			DynamicData: dynamicData, // Dynamic content
-		}
-
-		// Send the notification email
-		res, er := s.notificationClient.Send(ctx, data)
-		log.Printf("%v", data)
-		if er != nil {
-			// Log error if sending fails
-			fmt.Printf("Failed to send email: %v\n", er.Error)
-		}
-
-		// Log success response
-		fmt.Println("Email sent successfully!", res)
 		return &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidConfirmationCode,
@@ -714,7 +689,6 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	}
 	if u.UserRole == "coach" {
 		u.UserStatus = db.ComReg1
-
 	} else {
 		u.UserStatus = db.Active
 		log.Printf("Invitation Id and email , %s , %s", u.UserExternalID, u.UserEmail)
@@ -730,28 +704,14 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		return err
 	}
 
-	dynamicData := map[string]string{
-		"message": "Welcome to our platform. We are excited to have you on board!",
-		// "username": u.UserFirstname + " " + u.UserLastname,
-		"subject": "Welcome to Our Service!",
+	// After updating confirmation code and user status, send welcome email
+	user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
+	if err != nil {
+		return err
 	}
-
-	// Create the notification request
-	data := notification.Request{
-		To:          u.UserEmail, // Recipient's email
-		DynamicData: dynamicData, // Dynamic content
+	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
+		log.Printf("Failed to send welcome email: %v", err)
 	}
-
-	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
-	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
-	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	// Map the user object to the API response
 	//confirmResponse := mapping.ToConfirmResponse(u)
@@ -774,29 +734,15 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 		return err
 	}
 
-	dynamicData := map[string]string{
-		"message": "Thank you for registering! Here is your confirmation code: " + u.UserConfirmCode.Code,
-		//"username": u.UserFirstname + " " + u.UserLastname,
-		"subject": "Confirmation of Your Registration",
+	// Get the user from the database using email
+	user, err := s.userRepository.GetByEmail(ctx, email)
+	if err != nil {
+		return err
 	}
-
-	// Create the notification request
-	data := notification.Request{
-		To:          u.UserEmail, // Recipient's email
-		DynamicData: dynamicData, // Dynamic content
+	// Send resend confirmation email using notification client
+	if err := s.notificationClient.SendResendConfirmationEmail(ctx, user); err != nil {
+		log.Printf("Failed to send resend confirmation email: %v", err)
 	}
-
-	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
-	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
-
-	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	return nil
 }
@@ -818,28 +764,12 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 		return err
 	}
 
-	dynamicData := map[string]string{
-		"message": "Please use the following code to reset your password: " + user.UserResetPasswordCode.Code + " Best regards,The Support Team.",
-		//"username": user.UserFirstname + " " + user.UserLastname,
-		"subject": "Password Reset Request",
-	}
+	// Get the user from the database using email
 
-	// Create the notification request
-	data := notification.Request{
-		To:          user.UserEmail, // Recipient's email
-		DynamicData: dynamicData,    // Dynamic content
+	// Send reset password email using notification client
+	if err := s.notificationClient.SendResetPasswordEmail(ctx, user); err != nil {
+		log.Printf("Failed to send reset password email: %v", err)
 	}
-	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data, "forgotpassword")
-	log.Printf("%v", data)
-	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
-
-	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	return nil
 }
@@ -876,29 +806,12 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 		return err
 	}
 
-	dynamicData := map[string]string{
-		"message": "Your password has been successfully reset.",
-		//"username": user.UserFirstname + " " + user.UserLastname,
-		"subject": "Password Reset Confirmation",
-	}
-
-	// Create the notification request
-	data := notification.Request{
-		To:          user.UserEmail, // Recipient's email
-		DynamicData: dynamicData,    // Dynamic content
-	}
-
 	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
+	er := s.notificationClient.SendConfirmResetPasswordEmail(ctx, user)
 	if er != nil {
 		// Log error if sending fails
 		fmt.Printf("Failed to send email: %v\n", er.Error)
-
 	}
-
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	return nil
 }
@@ -1064,29 +977,16 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 
 		return nil, err
 	}
-	dynamicData := map[string]string{
-		"message":  "Thank you for registering! Here is your confirmation code: " + dbUser.UserConfirmCode.Code,
-		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
-		"subject":  "Confirmation of Your Registration",
-	}
 
-	// Create the notification request
-	data := notification.Request{
-		To:          dbUser.UserEmail, // Recipient's email
-		DynamicData: dynamicData,      // Dynamic content
-	}
 
 	// Send the notification email
-	res, er := s.notificationClient.Send(ctx, data)
-	log.Printf("%v", data)
+	er := s.notificationClient.SendConfirmationEmail(ctx, dbUser)
 	if er != nil {
 		// Log error if sending fails
 		fmt.Printf("Failed to send email: %v\n", er.Error)
 
 	}
 
-	// Log success response
-	fmt.Println("Email sent successfully!", res)
 
 	resp := &api.RegisterResponse{
 		User:        mapping.ToApiUserResponse(inserted),
@@ -1096,8 +996,8 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 
 	if req.Autologin {
 		token, err := utils.CreateToken(utils.CreateTokenParams{
-			User: refreshTokenData,
-			Type: "access",
+		 User: refreshTokenData,
+		 Type: "access",
 		})
 		if err != nil {
 			return nil, &models.ApiError{

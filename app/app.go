@@ -76,9 +76,10 @@ func (app *App) setup() {
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
 
-	notification := notification.NewNotificationClient(config.Notification.MailgunDomain,
-		config.Notification.MailgunAPIKey)
-
+	notification, errNotif := notification.NewNotificationClient(utils.LoadConfig().NotificationAPI)
+	if errNotif != nil {
+		log.Fatalf("Failed to initialize notification client: %v", errNotif)
+	}
 	// Initialize OAuth2 providers
 	facebookProvider, err := oauth2.NewProvider(
 		oauth2.ProviderFacebook,

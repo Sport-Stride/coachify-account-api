@@ -588,6 +588,7 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 		"status":        1,
 		"email":         1,
 		"providers":     1,
+		"profile_picture": 1,
 		"metadata":      1,
 	}
 
@@ -624,6 +625,8 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 		"password":            1,
 		"status":              1,
 		"email":               1,
+		"firstname": 1,
+		"lastname": 1,
 		"updated_at":          1,
 		"reset_password_code": 1,
 	}
@@ -632,6 +635,8 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 		UserPassword          string                   `bson:"password" validate:"required"`
 		UserStatus            db.UserStatus            `bson:"status"`
 		UserEmail             string                   `bson:"email" validate:"required"`
+		UserFirstname          string                          `bson:"firstname" validate:"required"`
+		UserLastname           string                          `bson:"lastname" validate:"required"`
 		UserUpdatedAt         time.Time                `bson:"updated_at"`
 		UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
 	}
@@ -664,6 +669,8 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 		UserPassword:          result.UserPassword,
 		UserStatus:            result.UserStatus,
 		UserEmail:             result.UserEmail,
+		UserFirstname:         result.UserFirstname,
+		UserLastname:          result.UserLastname,
 		UserUpdatedAt:         result.UserUpdatedAt,
 		UserResetPasswordCode: result.UserResetPasswordCode,
 	}

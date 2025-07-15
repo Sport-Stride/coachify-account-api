@@ -35,6 +35,8 @@ var ResetPassword struct {
 type ResetPasswordResponse struct {
 	UserPassword          string                   `bson:"password" validate:"required"`
 	UserStatus            db.UserStatus            `bson:"status"`
+	UserFirstname          string                          `bson:"firstname" validate:"required"`
+	UserLastname           string                          `bson:"lastname" validate:"required"` 
 	UserEmail             string                   `bson:"email" validate:"required"`
 	UserUpdatedAt         time.Time                `bson:"updated_at"`
 	UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
