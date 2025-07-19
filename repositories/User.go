@@ -688,6 +688,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		"confirm_code":        1,
 		"email":               1,
 		"updated_at":          1,
+		"refresh_token":       1,
 	}
 	// Execute the queryExternalID             string                          `bson:"externalid,omitempty"`
 	var result struct {
@@ -698,6 +699,7 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
 		UserEmail              string              `bson:"email" validate:"required"`
 		UserUpdatedAt          time.Time           `bson:"updated_at"`
+		UserRefreshToken       string              `bson:"refresh_token"`
 	}
 	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
 	if err != nil {
@@ -728,8 +730,10 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		UserConfirmCode:        result.UserConfirmCode,
 		UserEmail:              result.UserEmail,
 		UserUpdatedAt:          result.UserUpdatedAt,
+		UserRefreshToken: result.UserRefreshToken,
+
 	}
-	log.Printf("USER EXTERNAL ID is %s", resultToApi.UserExternalID)
+
 
 	return resultToApi, nil
 }

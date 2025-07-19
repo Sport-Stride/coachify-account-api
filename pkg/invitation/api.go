@@ -154,7 +154,7 @@ func (c *InvitationClient) ValidateInvitation(ctx context.Context, invitationID,
 }
 
 // AcceptInvitation accepts an invitation after user registration
-func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, email string) (*Invitation, *models.ApiError) {
+func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, email, UserRefreshToken string) (*Invitation, *models.ApiError) {
 	// Create the request URL
 	url := fmt.Sprintf(c.acceptInviteEndpoint, c.baseURL)
 
@@ -163,7 +163,7 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 		ExternalID: invitationID,
 		Email:      email,
 	}
-
+	
 	// Marshal request body to JSON
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
@@ -175,7 +175,9 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 	if err != nil {
 		return nil, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToCreateRequest)
 	}
-
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+UserRefreshToken)
 	// Send the request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

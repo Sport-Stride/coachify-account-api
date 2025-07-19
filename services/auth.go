@@ -372,7 +372,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	} else {
 		newUser.UserStatus = db.Active
 		log.Printf("Invitation Id and email , %s , %s", newUser.ExternalID, newUser.UserEmail)
-		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail)
+		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail,*newUser.UserRefreshToken)
 		if err != nil {
 			return nil, &models.ApiError{
 				Code:  http.StatusInternalServerError,
@@ -477,7 +477,45 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	if userExists {
-		// User already exists, return an appropriate error
+		// Check if user is in ToConfirm status, if so, regenerate code and resend
+		userToConfirm, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
+		if err != nil {
+			return nil, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: err.Error,
+			}
+		}
+		if userToConfirm.UserStatus == db.ToConfirm {
+			confirmCode := &db.UserConfirmCode{
+				Code:           s.activationManager.GenerateCode(),
+				ExpirationDate: time.Now().Add(24 * time.Hour),
+			}
+			userToConfirm.UserConfirmCode = confirmCode
+			userToConfirm.UserUpdatedAt = time.Now()
+			err := s.userRepository.UpdateConfirmationCode(ctx, userToConfirm)
+			if err != nil {
+				return nil, &models.ApiError{
+					Code:  http.StatusInternalServerError,
+					Error: err.Error,
+				}
+			}
+			// Send confirmation email
+			// Get the full user for email sending
+			userFull, err := s.userRepository.GetByEmail(ctx, req.Email)
+			if err == nil {
+				if err := s.notificationClient.SendConfirmationEmail(ctx, userFull); err != nil {
+					log.Printf("[Register] Failed to send confirmation email: %v", err)
+				}
+			}
+			// Return a response indicating code was resent (tokens empty)
+			userResp := mapping.ToUserResponse(userFull)
+			return &api.RegisterResponse{
+				User:        mapping.ToApiUserResponse(&userResp),
+				AuthToken:   "",
+				RereshToken: "",
+			}, nil
+		}
+		// User exists but not in ToConfirm, return error
 		return nil, &models.ApiError{
 			Code:  http.StatusConflict,
 			Error: models.ErrUserAlreadyExists,
@@ -646,76 +684,82 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 }
 
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
-	u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
+u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
+if err != nil {
+	log.Printf("[Confirm] Error in GetByEmailToConfirm: %v", err)
+	return err
+}
+
+// Check if the confirmation code is expired or missing
+if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
+	confirmCode := &db.UserConfirmCode{
+		Code:           s.activationManager.GenerateCode(),
+		ExpirationDate: time.Now().Add(24 * time.Hour),
+	}
+
+	u.UserConfirmCode = confirmCode
+	u.UserUpdatedAt = time.Now()
+	err := s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {
+		log.Printf("[Confirm] Error updating confirmation code: %v", err)
 		return err
 	}
 
-	// Check if the confirmation code is expired or missing
-	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
-		confirmCode := &db.UserConfirmCode{
-			Code:           s.activationManager.GenerateCode(),
-			ExpirationDate: time.Now().Add(24 * time.Hour),
-		}
-
-		u.UserConfirmCode = confirmCode
-		u.UserUpdatedAt = time.Now()
-		err := s.userRepository.UpdateConfirmationCode(ctx, u)
-		if err != nil {
-			return err
-		}
-
-		// Get the user from the database using email
-		user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
-		if err != nil {
-			return err
-		}
-		// Send confirmation email using notification client
-		if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
-			log.Printf("Failed to send confirmation email: %v", err)
-		}
-
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidConfirmationCode,
-		}
-	}
-
-	if req.ConfirmCode != u.UserConfirmCode.Code {
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidConfirmationCode,
-		}
-	}
-	if u.UserRole == "coach" {
-		u.UserStatus = db.ComReg1
-	} else {
-		u.UserStatus = db.Active
-		log.Printf("Invitation Id and email , %s , %s", u.UserExternalID, u.UserEmail)
-		_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail)
-		if err != nil {
-			return err
-		}
-	}
-
-	u.UserVerificationStatus = true
-	err = s.userRepository.UpdateConfirmationCode(ctx, u)
-	if err != nil {
-		return err
-	}
-
-	// After updating confirmation code and user status, send welcome email
+	// Get the user from the database using email
 	user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
 	if err != nil {
+		log.Printf("[Confirm] Error in GetByEmail: %v", err)
 		return err
 	}
-	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
-		log.Printf("Failed to send welcome email: %v", err)
+	// Send confirmation email using notification client
+	if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
+		log.Printf("[Confirm] Failed to send confirmation email: %v", err)
 	}
 
-	// Map the user object to the API response
-	//confirmResponse := mapping.ToConfirmResponse(u)
-	return nil
+	return &models.ApiError{
+		Code:  http.StatusUnauthorized,
+		Error: models.ErrInvalidConfirmationCode,
+	}
+}
+
+if req.ConfirmCode != u.UserConfirmCode.Code {
+	log.Printf("[Confirm] Provided code does not match for user: %s", u.UserEmail)
+	return &models.ApiError{
+		Code:  http.StatusUnauthorized,
+		Error: models.ErrInvalidConfirmationCode,
+	}
+}
+if u.UserRole == "coach" {
+	u.UserStatus = db.ComReg1
+} else {
+	u.UserStatus = db.Active
+	_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail, u.UserRefreshToken)
+	if err != nil {
+		log.Printf("[Confirm] Error in AcceptInvitation: %v", err)
+		return err
+	}
+}
+
+u.UserVerificationStatus = true
+err = s.userRepository.UpdateConfirmationCode(ctx, u)
+if err != nil {
+	log.Printf("[Confirm] Error updating confirmation code after verification: %v", err)
+	return err
+}
+
+// After updating confirmation code and user status, send welcome email
+user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
+if err != nil {
+	log.Printf("[Confirm] Error in GetByEmail after update: %v", err)
+	return err
+}
+if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
+	log.Printf("[Confirm] Failed to send welcome email: %v", err)
+}
+
+// Map the user object to the API response
+//confirmResponse := mapping.ToConfirmResponse(u)
+return nil
 }
 
 func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *models.ApiError {

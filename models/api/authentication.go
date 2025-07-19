@@ -176,6 +176,7 @@ type GetUserConfirm struct {
 	UserStatus             db.UserStatus       `bson:"status"`
 	UserConfirmCode        *db.UserConfirmCode `bson:"confirm_code"`
 	UserEmail              string              `bson:"email" validate:"required"`
+	UserRefreshToken 		string 				`bson:"refresh_token,omitempty"`
 	UserUpdatedAt          time.Time           `bson:"updated_at"`
 }
 
