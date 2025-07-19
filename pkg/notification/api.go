@@ -91,6 +91,10 @@ func (c *NotificationClient) SendConfirmationEmail(ctx context.Context, dbUser *
 	if dbUser.UserEmail == "" {
 		return fmt.Errorf("no email recipient provided")
 	}
+	if dbUser.UserConfirmCode == nil {
+		log.Printf("Warning: UserConfirmCode is nil for user %s, sending email without code", dbUser.UserEmail)
+		return fmt.Errorf("user confirmation code is missing")
+	}
 	template := utils.LoadConfig().ConfirmationCodeTemplatePending
 	dynamicData := map[string]string{
 		"message":  "Thank you for registering! Here is your confirmation code: " + dbUser.UserConfirmCode.Code,

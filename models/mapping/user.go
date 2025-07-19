@@ -55,6 +55,7 @@ func ToDbUserFromGoogleProfile(googleLoginRequest db.GoogleLoginRequest, externa
 				Expiry:         time.Unix(googleLoginRequest.Account.ExpiresAt, 0), // Convert ExpiresAt from epoch seconds to time.Time
 			},
 		},
+		UserConfirmCode:    &db.UserConfirmCode{Code: "", ExpirationDate: time.Now()},
 	}
 }
 
