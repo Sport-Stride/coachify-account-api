@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -91,7 +92,6 @@ func (r *CoachRepository) AddCoachClient(ctx context.Context, coachID, clientID 
 	return err
 }
 
-// ListCoachClients returns a paginated and filtered list of coach-client relationships with enriched user details
 func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
 	filter := bson.M{"coach_id": query.CoachID}
 	if query.ClientID != "" {
@@ -108,6 +108,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 			filter["created_at"] = bson.M{"$lte": query.ToDate}
 		}
 	}
+	
 	page := query.Page
 	if page < 1 {
 		page = 1
@@ -117,7 +118,8 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		size = 10
 	}
 
-	pipeline := mongo.Pipeline{
+	// Base pipeline for data transformation (without pagination)
+	basePipeline := mongo.Pipeline{
 		// Match coach_id and filters
 		bson.D{
 			{Key: "$match", Value: filter},
@@ -152,7 +154,16 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 				{Key: "created_at", Value: 1},
 			}},
 		},
-		// Sort by created_at desc (optional, can be parameterized)
+	}
+
+	// Pipeline for getting total count (same as base but with $count)
+	totalCountPipeline := append(basePipeline, bson.D{
+		{Key: "$count", Value: "total"},
+	})
+
+	// Pipeline for getting paginated results (base + sort + pagination)
+	dataPipeline := append(basePipeline,
+		// Sort by created_at desc
 		bson.D{
 			{Key: "$sort", Value: bson.D{
 				{Key: "created_at", Value: -1},
@@ -165,42 +176,77 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		bson.D{
 			{Key: "$limit", Value: int64(size)},
 		},
+	)
+
+	// Execute both queries concurrently for better performance
+	type result struct {
+		data  []map[string]interface{}
+		total int64
+		err   error
 	}
 
-	totalCountPipeline := mongo.Pipeline{
-		bson.D{
-			{Key: "$match", Value: filter},
-		},
-		bson.D{
-			{Key: "$count", Value: "total"},
-		},
-	}
+	dataChan := make(chan result, 1)
+	totalChan := make(chan result, 1)
 
 	// Get paginated results
-	cursor, err := r.collection.Aggregate(ctx, pipeline)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer cursor.Close(ctx)
-	var results []map[string]interface{}
-	if err := cursor.All(ctx, &results); err != nil {
-		return nil, 0, err
-	}
+	go func() {
+		cursor, err := r.collection.Aggregate(ctx, dataPipeline)
+		if err != nil {
+			dataChan <- result{err: err}
+			return
+		}
+		defer cursor.Close(ctx)
+		
+		var results []map[string]interface{}
+		if err := cursor.All(ctx, &results); err != nil {
+			dataChan <- result{err: err}
+			return
+		}
+		dataChan <- result{data: results}
+	}()
 
 	// Get total count
-	total := 0
-	totalCursor, err := r.collection.Aggregate(ctx, totalCountPipeline)
-	if err == nil {
+	go func() {
+		totalCursor, err := r.collection.Aggregate(ctx, totalCountPipeline)
+		if err != nil {
+			totalChan <- result{err: err}
+			return
+		}
+		defer totalCursor.Close(ctx)
+		
 		var totalResult []bson.M
-		totalCursor.All(ctx, &totalResult)
+		if err := totalCursor.All(ctx, &totalResult); err != nil {
+			totalChan <- result{err: err}
+			return
+		}
+		
+		var total int64 = 0
 		if len(totalResult) > 0 {
 			if t, ok := totalResult[0]["total"].(int32); ok {
-				total = int(t)
+				total = int64(t)
+			} else if t, ok := totalResult[0]["total"].(int64); ok {
+				total = t
 			}
 		}
-	}
+		totalChan <- result{total: total}
+	}()
 
-	return results, total, nil
+	// Wait for both results
+	dataResult := <-dataChan
+	totalResult := <-totalChan
+
+	// Check for errors
+	if dataResult.err != nil {
+		return nil, 0, dataResult.err
+	}
+	if totalResult.err != nil {
+		return nil, 0, totalResult.err
+	}
+	log.Printf("query: %v, results: %v, total: %v", query, dataResult.data, totalResult.total)
+
+	return dataResult.data, int(totalResult.total), nil
+
+	
 }
 
 // DissociateCoachClient removes a coach-client relationship
