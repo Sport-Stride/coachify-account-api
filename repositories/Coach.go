@@ -255,3 +255,15 @@ func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, cl
 	_, err := r.collection.DeleteOne(ctx, filter)
 	return err
 }
+
+func (r *CoachRepository) GetCoachIDByClientID(ctx context.Context, clientID string) (string, error) {
+	var result struct {
+		CoachID string `bson:"coach_id"`
+	}
+	filter := bson.M{"client_id": clientID}
+	err := r.collection.FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		return "", err
+	}
+	return result.CoachID, nil
+}

@@ -92,3 +92,24 @@ func DissociateCoachClient(coachService services.CoachService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"message": "Coach-client relationship removed"})
 	}
 }
+// Dissociate a coach and a client
+func GetCoachIDByClientID(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenUserID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		clientID, ok := tokenUserID.(string)
+		if !ok || clientID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+			return
+		}
+		coachID, err := coachService.GetCoachIDByClientID(c.Request.Context(), clientID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"coach_id": coachID})
+	}
+}

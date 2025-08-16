@@ -96,6 +96,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		{
 
 			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
+			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
 		}
 	}
