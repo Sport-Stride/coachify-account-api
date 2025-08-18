@@ -6,6 +6,7 @@ import (
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
+	"coachify-account-api/pkg/payments"
 	"coachify-account-api/repositories"
 	"coachify-account-api/utils"
 
@@ -27,6 +28,7 @@ func InitServices(config utils.AppConfig,
 	notification *notification.NotificationClient,
 	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
+	payment *payments.PaymentClient,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -46,6 +48,7 @@ func InitServices(config utils.AppConfig,
 		notification,
 		invitation,
 		providers,
+		payment,
 	)
 
 	return &Services{

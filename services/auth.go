@@ -11,6 +11,7 @@ import (
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
+	"coachify-account-api/pkg/payments"
 	"context"
 	"fmt"
 	"log"
@@ -55,6 +56,7 @@ type AuthServiceImpl struct {
 	invitation         *invitation.InvitationClient
 	notificationClient *notification.NotificationClient
 	providers          map[oauth2.ProviderType]oauth2.Provider
+	payment            *payments.PaymentClient
 }
 
 func NewAuthService(
@@ -67,6 +69,7 @@ func NewAuthService(
 	notificationClient *notification.NotificationClient,
 	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
+	payment *payments.PaymentClient,
 
 ) *AuthServiceImpl {
 	return &AuthServiceImpl{
@@ -79,6 +82,7 @@ func NewAuthService(
 		invitation:         invitation,
 		notificationClient: notificationClient,
 		providers:          providers,
+		payment:            payment,
 	}
 }
 
@@ -365,14 +369,19 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
+	log.Printf("IBL: newUser SubscribeWithTrial")
+	_, er := s.payment.SubscribeWithTrial(ctx, refreshToken)
+	if er != nil {
+		log.Printf("IBL: Error while subscribing with trial, %v", er)
 
+	}
 	if newUser.UserRole == "coach" {
 		newUser.UserStatus = db.ComReg1
 
 	} else {
 		newUser.UserStatus = db.Active
 		log.Printf("Invitation Id and email , %s , %s", newUser.ExternalID, newUser.UserEmail)
-		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail,*newUser.UserRefreshToken)
+		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail, *newUser.UserRefreshToken)
 		if err != nil {
 			return nil, &models.ApiError{
 				Code:  http.StatusInternalServerError,
@@ -571,7 +580,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
 	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
-	
+
 	if role == "client" {
 		s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
 	}
@@ -579,7 +588,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	if Rolerr != nil {
 		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 	}
-	
+
 	dbUser.UserRole = role
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
@@ -589,7 +598,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 
 	// Send confirmation email
 	go func() {
-		
+
 		bgCtx := context.Background()
 		er := s.notificationClient.SendMail(bgCtx, dbUser)
 		if er != nil {
@@ -602,7 +611,6 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		}
 	}()
 	// Send the notification email
-
 
 	resp := &api.RegisterResponse{
 		User:        mapping.ToApiUserResponse(inserted),
@@ -684,82 +692,83 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 }
 
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
-u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
-if err != nil {
-	log.Printf("[Confirm] Error in GetByEmailToConfirm: %v", err)
-	return err
-}
-
-// Check if the confirmation code is expired or missing
-if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
-	confirmCode := &db.UserConfirmCode{
-		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(24 * time.Hour),
-	}
-
-	u.UserConfirmCode = confirmCode
-	u.UserUpdatedAt = time.Now()
-	err := s.userRepository.UpdateConfirmationCode(ctx, u)
+	u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
 	if err != nil {
-		log.Printf("[Confirm] Error updating confirmation code: %v", err)
+		log.Printf("[Confirm] Error in GetByEmailToConfirm: %v", err)
 		return err
 	}
 
-	// Get the user from the database using email
+	// Check if the confirmation code is expired or missing
+	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
+		confirmCode := &db.UserConfirmCode{
+			Code:           s.activationManager.GenerateCode(),
+			ExpirationDate: time.Now().Add(24 * time.Hour),
+		}
+
+		u.UserConfirmCode = confirmCode
+		u.UserUpdatedAt = time.Now()
+		err := s.userRepository.UpdateConfirmationCode(ctx, u)
+		if err != nil {
+			log.Printf("[Confirm] Error updating confirmation code: %v", err)
+			return err
+		}
+
+		// Get the user from the database using email
+		user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
+		if err != nil {
+			log.Printf("[Confirm] Error in GetByEmail: %v", err)
+			return err
+		}
+		// Send confirmation email using notification client
+		if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
+			log.Printf("[Confirm] Failed to send confirmation email: %v", err)
+		}
+
+		return &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidConfirmationCode,
+		}
+	}
+
+	if req.ConfirmCode != u.UserConfirmCode.Code {
+		log.Printf("[Confirm] Provided code does not match for user: %s", u.UserEmail)
+		return &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidConfirmationCode,
+		}
+	}
+	s.payment.SubscribeWithTrial(ctx, u.UserRefreshToken)
+	if u.UserRole == "coach" {
+		u.UserStatus = db.ComReg1
+	} else {
+		u.UserStatus = db.Active
+		_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail, u.UserRefreshToken)
+		if err != nil {
+			log.Printf("[Confirm] Error in AcceptInvitation: %v", err)
+			return err
+		}
+	}
+
+	u.UserVerificationStatus = true
+	err = s.userRepository.UpdateConfirmationCode(ctx, u)
+	if err != nil {
+		log.Printf("[Confirm] Error updating confirmation code after verification: %v", err)
+		return err
+	}
+
+	// After updating confirmation code and user status, send welcome email
 	user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
 	if err != nil {
-		log.Printf("[Confirm] Error in GetByEmail: %v", err)
+		log.Printf("[Confirm] Error in GetByEmail after update: %v", err)
 		return err
 	}
-	// Send confirmation email using notification client
-	if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
-		log.Printf("[Confirm] Failed to send confirmation email: %v", err)
+	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
+		log.Printf("[Confirm] Failed to send welcome email: %v", err)
 	}
 
-	return &models.ApiError{
-		Code:  http.StatusUnauthorized,
-		Error: models.ErrInvalidConfirmationCode,
-	}
-}
-
-if req.ConfirmCode != u.UserConfirmCode.Code {
-	log.Printf("[Confirm] Provided code does not match for user: %s", u.UserEmail)
-	return &models.ApiError{
-		Code:  http.StatusUnauthorized,
-		Error: models.ErrInvalidConfirmationCode,
-	}
-}
-if u.UserRole == "coach" {
-	u.UserStatus = db.ComReg1
-} else {
-	u.UserStatus = db.Active
-	_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail, u.UserRefreshToken)
-	if err != nil {
-		log.Printf("[Confirm] Error in AcceptInvitation: %v", err)
-		return err
-	}
-}
-
-u.UserVerificationStatus = true
-err = s.userRepository.UpdateConfirmationCode(ctx, u)
-if err != nil {
-	log.Printf("[Confirm] Error updating confirmation code after verification: %v", err)
-	return err
-}
-
-// After updating confirmation code and user status, send welcome email
-user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
-if err != nil {
-	log.Printf("[Confirm] Error in GetByEmail after update: %v", err)
-	return err
-}
-if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
-	log.Printf("[Confirm] Failed to send welcome email: %v", err)
-}
-
-// Map the user object to the API response
-//confirmResponse := mapping.ToConfirmResponse(u)
-return nil
+	// Map the user object to the API response
+	//confirmResponse := mapping.ToConfirmResponse(u)
+	return nil
 }
 
 func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *models.ApiError {
@@ -1022,7 +1031,6 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 		return nil, err
 	}
 
-
 	// Send the notification email
 	er := s.notificationClient.SendConfirmationEmail(ctx, dbUser)
 	if er != nil {
@@ -1030,7 +1038,6 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 		fmt.Printf("Failed to send email: %v\n", er.Error)
 
 	}
-
 
 	resp := &api.RegisterResponse{
 		User:        mapping.ToApiUserResponse(inserted),
@@ -1040,8 +1047,8 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 
 	if req.Autologin {
 		token, err := utils.CreateToken(utils.CreateTokenParams{
-		 User: refreshTokenData,
-		 Type: "access",
+			User: refreshTokenData,
+			Type: "access",
 		})
 		if err != nil {
 			return nil, &models.ApiError{

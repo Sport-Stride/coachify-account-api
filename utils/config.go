@@ -11,26 +11,27 @@ import (
 )
 
 type AppConfig struct {
-	Port                  int
-	BaseURL               BaseURLConfig
-	Environment           string
-	MongoDB               MongoConfig
-	Notification          NotificationConfig
-	IdentifierAPI         IdentifierAPIConfig
-	InvitationAPI         InvitationAPIConfig
-	NotificationAPI 	  NotificationAPIConfig
-	ConfirmationCodeTemplatePending   string
-	ResendConfirmationTemplate       string
-	ResetPasswordTemplate            string
-	ConfirmResetPasswordTemplate     string
-	ChatAPI               ChatAPIConfig
-	FacebookOAuth         *oauth2.Config
-	FacebookEncryptionKey string
-	GoogleOAuth           *oauth2.Config
-	GoogleEncryptionKey   string
-	CoachifyEncryptionKey string
-	CoachifySecretKey     string
-	WelcomeTemplate        string
+	Port                            int
+	BaseURL                         BaseURLConfig
+	Environment                     string
+	MongoDB                         MongoConfig
+	Notification                    NotificationConfig
+	IdentifierAPI                   IdentifierAPIConfig
+	InvitationAPI                   InvitationAPIConfig
+	NotificationAPI                 NotificationAPIConfig
+	ConfirmationCodeTemplatePending string
+	ResendConfirmationTemplate      string
+	ResetPasswordTemplate           string
+	ConfirmResetPasswordTemplate    string
+	ChatAPI                         ChatAPIConfig
+	FacebookOAuth                   *oauth2.Config
+	FacebookEncryptionKey           string
+	GoogleOAuth                     *oauth2.Config
+	GoogleEncryptionKey             string
+	CoachifyEncryptionKey           string
+	CoachifySecretKey               string
+	WelcomeTemplate                 string
+	PaymentAPI                      PaymentAPIConfig
 }
 
 type BaseURLConfig struct {
@@ -53,6 +54,9 @@ type NotificationAPIConfig struct {
 	URL string
 }
 type InvitationAPIConfig struct {
+	URL string
+}
+type PaymentAPIConfig struct {
 	URL string
 }
 type ChatAPIConfig struct {
@@ -87,10 +91,13 @@ func LoadConfig() *AppConfig {
 			InvitationAPI: InvitationAPIConfig{
 				URL: getStringWithDefault("INVITATION_API_URL", "https://coachify-invitation-api-8120654c460c.herokuapp.com"),
 			},
+			PaymentAPI: PaymentAPIConfig{
+				URL: getStringWithDefault("PAYMENT_API_URL", "http://localhost:8088"),
+			},
 			ConfirmationCodeTemplatePending: getStringWithDefault("CONFIRMATION_CODE_TEMPLATE_PENDING", "confirmation_code_pending"),
-			ResendConfirmationTemplate:       getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),
-			ResetPasswordTemplate:            getStringWithDefault("RESET_PASSWORD_TEMPLATE", "reset_password"),
-			ConfirmResetPasswordTemplate:     getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
+			ResendConfirmationTemplate:      getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),
+			ResetPasswordTemplate:           getStringWithDefault("RESET_PASSWORD_TEMPLATE", "reset_password"),
+			ConfirmResetPasswordTemplate:    getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
 			NotificationAPI: NotificationAPIConfig{
 				URL: getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
 			},
@@ -115,7 +122,7 @@ func LoadConfig() *AppConfig {
 			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
 			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", "E3F9B6F9D7914B424E58DDF91AD86"),
-			WelcomeTemplate:        getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
+			WelcomeTemplate:       getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
 		}
 
 		configInstance = cfg

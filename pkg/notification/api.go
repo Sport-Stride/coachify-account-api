@@ -153,10 +153,10 @@ func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, dbUser *db.Us
 	}
 	template := utils.LoadConfig().WelcomeTemplate
 	dynamicData := map[string]string{
-		"message":  "Welcome to our platform !",
-		"subject":  "Welcome to Our Community!",
-		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
-		"validation_link" : "https://app.coachify.training/auth/signin",
+		"message":         "Welcome to our platform !",
+		"subject":         "Welcome to Our Community!",
+		"username":        dbUser.UserFirstname + " " + dbUser.UserLastname,
+		"validation_link": "https://app.coachify.training/auth/signin",
 	}
 	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
 }

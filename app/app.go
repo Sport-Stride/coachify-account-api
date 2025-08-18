@@ -6,6 +6,7 @@ import (
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
+	"coachify-account-api/pkg/payments"
 	"coachify-account-api/repositories"
 	"context"
 	"fmt"
@@ -63,7 +64,6 @@ func (app *App) setup() {
 
 	activationManager := core.NewSimpleActivationManager()
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
-
 	if err != nil {
 		log.Fatalf("Failed to initialize identifier: %v", err)
 	}
@@ -71,7 +71,10 @@ func (app *App) setup() {
 	if err != nil {
 		log.Fatalf("Failed to initialize invitation: %v", err)
 	}
-
+	payment, err := payments.NewPaymentClient(config.PaymentAPI)
+	if err != nil {
+		log.Fatalf("Failed to initialize payment client: %v", err)
+	}
 	userColl := db.Collection("users")
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
@@ -120,6 +123,7 @@ func (app *App) setup() {
 		notification,
 		invitation,
 		providers,
+		payment,
 	)
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)
