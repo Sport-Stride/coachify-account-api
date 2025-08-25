@@ -11,6 +11,7 @@ type PaymentClient struct {
 	httpClient         *http.Client
 	baseURL            string
 	subscribeWithTrial string
+	planHex            string
 }
 
 // InvitationResponse represents the response structure from the invitation API

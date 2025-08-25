@@ -21,13 +21,14 @@ func NewPaymentClient(cfg utils.PaymentAPIConfig) (*PaymentClient, error) {
 		},
 		baseURL:            cfg.URL,
 		subscribeWithTrial: "/subscriptions",
+		planHex:            cfg.PlanHex,
 	}, nil
 }
 
 // SubscribeWithTrial subscribes the authenticated user to a plan with a trial period.
 func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, UserRefreshToken string) (*PaymentResponse, error) {
 	// hard-coded plan id and trial days per your request
-	const planHex = "68a312e60fed38a0afe2cd57"
+	var planHex = c.planHex
 	const trialDays = 30
 
 	payload := map[string]interface{}{

@@ -57,7 +57,8 @@ type InvitationAPIConfig struct {
 	URL string
 }
 type PaymentAPIConfig struct {
-	URL string
+	URL     string
+	PlanHex string
 }
 type ChatAPIConfig struct {
 	URL string
@@ -92,7 +93,8 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("INVITATION_API_URL", "https://coachify-invitation-api-8120654c460c.herokuapp.com"),
 			},
 			PaymentAPI: PaymentAPIConfig{
-				URL: getStringWithDefault("PAYMENT_API_URL", "http://localhost:8088"),
+				URL:     getStringWithDefault("PAYMENT_API_URL", "http://localhost:8088"),
+				PlanHex: getStringWithDefault("PLAN_HEX", "68a312e60fed38a0afe2cd57"),
 			},
 			ConfirmationCodeTemplatePending: getStringWithDefault("CONFIRMATION_CODE_TEMPLATE_PENDING", "confirmation_code_pending"),
 			ResendConfirmationTemplate:      getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),
