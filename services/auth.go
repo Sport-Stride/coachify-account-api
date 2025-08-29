@@ -370,7 +370,7 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
 	log.Printf("IBL: newUser SubscribeWithTrial")
-	_, er := s.payment.SubscribeWithTrial(ctx, refreshToken)
+	_, er := s.payment.SubscribeWithTrial(ctx, newUser.UserRole, refreshToken)
 	if er != nil {
 		log.Printf("IBL: Error while subscribing with trial, %v", er)
 
@@ -737,7 +737,7 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 			Error: models.ErrInvalidConfirmationCode,
 		}
 	}
-	s.payment.SubscribeWithTrial(ctx, u.UserRefreshToken)
+	s.payment.SubscribeWithTrial(ctx, u.UserRole, u.UserRefreshToken)
 	if u.UserRole == "coach" {
 		u.UserStatus = db.ComReg1
 	} else {
