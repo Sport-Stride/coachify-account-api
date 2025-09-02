@@ -400,8 +400,8 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	if err != nil {
 		return nil, err
 	}
-	if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
-		log.Printf("Failed to send confirmation email: %v", err)
+	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
+		log.Printf("Failed to send welcome email: %v", err)
 	}
 	return &api.OAuthResponse{
 		User: mapping.ToApiUser(newUser),
