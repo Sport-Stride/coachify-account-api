@@ -365,21 +365,23 @@ func getOptionalBoolQuery(ctx *gin.Context, key string) *bool {
 
 func DeleteUser(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		req := new(api.DeleteUserRequest)
-
-		if err := ctx.ShouldBindJSON(req); err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+		tokenUserID, exists := ctx.Get("userID")
+		if !exists {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		externalID, ok := tokenUserID.(string)
+		if !ok || externalID == "" {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID in token"})
 			return
 		}
 
-		apiErr := service.DeleteUser(ctx, req.ExternalID)
-		if apiErr != nil {
+		if apiErr := service.DeleteUser(ctx, externalID); apiErr != nil {
 			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return
 		}
 
 		ctx.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
-
 	}
 }
 
