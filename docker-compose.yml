@@ -1,0 +1,84 @@
+# docker-compose.yml (fixed)
+networks:
+  coachify_net:
+    driver: bridge
+
+services:
+  # Account API Service
+  account-api:
+    image: ${ACCOUNT_IMAGE}
+    build:
+      context: ${BUILD_CONTEXT}
+      dockerfile: ${DOCKERFILE}
+    container_name: ${ACCOUNT_CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT}:${PORT}"
+    environment:
+      # Server Configuration
+      - PORT=${PORT}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - BASE_URL=${BASE_URL}
+      
+      # Database Configuration
+      - MONGODB_URI=${MONGODB_URI}
+      
+      # Email Configuration (Mailgun)
+      - MAILGUN_API_KEY=${MAILGUN_API_KEY}
+      - MAILGUN_DOMAIN=${MAILGUN_DOMAIN}
+      
+      # Microservices URLs
+      - IDENTIFIER_API_URL=${IDENTIFIER_API_URL}
+      - INVITATION_API_URL=${INVITATION_API_URL}
+      - NOTIFICATION_API_URL=${NOTIFICATION_API_URL}
+      - CHAT_API_URL=${CHAT_API_URL}
+      - PAYMENT_API_URL=${PAYMENT_API_URL}
+      
+      # Payment Plan IDs
+      - PLAN_HEX_COACH=${PLAN_HEX_COACH}
+      - PLAN_HEX_CLIENT=${PLAN_HEX_CLIENT}
+      
+      # Email Templates
+      - CONFIRMATION_CODE_TEMPLATE_PENDING=${CONFIRMATION_CODE_TEMPLATE_PENDING}
+      - RESEND_CONFIRMATION_TEMPLATE=${RESEND_CONFIRMATION_TEMPLATE}
+      - RESET_PASSWORD_TEMPLATE=${RESET_PASSWORD_TEMPLATE}
+      - CONFIRM_RESET_PASSWORD_TEMPLATE=${CONFIRM_RESET_PASSWORD_TEMPLATE}
+      - WELCOME_TEMPLATE=${WELCOME_TEMPLATE}
+      
+      # OAuth - Facebook
+      - FACEBOOK_APP_ID=${FACEBOOK_APP_ID}
+      - FACEBOOK_APP_SECRET=${FACEBOOK_APP_SECRET}
+      - FACEBOOK_REDIRECT_URL=${FACEBOOK_REDIRECT_URL}
+      - FACEBOOK_ENCRYPTION_KEY=${FACEBOOK_ENCRYPTION_KEY}
+      
+      # OAuth - Google
+      - GOOGLE_APP_ID=${GOOGLE_APP_ID}
+      - GOOGLE_APP_SECRET=${GOOGLE_APP_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - GOOGLE_ENCRYPTION_KEY=${GOOGLE_ENCRYPTION_KEY}
+      
+      # Security Keys
+      - COACHIFY_ENCRYPTION_KEY=${COACHIFY_ENCRYPTION_KEY}
+      - COACHIFY_SECRET_KEY=${COACHIFY_SECRET_KEY}
+
+    networks:
+      - coachify_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: ${HEALTHCHECK_TIMEOUT}
+      retries: ${HEALTHCHECK_RETRIES}
+      start_period: ${HEALTHCHECK_START_PERIOD}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${LOG_MAX_SIZE}"
+        max-file: "${LOG_MAX_FILE}"
+    deploy:
+      resources:
+        limits:
+          cpus: '${ACCOUNT_LIMIT_CPUS}'
+          memory: ${ACCOUNT_LIMIT_MEMORY}
+        reservations:
+          cpus: '${ACCOUNT_RESERVE_CPUS}'
+          memory: ${ACCOUNT_RESERVE_MEMORY}
