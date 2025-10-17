@@ -53,5 +53,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/sport-stride/invitation-api:latest
+          tags: ghcr.io/sport-stride/account-api:latest
           platforms: linux/amd64
