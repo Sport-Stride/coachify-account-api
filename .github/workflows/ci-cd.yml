@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI/CD Pipeline - Deploy to AWS ECS
 
 on:
   push:
@@ -7,30 +7,61 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-24.04
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: coachify/account-api
+  ECS_SERVICE: coachify-account-api-service
+  ECS_CLUSTER: coachify-prod
+  ECS_TASK_DEFINITION: .aws/task-definition.json
+  CONTAINER_NAME: account-api
 
+jobs:
+  # Build and test job
+  build:
+    name: Build and Test
+    runs-on: ubuntu-24.04
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '1.24'
 
-      - name: Download dependencies & build binary
-        run: |
-          go mod download
-          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o invitation_api .
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-  docker-build-push:
-    name: Build & Push Docker Image to AWS ECR
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests (if you have any)
+        run: |
+          # go test -v ./...
+          echo "Add your tests here"
+
+      - name: Build binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o account-api .
+
+  # Docker build and deploy job
+  deploy:
+    name: Build Docker Image and Deploy to ECS
     needs: build
     runs-on: ubuntu-24.04
-    if: github.ref == 'refs/heads/main'
-
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,24 +71,48 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
+      - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and Push Docker image to ECR
+      - name: Build, tag, and push Docker image to Amazon ECR
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: coachify/account-api
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }}
         run: |
+          # Build Docker image with commit SHA as tag
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # Push both tags to ECR
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "Image pushed to $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "Image pushed to ECR: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "🚀 Image: ${{ steps.build-image.outputs.image }}"
+          echo "📦 Service: ${{ env.ECS_SERVICE }}"
+          echo "🏗️ Cluster: ${{ env.ECS_CLUSTER }}"
