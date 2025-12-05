@@ -1,30 +1,21 @@
-name: Build and Push Account API
+name: Build and push to GHCR
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - 'Dockerfile'
-      - 'main.go'
+      - '**/*.go'
       - 'go.mod'
       - 'go.sum'
-      - 'app/**'
-      - 'handlers/**'
-      - 'models/**'
-      - 'core/**'
-      - 'services/**'
-      - 'repositories/**'
-      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: coachify-account-api
+  IMAGE_NAME: sport-stride/coachify-account-api
 
 jobs:
   build:
-    name: Build and Push Docker Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,27 +24,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Log in to Container registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute lowercase owner
-        id: owner
-        run: |
-          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix={{branch}}-
             type=ref,event=branch
@@ -66,32 +54,21 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Trigger deployment workflow
-        uses: actions/github-script@v7
+      - name: Notify deployment repo
+        if: github.ref == 'refs/heads/main'
+        uses: peter-evans/repository-dispatch@v2
         with:
-          github-token: ${{ secrets.DISPATCH_TOKEN }}
-          script: |
-            await github.rest.repos.createDispatchEvent({
-              owner: '${{ github.repository_owner }}',
-              repo: 'deployment',
-              event_type: 'service_built',
-              client_payload: {
-                service: 'account-api',
-                version: '${{ github.sha }}',
-                image_url: '${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${{ github.sha }}'
-              }
-            })
-
-      - name: Build Summary
-        run: |
-          echo "✅ Build and Push Completed"
-          echo "📦 Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          echo "🏷️  Tags: latest, ${{ github.sha }}"
-          echo "🚀 Deployment workflow triggered"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Sport-Stride/deployment
+          event-type: service-built
+          client-payload: |
+            {
+              "service": "account-api",
+              "version": "${{ github.sha }}",
+              "actor": "${{ github.actor }}"
+            }
