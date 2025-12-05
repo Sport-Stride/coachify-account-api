@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func InitializeRouter(services *services.Services) *gin.Engine {
@@ -56,6 +57,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	// health
 	untracedGroup.GET("/", handlers.GetHealth)
 	untracedGroup.GET("/health", handlers.GetHealth)
+
+	// metrics
+	untracedGroup.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	//auth with providers
 	oauthGroup := untracedGroup.Group("/oauth")
