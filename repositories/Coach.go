@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
@@ -93,22 +94,25 @@ func (r *CoachRepository) AddCoachClient(ctx context.Context, coachID, clientID 
 }
 
 func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
+	// Build filter
 	filter := bson.M{"coach_id": query.CoachID}
 	if query.ClientID != "" {
 		filter["client_id"] = query.ClientID
 	}
-	if !query.FromDate.IsZero() {
-		filter["created_at"] = bson.M{"$gte": query.FromDate}
-	}
-	if !query.ToDate.IsZero() {
-		if f, ok := filter["created_at"].(bson.M); ok {
-			f["$lte"] = query.ToDate
-			filter["created_at"] = f
-		} else {
-			filter["created_at"] = bson.M{"$lte": query.ToDate}
+	
+	// Date range filter optimization
+	if !query.FromDate.IsZero() || !query.ToDate.IsZero() {
+		dateFilter := bson.M{}
+		if !query.FromDate.IsZero() {
+			dateFilter["$gte"] = query.FromDate
 		}
+		if !query.ToDate.IsZero() {
+			dateFilter["$lte"] = query.ToDate
+		}
+		filter["created_at"] = dateFilter
 	}
 	
+	// Pagination defaults
 	page := query.Page
 	if page < 1 {
 		page = 1
@@ -118,13 +122,15 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		size = 10
 	}
 
-	// Base pipeline for data transformation (without pagination)
-	basePipeline := mongo.Pipeline{
-		// Match coach_id and filters
-		bson.D{
-			{Key: "$match", Value: filter},
-		},
-		// Join with users collection
+	log.Printf("ListCoachClients - CoachID: %s, Page: %d, Size: %d, Filter: %+v", 
+		query.CoachID, page, size, filter)
+
+	// Single aggregation using $facet to get both count and data in one query
+	pipeline := mongo.Pipeline{
+		// Stage 1: Match coach_clients by filter
+		bson.D{{Key: "$match", Value: filter}},
+		
+		// Stage 2: Lookup to join with users collection
 		bson.D{
 			{Key: "$lookup", Value: bson.D{
 				{Key: "from", Value: r.userColl.Name()},
@@ -133,122 +139,105 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 				{Key: "as", Value: "user"},
 			}},
 		},
-		// Unwind user array
+		
+		// Stage 3: Unwind user array (filter out non-matching)
 		bson.D{
 			{Key: "$unwind", Value: bson.D{
 				{Key: "path", Value: "$user"},
 				{Key: "preserveNullAndEmptyArrays", Value: false},
 			}},
 		},
-		// Project required user fields
-		bson.D{
-			{Key: "$project", Value: bson.D{
-				{Key: "externalid", Value: "$user.externalid"},
-				{Key: "firstname", Value: "$user.firstname"},
-				{Key: "lastname", Value: "$user.lastname"},
-				{Key: "profile_picture", Value: "$user.profile_picture"},
-				{Key: "email", Value: "$user.email"},
-				{Key: "phone_number", Value: "$user.phone_number"},
-				{Key: "address", Value: "$user.address"},
-				{Key: "status", Value: "$user.status"},
-				{Key: "created_at", Value: 1},
-			}},
-		},
-	}
-
-	// Pipeline for getting total count (same as base but with $count)
-	totalCountPipeline := append(basePipeline, bson.D{
-		{Key: "$count", Value: "total"},
-	})
-
-	// Pipeline for getting paginated results (base + sort + pagination)
-	dataPipeline := append(basePipeline,
-		// Sort by created_at desc
+		
+		// Stage 4: Sort BEFORE facet (important!)
 		bson.D{
 			{Key: "$sort", Value: bson.D{
 				{Key: "created_at", Value: -1},
 			}},
 		},
-		// Pagination
+		
+		// Stage 5: Use $facet to split into count and paginated data
 		bson.D{
-			{Key: "$skip", Value: int64((page - 1) * size)},
+			{Key: "$facet", Value: bson.D{
+				// Count pipeline - counts all matched documents
+				{Key: "total", Value: bson.A{
+					bson.D{{Key: "$count", Value: "count"}},
+				}},
+				// Data pipeline - applies pagination and projection
+				{Key: "data", Value: bson.A{
+					// Skip for pagination
+					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
+					// Limit for page size
+					bson.D{{Key: "$limit", Value: int64(size)}},
+					// Project required fields
+					bson.D{
+						{Key: "$project", Value: bson.D{
+							{Key: "externalid", Value: "$user.externalid"},
+							{Key: "firstname", Value: "$user.firstname"},
+							{Key: "lastname", Value: "$user.lastname"},
+							{Key: "profile_picture", Value: "$user.profile_picture"},
+							{Key: "email", Value: "$user.email"},
+							{Key: "phone_number", Value: "$user.phone_number"},
+							{Key: "address", Value: "$user.address"},
+							{Key: "status", Value: "$user.status"},
+							{Key: "created_at", Value: "$created_at"},
+						}},
+					},
+				}},
+			}},
 		},
-		bson.D{
-			{Key: "$limit", Value: int64(size)},
-		},
-	)
-
-	// Execute both queries concurrently for better performance
-	type result struct {
-		data  []map[string]interface{}
-		total int64
-		err   error
 	}
 
-	dataChan := make(chan result, 1)
-	totalChan := make(chan result, 1)
+	// Execute aggregation
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		log.Printf("ERROR: Aggregation failed: %v", err)
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
 
-	// Get paginated results
-	go func() {
-		cursor, err := r.collection.Aggregate(ctx, dataPipeline)
-		if err != nil {
-			dataChan <- result{err: err}
-			return
-		}
-		defer cursor.Close(ctx)
-		
-		var results []map[string]interface{}
-		if err := cursor.All(ctx, &results); err != nil {
-			dataChan <- result{err: err}
-			return
-		}
-		dataChan <- result{data: results}
-	}()
+	// Parse result
+	var facetResult []bson.M
+	if err := cursor.All(ctx, &facetResult); err != nil {
+		log.Printf("ERROR: Failed to decode results: %v", err)
+		return nil, 0, err
+	}
 
-	// Get total count
-	go func() {
-		totalCursor, err := r.collection.Aggregate(ctx, totalCountPipeline)
-		if err != nil {
-			totalChan <- result{err: err}
-			return
-		}
-		defer totalCursor.Close(ctx)
-		
-		var totalResult []bson.M
-		if err := totalCursor.All(ctx, &totalResult); err != nil {
-			totalChan <- result{err: err}
-			return
-		}
-		
-		var total int64 = 0
-		if len(totalResult) > 0 {
-			if t, ok := totalResult[0]["total"].(int32); ok {
-				total = int64(t)
-			} else if t, ok := totalResult[0]["total"].(int64); ok {
-				total = t
+	if len(facetResult) == 0 {
+		log.Println("No results from aggregation")
+		return []map[string]interface{}{}, 0, nil
+	}
+
+	// Extract total count
+	var total int64 = 0
+	if totalArr, ok := facetResult[0]["total"].(primitive.A); ok && len(totalArr) > 0 {
+		if totalDoc, ok := totalArr[0].(bson.M); ok {
+			if count, ok := totalDoc["count"].(int32); ok {
+				total = int64(count)
+			} else if count, ok := totalDoc["count"].(int64); ok {
+				total = count
 			}
 		}
-		totalChan <- result{total: total}
-	}()
-
-	// Wait for both results
-	dataResult := <-dataChan
-	totalResult := <-totalChan
-
-	// Check for errors
-	if dataResult.err != nil {
-		return nil, 0, dataResult.err
 	}
-	if totalResult.err != nil {
-		return nil, 0, totalResult.err
+
+	// Extract data
+	var results []map[string]interface{}
+	if dataArr, ok := facetResult[0]["data"].(primitive.A); ok {
+		for _, item := range dataArr {
+			if doc, ok := item.(bson.M); ok {
+				results = append(results, doc)
+			}
+		}
 	}
-	log.Printf("query: %v, results: %v, total: %v", query, dataResult.data, totalResult.total)
 
-	return dataResult.data, int(totalResult.total), nil
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
 
+	log.Printf("ListCoachClients - Returned %d items out of %d total (page %d, size %d)", 
+		len(results), total, page, size)
 	
+	return results, int(total), nil
 }
-
 // DissociateCoachClient removes a coach-client relationship
 func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
 	filter := bson.M{"coach_id": coachID, "client_id": clientID}

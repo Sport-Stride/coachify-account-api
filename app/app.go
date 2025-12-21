@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -36,60 +37,86 @@ func New() *App {
 }
 
 func (app *App) setup() {
-
 	// Load configuration
 	config := utils.LoadConfig()
 
 	// Establish connection to MongoDB
+	log.Println("Connecting to MongoDB...")
 	clientOptions := options.Client().ApplyURI(config.MongoDB.URI)
-	client, err := mongo.Connect(context.TODO(), clientOptions)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	app.DB = client
 
 	// Check the connection
-	if err := app.DB.Ping(context.TODO(), nil); err != nil {
-		log.Fatal(err)
+	if err := app.DB.Ping(ctx, nil); err != nil {
+		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
-	fmt.Println("Connected to MongoDB!")
+	log.Println("Successfully connected to MongoDB!")
+
+	// Get database
+	db := client.Database("users")
+
+	// Initialize indexes (CRITICAL for performance)
+	log.Println("Initializing database indexes...")
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer indexCancel()
+	
+	if err := repositories.InitializeIndexes(indexCtx, db); err != nil {
+		// In production, you might want to fail here
+		// For now, we'll log and continue
+		log.Printf("WARNING: Failed to initialize indexes: %v", err)
+		log.Println("Application will continue, but performance may be degraded")
+	} else {
+		log.Println("Database indexes initialized successfully")
+	}
 
 	// Initialize JWT middleware
 	middleware := &jwt.GinJWTMiddleware{}
 
 	pwChecker := core.NewPasswordChecker()
 
-	// Initialize repositories
-	db := client.Database("users")
-
+	// Initialize activation manager and clients
 	activationManager := core.NewSimpleActivationManager()
+	
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize identifier: %v", err)
 	}
+	
 	invitation, err := invitation.NewInvitationClient(config.InvitationAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize invitation: %v", err)
 	}
+	
 	payment, err := payments.NewPaymentClient(config.PaymentAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize payment client: %v", err)
 	}
+	
+	notification, err := notification.NewNotificationClient(config.NotificationAPI)
+	if err != nil {
+		log.Fatalf("Failed to initialize notification client: %v", err)
+	}
+
+	// Initialize repositories
 	userColl := db.Collection("users")
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
 
-	notification, errNotif := notification.NewNotificationClient(utils.LoadConfig().NotificationAPI)
-	if errNotif != nil {
-		log.Fatalf("Failed to initialize notification client: %v", errNotif)
-	}
 	// Initialize OAuth2 providers
 	facebookProvider, err := oauth2.NewProvider(
 		oauth2.ProviderFacebook,
 		config.FacebookOAuth.ClientID,
 		config.FacebookOAuth.ClientSecret,
 		config.FacebookOAuth.RedirectURL,
-		config.FacebookEncryptionKey)
+		config.FacebookEncryptionKey,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize Facebook provider: %v", err)
 	}
@@ -125,26 +152,32 @@ func (app *App) setup() {
 		providers,
 		payment,
 	)
+	
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)
 
 	app.Config = *config
 	app.Router = r
-
 }
 
 func (app *App) Run() {
-
-	// Serving application
-
 	port := app.Config.Port
-
-	app.Router.Run(fmt.Sprintf(":%d", port))
-
-}
-func (app *App) Shutdown() {
-	if err := app.DB.Disconnect(context.TODO()); err != nil {
-		log.Fatal(err)
+	log.Printf("🚀 Server starting on port %d (environment: %s)", port, app.Config.Environment)
+	
+	if err := app.Router.Run(fmt.Sprintf(":%d", port)); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
-	fmt.Println("Déconnecté de MongoDB!")
+}
+
+func (app *App) Shutdown() {
+	log.Println("Shutting down application...")
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	if err := app.DB.Disconnect(ctx); err != nil {
+		log.Printf("Error disconnecting from MongoDB: %v", err)
+	} else {
+		log.Println("Successfully disconnected from MongoDB")
+	}
 }
