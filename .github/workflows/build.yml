@@ -1,0 +1,94 @@
+name: Build and Push Account API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'main.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'app/**'
+      - 'handlers/**'
+      - 'models/**'
+      - 'core/**'
+      - 'services/**'
+      - 'repositories/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: coachify-account-api
+
+jobs:
+  build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute lowercase owner
+        id: owner
+        run: |
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger deployment workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DISPATCH_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: '${{ github.repository_owner }}',
+              repo: 'deployment',
+              event_type: 'service_built',
+              client_payload: {
+                service: 'account-api',
+                version: '${{ github.sha }}',
+                image_url: '${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${{ github.sha }}'
+              }
+            })
+      - name: Build Summary
+        run: |
+          echo "✅ Build and Push Completed"
+          echo "📦 Image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "🏷️  Tags: latest, ${{ github.sha }}"
+          echo "🚀 Deployment workflow triggered"
