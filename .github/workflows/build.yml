@@ -76,16 +76,18 @@ jobs:
         with:
           github-token: ${{ secrets.DISPATCH_TOKEN }}
           script: |
-            await github.rest.repos.createDispatchEvent({
-              owner: '${{ github.repository_owner }}',
+            const payload = {
+              owner: context.repo.owner,
               repo: 'deployment',
-              event_type: 'service_built',
+              event_type: 'service-built',
               client_payload: {
                 service: 'account-api',
-                version: '${{ github.sha }}',
-                image_url: '${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${{ github.sha }}'
+                version: context.sha,
+                actor: context.actor,
+                repository: context.repo.repo,
+                image_url: `${{ env.REGISTRY }}/${{ steps.owner.outputs.owner_lower }}/${{ env.IMAGE_NAME }}:${context.sha}`
               }
-            })
+            };
             console.log('========================================');
             console.log('📤 Triggering Deployment Workflow');
             console.log('========================================');
