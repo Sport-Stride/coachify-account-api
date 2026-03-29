@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 # Build args (preserve service's Go version)
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.25
 ARG ALPINE_VERSION=3.19
 
 # ===========================================
