@@ -15,6 +15,7 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v4"
+	ginprometheus "github.com/zsais/go-gin-prometheus"
 
 	"coachify-account-api/utils"
 
@@ -26,6 +27,8 @@ func initializeMiddlewares(r *gin.Engine) {
 	// add cors headers
 	r.Use(securityHeaders())
 	r.Use(RecoveryWithZap(utils.Logger, true))
+	p := ginprometheus.NewPrometheus("gin")
+	p.Use(r) 
 	// dump request in debug
 	if gin.Mode() == gin.DebugMode {
 		r.Use(requestLogger())
