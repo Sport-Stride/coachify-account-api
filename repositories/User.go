@@ -632,13 +632,13 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 	}
 	// Execute the query
 	var result struct {
-		UserPassword          string                   `bson:"password" validate:"required"`
-		UserStatus            db.UserStatus            `bson:"status"`
-		UserEmail             string                   `bson:"email" validate:"required"`
-		UserFirstname          string                          `bson:"firstname" validate:"required"`
-		UserLastname           string                          `bson:"lastname" validate:"required"`
-		UserUpdatedAt         time.Time                `bson:"updated_at"`
-		UserResetPasswordCode db.UserResetPasswordCode `bson:"reset_password_code"`
+		UserPassword          string                    `bson:"password" validate:"required"`
+		UserStatus            db.UserStatus             `bson:"status"`
+		UserEmail             string                    `bson:"email" validate:"required"`
+		UserFirstname         string                    `bson:"firstname" validate:"required"`
+		UserLastname          string                    `bson:"lastname" validate:"required"`
+		UserUpdatedAt         time.Time                 `bson:"updated_at"`
+		UserResetPasswordCode *db.UserResetPasswordCode `bson:"reset_password_code"`
 	}
 	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
 	if err != nil {
@@ -665,6 +665,10 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 			Error: models.ErrUserBlocked,
 		}
 	}
+	var resetCode db.UserResetPasswordCode
+	if result.UserResetPasswordCode != nil {
+		resetCode = *result.UserResetPasswordCode
+	}
 	resultToApi := &api.ResetPasswordResponse{
 		UserPassword:          result.UserPassword,
 		UserStatus:            result.UserStatus,
@@ -672,7 +676,7 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 		UserFirstname:         result.UserFirstname,
 		UserLastname:          result.UserLastname,
 		UserUpdatedAt:         result.UserUpdatedAt,
-		UserResetPasswordCode: result.UserResetPasswordCode,
+		UserResetPasswordCode: resetCode,
 	}
 	return resultToApi, nil
 }

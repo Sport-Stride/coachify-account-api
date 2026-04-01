@@ -300,17 +300,48 @@ func (_m *AuthService) TryToConnect(ctx context.Context, request api.LoginReques
 	return r0, r1
 }
 
-// UpdateUser provides a mock function with given fields: ctx, id, req
-func (_m *AuthService) UpdateUser(ctx context.Context, req *api.RequestUpdateUser) *models.ApiError {
-	ret := _m.Called(ctx, req.User.ExternalID, req)
+// UpdateUser provides a mock function with given fields: ctx, req
+func (_m *AuthService) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError) {
+	ret := _m.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateUser")
 	}
 
+	var r0 *api.ApiUser
+	var r1 *models.ApiError
+	if rf, ok := ret.Get(0).(func(context.Context, api.RequestUpdateUser) (*api.ApiUser, *models.ApiError)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, api.RequestUpdateUser) *api.ApiUser); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*api.ApiUser)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, api.RequestUpdateUser) *models.ApiError); ok {
+		r1 = rf(ctx, req)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*models.ApiError)
+		}
+	}
+
+	return r0, r1
+}
+
+// VerifyResetPasswordCode provides a mock function with given fields: ctx, request
+func (_m *AuthService) VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VerifyResetPasswordCode")
+	}
+
 	var r0 *models.ApiError
-	if rf, ok := ret.Get(0).(func(context.Context, string, *api.RequestUpdateUser) *models.ApiError); ok {
-		r0 = rf(ctx, id, req)
+	if rf, ok := ret.Get(0).(func(context.Context, *api.VerifyResetPasswordCodeRequest) *models.ApiError); ok {
+		r0 = rf(ctx, request)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.ApiError)

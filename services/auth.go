@@ -834,8 +834,14 @@ func (s AuthServiceImpl) VerifyResetPasswordCode(ctx context.Context, request *a
 		return err
 	}
 
-	resetPasswordCode := user.UserResetPasswordCode
-	if resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
+	resetCode := user.UserResetPasswordCode
+	if resetCode.Code == "" {
+		return &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidResetPasswordCode,
+		}
+	}
+	if resetCode.ExpirationDate.Before(time.Now()) || resetCode.Code != request.Code {
 		return &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidResetPasswordCode,
