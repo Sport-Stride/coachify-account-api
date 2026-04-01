@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"github.com/gin-gonic/gin"
@@ -349,6 +350,14 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	return s.createNewOAuthUser(ctx, oauth)
 }
 func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
+	if oauthUser.InvitedEmail != "" && !strings.EqualFold(oauthUser.Profile.Email, oauthUser.InvitedEmail) {
+		log.Printf("IBL: Email mismatch - invited email: %s, OAuth email: %s", oauthUser.InvitedEmail, oauthUser.Profile.Email)
+		return nil, &models.ApiError{
+			Code:  http.StatusForbidden,
+			Error: fmt.Errorf("%w: expected %s but got %s", models.ErrOAuthEmailMismatch, oauthUser.InvitedEmail, oauthUser.Profile.Email),
+		}
+	}
+
 	id, apiErr := s.identifier.GenerateId(ctx, "user")
 	if apiErr != nil {
 		return nil, apiErr

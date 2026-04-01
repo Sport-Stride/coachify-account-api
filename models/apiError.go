@@ -57,6 +57,7 @@ var (
 	ErrUserUpdateFailed          = errors.New("user update failed")
 	ErrUserDeletionFailed        = errors.New("user deletion failed")
 	ErrPasswordVerificationError = errors.New("error verifying password")
+	ErrOAuthEmailMismatch        = errors.New("oauth email mismatch: you must sign up with the email your invitation was sent to")
 	ErrFailedToCreateRequest     = errors.New("failed to create request to identifier service")
 	ErrFailedToSendRequest       = errors.New("failed to send request to identifier service")
 	ErrFailedToReadResponse      = errors.New("error reading response body")
