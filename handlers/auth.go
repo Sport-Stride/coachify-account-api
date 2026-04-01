@@ -235,6 +235,29 @@ func InitResetPassword(wrapper services.AuthService) gin.HandlerFunc {
 	}
 }
 
+func VerifyResetPasswordCode(wrapper services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		req := new(api.VerifyResetPasswordCodeRequest)
+
+		err := ctx.ShouldBindJSON(req)
+		if err != nil {
+			ctx.JSON(
+				http.StatusBadRequest,
+				gin.H{"error": "Invalid input: " + err.Error()})
+			return
+		}
+
+		apiErr := wrapper.VerifyResetPasswordCode(ctx, req)
+
+		if apiErr != nil {
+			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{"valid": true})
+	}
+}
+
 func ConfirmResetPassword(wrapper services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.ConfirmResetPasswordRequest)

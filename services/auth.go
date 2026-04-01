@@ -35,6 +35,7 @@ type AuthService interface {
 	ResendConfirmEmail(ctx context.Context, email string) *models.ApiError
 	TryToConnect(ctx context.Context, request api.LoginRequest) (*api.LoginResponse, *models.ApiError)
 	InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
+	VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
 	GetUserByExternalId(ctx context.Context, userId string) (*api.ApiUserResponse, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
@@ -822,6 +823,23 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 	// Send reset password email using notification client
 	if err := s.notificationClient.SendResetPasswordEmail(ctx, user); err != nil {
 		log.Printf("Failed to send reset password email: %v", err)
+	}
+
+	return nil
+}
+
+func (s AuthServiceImpl) VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError {
+	user, err := s.userRepository.GetByEmailToResetPassword(ctx, request.Email)
+	if err != nil {
+		return err
+	}
+
+	resetPasswordCode := user.UserResetPasswordCode
+	if resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
+		return &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidResetPasswordCode,
+		}
 	}
 
 	return nil

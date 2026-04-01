@@ -71,6 +71,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.POST("/resend-confirm", handlers.ResendConfirmEmail(services.AuthService))
 	userGroup.POST("/login", handlers.Login(services.AuthService))
 	userGroup.POST("/reset-password/init", handlers.InitResetPassword(services.AuthService))
+	userGroup.POST("/reset-password/verify", handlers.VerifyResetPasswordCode(services.AuthService))
 	userGroup.POST("/reset-password/confirm", handlers.ConfirmResetPassword(services.AuthService))
 	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
 	//userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))

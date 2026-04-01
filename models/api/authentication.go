@@ -21,6 +21,11 @@ type ConfirmResetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+type VerifyResetPasswordCodeRequest struct {
+	Email string `json:"email" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+}
+
 type DeleteUserRequest struct {
 	ExternalID string `json:"external_id,omitempty"`
 }
