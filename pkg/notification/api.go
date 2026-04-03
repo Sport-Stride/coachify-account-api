@@ -9,9 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // NotificationClient handles communication with the notification API
@@ -19,16 +20,20 @@ type NotificationClient struct {
 	httpClient           *http.Client
 	baseURL              string
 	notificationEndpoint string
+	breaker              *utils.CircuitBreaker
+	target               string
 }
 
 // NewNotificationClient initializes a new client for the notification service
 func NewNotificationClient(cfg utils.NotificationAPIConfig) (*NotificationClient, error) {
 	return &NotificationClient{
 		httpClient: &http.Client{
-			Timeout: 50 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		baseURL:              cfg.URL,
-		notificationEndpoint: "/emails", // Fixed endpoint without format specifier
+		notificationEndpoint: "/emails",
+		breaker:              utils.NewCircuitBreaker("notification-api"),
+		target:               "notification-api",
 	}, nil
 }
 
@@ -39,8 +44,12 @@ func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) erro
 	}
 
 	// Construct the endpoint URL correctly
-	url := c.baseURL + c.notificationEndpoint // Direct concatenation without formatting
-	log.Printf("Sending email to %s at %s", dbUser.UserEmail, url)
+	url := c.baseURL + c.notificationEndpoint
+	zap.L().Info("calling notification-api",
+		zap.String("component", "external"),
+		zap.String("target", "notification-api"),
+		zap.String("email", dbUser.UserEmail),
+	)
 	// Build the request body
 	requestBody := map[string]interface{}{
 		"to":           dbUser.UserEmail,
@@ -62,7 +71,7 @@ func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) erro
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -92,7 +101,11 @@ func (c *NotificationClient) SendConfirmationEmail(ctx context.Context, dbUser *
 		return fmt.Errorf("no email recipient provided")
 	}
 	if dbUser.UserConfirmCode == nil {
-		log.Printf("Warning: UserConfirmCode is nil for user %s, sending email without code", dbUser.UserEmail)
+		zap.L().Warn("user confirmation code is nil",
+			zap.String("component", "external"),
+			zap.String("target", "notification-api"),
+			zap.String("email", dbUser.UserEmail),
+		)
 		return fmt.Errorf("user confirmation code is missing")
 	}
 	template := utils.LoadConfig().ConfirmationCodeTemplatePending
@@ -177,7 +190,7 @@ func (c *NotificationClient) sendEmail(ctx context.Context, to, template string,
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

@@ -17,16 +17,20 @@ type IdentifierClient struct {
 	httpClient         *http.Client
 	baseURL            string
 	identifierEndpoint string
+	breaker            *utils.CircuitBreaker
+	target             string
 }
 
 // NewIdentifierClient creates a new API client for the identifier service
 func NewIdentifierClient(cfg utils.IdentifierAPIConfig) (*IdentifierClient, error) {
 	return &IdentifierClient{
 		httpClient: &http.Client{
-			Timeout: 50 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		baseURL:            cfg.URL,
-		identifierEndpoint: "%s/identifier/%s", // This expects the label as part of the URL path
+		identifierEndpoint: "%s/identifier/%s",
+		breaker:            utils.NewCircuitBreaker("identifiers-api"),
+		target:             "identifiers-api",
 	}, nil
 }
 
@@ -42,7 +46,7 @@ func (c *IdentifierClient) GenerateId(ctx context.Context, label string) (Entity
 	}
 
 	// Send the request
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return Entity{}, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendRequest)
 	}

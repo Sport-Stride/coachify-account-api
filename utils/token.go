@@ -49,22 +49,10 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 	signedToken, err := token.SignedString(secretKey)
 	if err != nil {
 		return "", &models.ApiError{
-			Code:  http.StatusInternalServerError, // Internal Server Error
+			Code:  http.StatusInternalServerError,
 			Error: models.ErrSigningToken,
 		}
 	}
-
-	parsedToken, err := jwt.Parse(signedToken, func(token *jwt.Token) (interface{}, error) {
-		return secretKey, nil
-	})
-	if err != nil {
-		return "", &models.ApiError{
-			Code:  http.StatusInternalServerError, // Internal Server Error
-			Error: models.ErrParsingSignedToken,
-		}
-	}
-
-	fmt.Printf("Header après signature: %+v\n", parsedToken.Header)
 
 	encryptedToken, err := Encrypt(signedToken, []byte(LoadConfig().CoachifyEncryptionKey))
 	if err != nil {
@@ -74,7 +62,6 @@ func CreateToken(params CreateTokenParams) (string, *models.ApiError) {
 		}
 	}
 
-	//log.Printf("IBL: encryptedToken : %+v, CoachifyEncryptionKey:  %+v", encryptedToken, LoadConfig().CoachifyEncryptionKey)
 	return encryptedToken, nil
 }
 
@@ -183,9 +170,6 @@ func LogTokenClaims(tokenString string, logger *log.Logger) error {
 	if len(allClaimsFields) > 0 {
 		Logger.Info("Additional token claims", allClaimsFields...)
 	}
-
-	// Log all claims for detailed debugging
-	log.Printf("All token claims", "claims", claims)
 
 	return nil
 }

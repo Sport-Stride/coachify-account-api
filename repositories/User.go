@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 
 	"net/http"
 	"time"
@@ -62,10 +61,12 @@ func (r *UserRepository) CreateUsers(ctx context.Context, users []*db.User) ([]*
 	opts := options.InsertMany().SetOrdered(false) // SetOrdered(false) allows continuing on errors
 	result, err := r.collection.InsertMany(ctx, documents, opts)
 	if err != nil {
-		// Handle duplicate key errors or other MongoDB errors
 		if mongoErr, ok := err.(mongo.BulkWriteException); ok {
 			for _, writeErr := range mongoErr.WriteErrors {
-				fmt.Printf("Failed to insert user: %v\n", writeErr)
+				zap.L().Error("bulk insert user failed",
+					zap.String("component", "repository"),
+					zap.Any("error", writeErr),
+				)
 			}
 		}
 		return nil, fmt.Errorf("failed to insert users: %w", err)
@@ -354,7 +355,10 @@ func (r *UserRepository) CreateUser(ctx context.Context, dbUser *db.User) (*db.U
 		}
 
 		// Log the error for debugging purposes
-		fmt.Printf("Failed to create user: %v\n", err)
+		zap.L().Error("failed to create user",
+			zap.String("component", "repository"),
+			zap.Error(err),
+		)
 
 		// Return a generic internal server error
 		return nil, &models.ApiError{
@@ -785,7 +789,6 @@ func (r *UserRepository) UpdateUserProviders(ctx context.Context, user *db.User)
 			"refresh_token": user.UserRefreshToken, // new refresh token value
 		},
 	}
-	log.Printf("IBL: Expiry token respository: %+v", providerData.Expiry)
 	// Update based on the user's email (or another unique field)
 	result, err := r.collection.UpdateOne(
 		ctx,

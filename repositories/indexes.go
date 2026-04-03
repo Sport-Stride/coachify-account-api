@@ -3,18 +3,18 @@ package repositories
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 )
 
 // InitializeIndexes creates all necessary indexes for optimal query performance
 func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 	startTime := time.Now()
-	log.Println("Starting index initialization...")
+	zap.L().Info("starting index initialization", zap.String("component", "repository"))
 	
 	// Define indexes for each collection
 	indexes := map[string][]mongo.IndexModel{
@@ -134,7 +134,11 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 	var successCount, failCount int
 	for collectionName, indexModels := range indexes {
 		if err := createIndexesForCollection(ctx, db, collectionName, indexModels); err != nil {
-			log.Printf("❌ Failed to create indexes for collection '%s': %v", collectionName, err)
+			zap.L().Error("failed to create indexes",
+				zap.String("component", "repository"),
+				zap.String("collection", collectionName),
+				zap.Error(err),
+			)
 			failCount++
 			// Continue with other collections instead of failing completely
 			continue
@@ -149,8 +153,11 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 			successCount, failCount, duration)
 	}
 	
-	log.Printf("✅ Index initialization completed successfully: %d collections processed in %v", 
-		successCount, duration)
+	zap.L().Info("index initialization completed",
+		zap.String("component", "repository"),
+		zap.Int("collections", successCount),
+		zap.Duration("duration", duration),
+	)
 	return nil
 }
 
@@ -171,8 +178,12 @@ func createIndexesForCollection(ctx context.Context, db *mongo.Database, collect
 		return fmt.Errorf("error creating indexes: %w", err)
 	}
 	
-	log.Printf("✅ Created %d indexes for collection '%s': %v", 
-		len(indexNames), collectionName, indexNames)
+	zap.L().Info("indexes created",
+		zap.String("component", "repository"),
+		zap.String("collection", collectionName),
+		zap.Int("count", len(indexNames)),
+		zap.Strings("names", indexNames),
+	)
 	
 	return nil
 }
@@ -196,13 +207,21 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 		collection := db.Collection(collectionName)
 		cursor, err := collection.Indexes().List(ctx)
 		if err != nil {
-			log.Printf("Failed to list indexes for %s: %v", collectionName, err)
+			zap.L().Warn("failed to list indexes",
+				zap.String("component", "repository"),
+				zap.String("collection", collectionName),
+				zap.Error(err),
+			)
 			continue
 		}
-		
+
 		var indexes []bson.M
 		if err := cursor.All(ctx, &indexes); err != nil {
-			log.Printf("Failed to decode indexes for %s: %v", collectionName, err)
+			zap.L().Warn("failed to decode indexes",
+				zap.String("component", "repository"),
+				zap.String("collection", collectionName),
+				zap.Error(err),
+			)
 			continue
 		}
 		
@@ -226,23 +245,25 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 // ListIndexes lists all indexes for a collection (useful for debugging)
 func ListIndexes(ctx context.Context, db *mongo.Database, collectionName string) error {
 	collection := db.Collection(collectionName)
-	
+
 	cursor, err := collection.Indexes().List(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list indexes: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var indexes []bson.M
 	if err := cursor.All(ctx, &indexes); err != nil {
 		return fmt.Errorf("failed to decode indexes: %w", err)
 	}
-	
-	log.Printf("📋 Indexes for collection '%s':", collectionName)
+
+	fields := make([]zap.Field, 0, len(indexes)+1)
+	fields = append(fields, zap.String("collection", collectionName))
 	for i, index := range indexes {
-		log.Printf("  %d. %v", i+1, index)
+		fields = append(fields, zap.Any(fmt.Sprintf("index_%d", i+1), index))
 	}
-	
+	zap.L().Info("collection indexes", fields...)
+
 	return nil
 }
 
@@ -271,13 +292,24 @@ func DropAllIndexes(ctx context.Context, db *mongo.Database, collectionName stri
 		}
 		
 		if _, err := indexView.DropOne(ctx, indexName); err != nil {
-			log.Printf("⚠️ Warning: failed to drop index %s: %v", indexName, err)
+			zap.L().Warn("failed to drop index",
+				zap.String("component", "repository"),
+				zap.String("index", indexName),
+				zap.Error(err),
+			)
 		} else {
-			log.Printf("🗑️ Dropped index: %s", indexName)
+			zap.L().Debug("dropped index",
+				zap.String("component", "repository"),
+				zap.String("index", indexName),
+			)
 			droppedCount++
 		}
 	}
-	
-	log.Printf("Dropped %d indexes from collection '%s'", droppedCount, collectionName)
+
+	zap.L().Info("drop indexes completed",
+		zap.String("component", "repository"),
+		zap.String("collection", collectionName),
+		zap.Int("dropped", droppedCount),
+	)
 	return nil
 }

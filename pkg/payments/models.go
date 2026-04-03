@@ -1,18 +1,21 @@
 package payments
 
 import (
+	"coachify-account-api/utils"
 	"net/http"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// InvitationClient represents a client to connect to the invitation API
+// PaymentClient represents a client to connect to the payments API
 type PaymentClient struct {
 	httpClient         *http.Client
 	baseURL            string
 	subscribeWithTrial string
 	planHexCoach       string
 	planHexClient      string
+	breaker            *utils.CircuitBreaker
+	target             string
 }
 
 // InvitationResponse represents the response structure from the invitation API

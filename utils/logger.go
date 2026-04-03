@@ -17,6 +17,7 @@ var Logger = LogWrapperObj{
 func initLogger() *zap.SugaredLogger {
 	if gin.IsDebugging() {
 		logger, _ := zap.NewDevelopment()
+		zap.ReplaceGlobals(logger)
 		defer logger.Sync() // flushes buffer, if any
 		return logger.Sugar()
 	} else {
@@ -28,6 +29,7 @@ func initLogger() *zap.SugaredLogger {
 		// safe concurrent call
 		config.Sampling = nil
 		logger, _ := config.Build()
+		zap.ReplaceGlobals(logger)
 		defer logger.Sync() // flushes buffer, if any
 		return logger.With(zap.Namespace("app")).Sugar()
 	}

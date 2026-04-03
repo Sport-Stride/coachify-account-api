@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -49,60 +48,15 @@ func securityHeaders() gin.HandlerFunc {
 		c.Next()
 	}
 }
-func CORS() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Allow specific origins (replace "*" with your frontend URL in production)
-		allowedOrigin := "http://localhost:3000"
-		if origin := c.Request.Header.Get("Origin"); origin != "" {
-			allowedOrigin = origin // Allow the requesting origin
-		}
-		log.Printf("IBL: allowed origin is %s", allowedOrigin)
-		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-
-		// Allow specific HTTP methods
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS, PATCH")
-
-		// Allow specific headers
-		c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
-			"Origin",
-			"X-Requested-With",
-			"Content-Type",
-			"Accept",
-			"Authorization",
-			"Referrer",
-			"User-Agent",
-		}, ", "))
-
-		// Allow credentials (e.g., cookies, authorization headers)
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-
-		// Expose specific headers to the client
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type, Authorization")
-
-		// Set security headers
-		c.Header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-src 'self';")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("X-XSS-Protection", "1; mode=block")
-
-		// Handle preflight requests
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent) // 204 No Content
-			return
-		}
-
-		// Pass to the next middleware/handler
-		c.Next()
-	}
-}
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		buf, _ := ioutil.ReadAll(c.Request.Body)
 		rdr1 := ioutil.NopCloser(bytes.NewBuffer(buf))
-		rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf)) //We have to create a new Buffer, because rdr1 will be read.
+		rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf))
 
-		utils.Logger.Logger.Debug(readBody(rdr1)) // Print request body
+		if body := readBody(rdr1); body != "" {
+			zap.L().Debug("request body", zap.String("body", body))
+		}
 
 		c.Request.Body = rdr2
 		c.Next()
@@ -228,7 +182,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Decrypt the token using AES-GCM
 		tokenString, err := utils.Decrypt(encryptedTokenString, []byte(utils.LoadConfig().CoachifyEncryptionKey))
 		if err != nil {
-			log.Printf("Token decryption failed: %v", err)
+			zap.L().Debug("token decryption failed", zap.Error(err))
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token encryption"})
 			c.Abort()
 			return
@@ -247,20 +201,10 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set("AuthorizationToken", tokenString) // Set the token in context
-		log.Printf("Token set in context: %s", tokenString)
+		c.Set("AuthorizationToken", tokenString)
 
 		// Extract claims and set them in context (do not rely on client payload)
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			// Ensure the 'id' claim exists and is a string
-			// Print out all claims
-			for key, value := range claims {
-				log.Printf("Token Claim - %s: %v", key, value)
-			}
-
-			// Alternative method to get all claims as a map
-			allClaims := map[string]interface{}(claims)
-			log.Printf("All Token Claims: %+v", allClaims)
 			if id, ok := claims["id"].(string); ok {
 				c.Set("userID", id)
 			} else {

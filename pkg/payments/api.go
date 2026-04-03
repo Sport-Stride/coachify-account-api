@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // AcceptInvitationRequest represents the request body for accepting an invitation
@@ -17,12 +18,14 @@ import (
 func NewPaymentClient(cfg utils.PaymentAPIConfig) (*PaymentClient, error) {
 	return &PaymentClient{
 		httpClient: &http.Client{
-			Timeout: 50 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		baseURL:            cfg.URL,
 		subscribeWithTrial: "/subscriptions",
 		planHexCoach:       cfg.PlanHexCoach,
 		planHexClient:      cfg.PlanHexClient,
+		breaker:            utils.NewCircuitBreaker("payments-api"),
+		target:             "payments-api",
 	}, nil
 }
 
@@ -48,7 +51,11 @@ func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, role, UserRefres
 	}
 
 	url := fmt.Sprintf("%s%s", c.baseURL, c.subscribeWithTrial)
-	log.Printf("URL %s", url)
+	zap.L().Info("calling payments-api",
+		zap.String("component", "external"),
+		zap.String("target", "payments-api"),
+		zap.String("role", role),
+	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return nil, err
@@ -56,7 +63,7 @@ func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, role, UserRefres
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+UserRefreshToken)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return nil, err
 	}

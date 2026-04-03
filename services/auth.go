@@ -14,7 +14,6 @@ import (
 	"coachify-account-api/pkg/payments"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
@@ -339,7 +338,10 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("IBL: user is %v", user == nil)
+	zap.L().Debug("oauth user lookup",
+		zap.String("component", "auth"),
+		zap.Bool("user_found", user != nil),
+	)
 	oauth.Profile.ProviderType = providerType
 	if user != nil {
 		// Existing user: link provider details or log them in
@@ -351,7 +353,11 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 }
 func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	if oauthUser.InvitedEmail != "" && !strings.EqualFold(oauthUser.Profile.Email, oauthUser.InvitedEmail) {
-		log.Printf("IBL: Email mismatch - invited email: %s, OAuth email: %s", oauthUser.InvitedEmail, oauthUser.Profile.Email)
+		zap.L().Warn("oauth email mismatch",
+			zap.String("component", "auth"),
+			zap.String("invited_email", oauthUser.InvitedEmail),
+			zap.String("oauth_email", oauthUser.Profile.Email),
+		)
 		return nil, &models.ApiError{
 			Code:  http.StatusForbidden,
 			Error: fmt.Errorf("%w: expected %s but got %s", models.ErrOAuthEmailMismatch, oauthUser.InvitedEmail, oauthUser.Profile.Email),
@@ -379,10 +385,13 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
-	log.Printf("IBL: newUser SubscribeWithTrial")
+	zap.L().Debug("subscribing new user to trial", zap.String("component", "auth"), zap.String("role", newUser.UserRole))
 	_, er := s.payment.SubscribeWithTrial(ctx, newUser.UserRole, refreshToken)
 	if er != nil {
-		log.Printf("IBL: Error while subscribing with trial, %v", er)
+		zap.L().Error("trial subscription failed",
+			zap.String("component", "auth"),
+			zap.Any("error", er),
+		)
 
 	}
 	if newUser.UserRole == "coach" {
@@ -390,7 +399,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 
 	} else {
 		newUser.UserStatus = db.Active
-		log.Printf("Invitation Id and email , %s , %s", newUser.ExternalID, newUser.UserEmail)
+		zap.L().Debug("accepting client invitation",
+			zap.String("component", "auth"),
+			zap.String("external_id", newUser.ExternalID),
+		)
 		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail, *newUser.UserRefreshToken)
 		if err != nil {
 			return nil, &models.ApiError{
@@ -411,7 +423,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 		return nil, err
 	}
 	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
-		log.Printf("Failed to send welcome email: %v", err)
+		zap.L().Warn("failed to send welcome email",
+			zap.String("component", "auth"),
+			zap.Error(err),
+		)
 	}
 	return &api.OAuthResponse{
 		User: mapping.ToApiUser(newUser),
@@ -419,8 +434,6 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 }
 
 func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
-	// Generate new access and refresh tokens for the user.
-	log.Printf("IBL: linkExistingUser")
 	// Use the refactored token validation
 	tokenData, err := s.ValidateAndRefreshTokens(user)
 	if err != nil {
@@ -523,7 +536,10 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 			userFull, err := s.userRepository.GetByEmail(ctx, req.Email)
 			if err == nil {
 				if err := s.notificationClient.SendConfirmationEmail(ctx, userFull); err != nil {
-					log.Printf("[Register] Failed to send confirmation email: %v", err)
+					zap.L().Warn("failed to send confirmation email",
+						zap.String("component", "auth"),
+						zap.Error(err),
+					)
 				}
 			}
 			// Return a response indicating code was resent (tokens empty)
@@ -612,12 +628,10 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		bgCtx := context.Background()
 		er := s.notificationClient.SendMail(bgCtx, dbUser)
 		if er != nil {
-			// Log error if sending fails
-			fmt.Printf("Failed to send email: %v\n", er.Error)
-
-		} else {
-			// Log success response
-			fmt.Println("Email sent successfully!")
+			zap.L().Warn("failed to send registration email",
+				zap.String("component", "auth"),
+				zap.Any("error", er),
+			)
 		}
 	}()
 	// Send the notification email
@@ -704,7 +718,11 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
 	u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
 	if err != nil {
-		log.Printf("[Confirm] Error in GetByEmailToConfirm: %v", err)
+		zap.L().Error("confirm: failed to fetch user",
+			zap.String("component", "auth"),
+			zap.String("email", req.Email),
+			zap.Any("error", err),
+		)
 		return err
 	}
 
@@ -719,19 +737,28 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		u.UserUpdatedAt = time.Now()
 		err := s.userRepository.UpdateConfirmationCode(ctx, u)
 		if err != nil {
-			log.Printf("[Confirm] Error updating confirmation code: %v", err)
+			zap.L().Error("confirm: failed to update confirmation code",
+				zap.String("component", "auth"),
+				zap.Any("error", err),
+			)
 			return err
 		}
 
 		// Get the user from the database using email
 		user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
 		if err != nil {
-			log.Printf("[Confirm] Error in GetByEmail: %v", err)
+			zap.L().Error("confirm: failed to fetch user by email",
+				zap.String("component", "auth"),
+				zap.Any("error", err),
+			)
 			return err
 		}
 		// Send confirmation email using notification client
 		if err := s.notificationClient.SendConfirmationEmail(ctx, user); err != nil {
-			log.Printf("[Confirm] Failed to send confirmation email: %v", err)
+			zap.L().Warn("confirm: failed to send confirmation email",
+				zap.String("component", "auth"),
+				zap.Error(err),
+			)
 		}
 
 		return &models.ApiError{
@@ -741,7 +768,9 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	}
 
 	if req.ConfirmCode != u.UserConfirmCode.Code {
-		log.Printf("[Confirm] Provided code does not match for user: %s", u.UserEmail)
+		zap.L().Warn("confirm: code mismatch",
+			zap.String("component", "auth"),
+		)
 		return &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidConfirmationCode,
@@ -754,7 +783,10 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		u.UserStatus = db.Active
 		_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail, u.UserRefreshToken)
 		if err != nil {
-			log.Printf("[Confirm] Error in AcceptInvitation: %v", err)
+			zap.L().Error("confirm: failed to accept invitation",
+				zap.String("component", "auth"),
+				zap.Any("error", err),
+			)
 			return err
 		}
 	}
@@ -762,18 +794,27 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	u.UserVerificationStatus = true
 	err = s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {
-		log.Printf("[Confirm] Error updating confirmation code after verification: %v", err)
+		zap.L().Error("confirm: failed to finalize verification",
+			zap.String("component", "auth"),
+			zap.Any("error", err),
+		)
 		return err
 	}
 
 	// After updating confirmation code and user status, send welcome email
 	user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
 	if err != nil {
-		log.Printf("[Confirm] Error in GetByEmail after update: %v", err)
+		zap.L().Error("confirm: failed to fetch user for welcome email",
+			zap.String("component", "auth"),
+			zap.Any("error", err),
+		)
 		return err
 	}
 	if err := s.notificationClient.SendWelcomeEmail(ctx, user); err != nil {
-		log.Printf("[Confirm] Failed to send welcome email: %v", err)
+		zap.L().Warn("confirm: failed to send welcome email",
+			zap.String("component", "auth"),
+			zap.Error(err),
+		)
 	}
 
 	// Map the user object to the API response
@@ -804,7 +845,10 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 	}
 	// Send resend confirmation email using notification client
 	if err := s.notificationClient.SendResendConfirmationEmail(ctx, user); err != nil {
-		log.Printf("Failed to send resend confirmation email: %v", err)
+		zap.L().Warn("failed to send resend confirmation email",
+			zap.String("component", "auth"),
+			zap.Error(err),
+		)
 	}
 
 	return nil
@@ -831,7 +875,10 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 
 	// Send reset password email using notification client
 	if err := s.notificationClient.SendResetPasswordEmail(ctx, user); err != nil {
-		log.Printf("Failed to send reset password email: %v", err)
+		zap.L().Warn("failed to send reset password email",
+			zap.String("component", "auth"),
+			zap.Error(err),
+		)
 	}
 
 	return nil
@@ -873,7 +920,6 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 
 		return err
 	}
-	fmt.Printf("Code: %s\n", user.UserResetPasswordCode.Code)
 	resetPasswordCode := user.UserResetPasswordCode
 	if resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
 		return &models.ApiError{
@@ -892,11 +938,12 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 		return err
 	}
 
-	// Send the notification email
 	er := s.notificationClient.SendConfirmResetPasswordEmail(ctx, user)
 	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
+		zap.L().Warn("failed to send confirm reset password email",
+			zap.String("component", "auth"),
+			zap.Any("error", er),
+		)
 	}
 
 	return nil
@@ -918,7 +965,6 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("UserRefreshToken : %s  , oldRefreshToken : %s \n", *user.RefreshToken, oldRefreshToken)
 	if *user.RefreshToken != oldRefreshToken {
 		return "", &models.ApiError{
 			Code:  http.StatusUnauthorized,
@@ -953,7 +999,10 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	// Apply update masks to the user data
 	updateFields, err := masks.UpdateUserMasks(&req)
 	if err != nil {
-		log.Printf("UpdateUser: error applying masks to user - %v", err)
+		zap.L().Error("update user: failed to apply masks",
+			zap.String("component", "auth"),
+			zap.Any("error", err),
+		)
 		return nil, err
 	}
 
@@ -968,7 +1017,10 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	// Update user data in the repository
 	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, req.User.ExternalID, updateFields)
 	if err != nil {
-		log.Printf("UpdateUser: error updating user in database - %v", err)
+		zap.L().Error("update user: failed to persist",
+			zap.String("component", "auth"),
+			zap.Any("error", err),
+		)
 		return nil, err
 	}
 
@@ -1067,9 +1119,10 @@ func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (
 	// Send the notification email
 	er := s.notificationClient.SendConfirmationEmail(ctx, dbUser)
 	if er != nil {
-		// Log error if sending fails
-		fmt.Printf("Failed to send email: %v\n", er.Error)
-
+		zap.L().Warn("failed to send confirmation email",
+			zap.String("component", "auth"),
+			zap.Any("error", er),
+		)
 	}
 
 	resp := &api.RegisterResponse{

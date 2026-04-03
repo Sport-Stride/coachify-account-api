@@ -19,6 +19,8 @@ type InvitationClient struct {
 	validateEndpoint     string
 	checkEmailEndpoint   string
 	acceptInviteEndpoint string
+	breaker              *utils.CircuitBreaker
+	target               string
 }
 
 // InvitationResponse represents the response structure from the invitation API
@@ -52,12 +54,14 @@ type AcceptInvitationRequest struct {
 func NewInvitationClient(cfg utils.InvitationAPIConfig) (*InvitationClient, error) {
 	return &InvitationClient{
 		httpClient: &http.Client{
-			Timeout: 50 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		baseURL:              cfg.URL,
 		validateEndpoint:     "%s/api/invitations/validate",
 		checkEmailEndpoint:   "%s/api/invitations/check",
 		acceptInviteEndpoint: "%s/api/invitations/accept",
+		breaker:              utils.NewCircuitBreaker("invitation-api"),
+		target:               "invitation-api",
 	}, nil
 }
 
@@ -73,7 +77,7 @@ func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email str
 	if err != nil {
 		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return false, "", models.NewApiError(http.StatusInternalServerError, err)
 	}
@@ -119,7 +123,7 @@ func (c *InvitationClient) ValidateInvitation(ctx context.Context, invitationID,
 	}
 
 	// Send the request
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return nil, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendRequest)
 	}
@@ -179,7 +183,7 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+UserRefreshToken)
 	// Send the request
-	resp, err := c.httpClient.Do(req)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
 	if err != nil {
 		return nil, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendRequest)
 	}
