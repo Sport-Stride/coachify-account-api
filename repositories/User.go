@@ -583,17 +583,17 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 
 	// Define the projection to retrieve only the required fields
 	projection := bson.M{
-		"token":         1,
-		"externalid":    1,
-		"refresh_token": 1,
-		"firstname":     1,
-		"lastname":      1,
-		"role":          1,
-		"status":        1,
-		"email":         1,
-		"providers":     1,
+		"token":           1,
+		"externalid":      1,
+		"refresh_token":   1,
+		"firstname":       1,
+		"lastname":        1,
+		"role":            1,
+		"status":          1,
+		"email":           1,
+		"providers":       1,
 		"profile_picture": 1,
-		"metadata":      1,
+		"metadata":        1,
 	}
 
 	err := r.collection.FindOne(ctx, bson.M{"email": email}, options.FindOne().SetProjection(projection)).Decode(&user)
@@ -629,8 +629,8 @@ func (r *UserRepository) GetByEmailToResetPassword(ctx context.Context, email st
 		"password":            1,
 		"status":              1,
 		"email":               1,
-		"firstname": 1,
-		"lastname": 1,
+		"firstname":           1,
+		"lastname":            1,
 		"updated_at":          1,
 		"reset_password_code": 1,
 	}
@@ -738,10 +738,8 @@ func (r *UserRepository) GetByEmailToConfirm(ctx context.Context, email string) 
 		UserConfirmCode:        result.UserConfirmCode,
 		UserEmail:              result.UserEmail,
 		UserUpdatedAt:          result.UserUpdatedAt,
-		UserRefreshToken: result.UserRefreshToken,
-
+		UserRefreshToken:       result.UserRefreshToken,
 	}
-
 
 	return resultToApi, nil
 }
@@ -1241,4 +1239,91 @@ func (r *UserRepository) LinkProviderToUser(ctx context.Context, email string, p
 	}
 	_, err := r.collection.UpdateOne(ctx, filter, update)
 	return err
+}
+
+// GetCoachesByPage returns a paginated list of users with role=coach.
+func (r *UserRepository) GetCoachesByPage(ctx context.Context, page, size int) ([]*db.UserResponse, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	filter := bson.M{"role": "coach"}
+	opts := options.Find().
+		SetLimit(int64(size)).
+		SetSkip(int64((page - 1) * size)).
+		SetSort(bson.D{{Key: "updated_at", Value: -1}}).
+		SetProjection(bson.M{
+			"externalid":      1,
+			"firstname":       1,
+			"lastname":        1,
+			"email":           1,
+			"role":            1,
+			"status":          1,
+			"profile_picture": 1,
+			"updated_at":      1,
+			"created_at":      1,
+		})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		utils.Logger.Error("GetCoachesByPage: find failed", zap.Error(err))
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var results []*db.UserResponse
+	for cursor.Next(ctx) {
+		var u db.User
+		if err := cursor.Decode(&u); err != nil {
+			return nil, 0, err
+		}
+		resp := mapping.ToUserResponse(&u)
+		results = append(results, &resp)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, 0, err
+	}
+	return results, int(count), nil
+}
+
+// GetClientsByExternalIDs returns user records for the given external IDs (client role).
+func (r *UserRepository) GetClientsByExternalIDs(ctx context.Context, ids []string) ([]*db.UserResponse, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	filter := bson.M{"externalid": bson.M{"$in": ids}}
+	opts := options.Find().SetProjection(bson.M{
+		"externalid":      1,
+		"firstname":       1,
+		"lastname":        1,
+		"email":           1,
+		"role":            1,
+		"status":          1,
+		"profile_picture": 1,
+		"updated_at":      1,
+	})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []*db.UserResponse
+	for cursor.Next(ctx) {
+		var u db.User
+		if err := cursor.Decode(&u); err != nil {
+			return nil, err
+		}
+		resp := mapping.ToUserResponse(&u)
+		results = append(results, &resp)
+	}
+	return results, cursor.Err()
 }

@@ -87,3 +87,47 @@ func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, role, UserRefres
 
 	return &pr, nil
 }
+
+// GetBulkBillingInfo fetches billing info for a list of user IDs from payments-api.
+// adminToken is the encrypted JWT of the admin caller, forwarded as-is.
+func (c *PaymentClient) GetBulkBillingInfo(ctx context.Context, adminToken string, userIDs []string) (*BulkBillingResponse, error) {
+	if len(userIDs) == 0 {
+		return &BulkBillingResponse{}, nil
+	}
+
+	url := fmt.Sprintf("%s/admin/subscriptions/bulk-billing", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	q := req.URL.Query()
+	for _, id := range userIDs {
+		q.Add("user_ids", id)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("payments-api bulk billing failed: status=%d body=%s", resp.StatusCode, string(b))
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BulkBillingResponse
+	if err := json.Unmarshal(b, &result); err != nil {
+		return nil, fmt.Errorf("error decoding bulk billing response: %w", err)
+	}
+
+	return &result, nil
+}

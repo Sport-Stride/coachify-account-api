@@ -57,7 +57,6 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	untracedGroup.GET("/", handlers.GetHealth)
 	untracedGroup.GET("/health", handlers.GetHealth)
 
-
 	//auth with providers
 	oauthGroup := untracedGroup.Group("/oauth")
 	oauthGroup.GET("/:provider/login", handlers.OAuth2Login(services.AuthService))
@@ -100,6 +99,12 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
 			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
+		}
+
+		adminGroup := protected.Group("/admin")
+		{
+			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
+			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))
 		}
 	}
 

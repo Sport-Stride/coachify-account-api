@@ -94,7 +94,7 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("INVITATION_API_URL", "https://api.coachify.tn/invitations"),
 			},
 			PaymentAPI: PaymentAPIConfig{
-				URL:           getStringWithDefault("PAYMENT_API_URL", "http://localhost:8088"),
+				URL:           getStringWithDefault("PAYMENT_API_URL", "http://localhost:8089"),
 				PlanHexCoach:  getStringWithDefault("PLAN_HEX_COACH", "68a312e60fed38a0afe2cd57"),
 				PlanHexClient: getStringWithDefault("PLAN_HEX_CLIENT", "68b1c82ff8a8e4136caa57bd"),
 			},

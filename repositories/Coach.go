@@ -256,3 +256,26 @@ func (r *CoachRepository) GetCoachIDByClientID(ctx context.Context, clientID str
 	}
 	return result.CoachID, nil
 }
+
+// GetClientIDsByCoach returns all client external IDs belonging to a coach.
+func (r *CoachRepository) GetClientIDsByCoach(ctx context.Context, coachID string) ([]string, error) {
+filter := bson.M{"coach_id": coachID}
+opts := options.Find().SetProjection(bson.M{"client_id": 1})
+cursor, err := r.collection.Find(ctx, filter, opts)
+if err != nil {
+return nil, err
+}
+defer cursor.Close(ctx)
+
+var ids []string
+for cursor.Next(ctx) {
+var doc struct {
+ClientID string `bson:"client_id"`
+}
+if err := cursor.Decode(&doc); err != nil {
+return nil, err
+}
+ids = append(ids, doc.ClientID)
+}
+return ids, cursor.Err()
+}

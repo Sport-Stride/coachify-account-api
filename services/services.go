@@ -1,4 +1,4 @@
-package services
+﻿package services
 
 import (
 	"coachify-account-api/core"
@@ -16,6 +16,7 @@ import (
 type Services struct {
 	AuthService  AuthService
 	CoachService CoachService
+	AdminService AdminService
 }
 
 func InitServices(config utils.AppConfig,
@@ -37,7 +38,6 @@ func InitServices(config utils.AppConfig,
 		activationManager,
 		config.BaseURL.URL,
 	)
-	// Initialisez AuthServiceImpl avec les dépendances
 	authService := NewAuthService(
 		userRepo,
 		coachService,
@@ -54,6 +54,6 @@ func InitServices(config utils.AppConfig,
 	return &Services{
 		AuthService:  authService,
 		CoachService: coachService,
+		AdminService: NewAdminService(userRepo, coachRepo),
 	}
-
 }
