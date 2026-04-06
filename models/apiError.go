@@ -71,6 +71,9 @@ var (
 	ErrTokenEncryptionFailed     = errors.New("token encryption failed")
 	ErrInvalidAudience           = errors.New("invalid audience")
 	ErrClientAlreadyLinked       = errors.New("client is already linked to another coach")
+	ErrRegistrationLinkNotFound  = errors.New("registration link not found")
+	ErrAlreadyClientOfCoach      = errors.New("you are already a client of this coach")
+	ErrUserExistsUseLogin        = errors.New("an account with this email already exists — please log in instead")
 )
 
 // Error implements the error interface for ApiError.

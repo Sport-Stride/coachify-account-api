@@ -3,6 +3,7 @@ package app
 import (
 	"coachify-account-api/core"
 	"coachify-account-api/oauth2"
+	"coachify-account-api/pkg/chat"
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
@@ -43,10 +44,10 @@ func (app *App) setup() {
 	// Establish connection to MongoDB
 	log.Println("Connecting to MongoDB...")
 	clientOptions := options.Client().ApplyURI(config.MongoDB.URI)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -66,7 +67,7 @@ func (app *App) setup() {
 	log.Println("Initializing database indexes...")
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer indexCancel()
-	
+
 	if err := repositories.InitializeIndexes(indexCtx, db); err != nil {
 		// In production, you might want to fail here
 		// For now, we'll log and continue
@@ -83,22 +84,22 @@ func (app *App) setup() {
 
 	// Initialize activation manager and clients
 	activationManager := core.NewSimpleActivationManager()
-	
+
 	identifier, err := identifier.NewIdentifierClient(config.IdentifierAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize identifier: %v", err)
 	}
-	
+
 	invitation, err := invitation.NewInvitationClient(config.InvitationAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize invitation: %v", err)
 	}
-	
+
 	payment, err := payments.NewPaymentClient(config.PaymentAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize payment client: %v", err)
 	}
-	
+
 	notification, err := notification.NewNotificationClient(config.NotificationAPI)
 	if err != nil {
 		log.Fatalf("Failed to initialize notification client: %v", err)
@@ -108,6 +109,12 @@ func (app *App) setup() {
 	userColl := db.Collection("users")
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
+	registrationLinkRepo := repositories.NewRegistrationLinkRepository(db, "registration_links")
+
+	chatClient, err := chat.NewChatClient(config.ChatAPI)
+	if err != nil {
+		log.Fatalf("Failed to initialize chat client: %v", err)
+	}
 
 	// Initialize OAuth2 providers
 	facebookProvider, err := oauth2.NewProvider(
@@ -144,6 +151,7 @@ func (app *App) setup() {
 		middleware,
 		userRepo,
 		coachRepo,
+		registrationLinkRepo,
 		pwChecker,
 		activationManager,
 		identifier,
@@ -151,8 +159,9 @@ func (app *App) setup() {
 		invitation,
 		providers,
 		payment,
+		chatClient,
 	)
-	
+
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)
 
@@ -163,7 +172,7 @@ func (app *App) setup() {
 func (app *App) Run() {
 	port := app.Config.Port
 	log.Printf("🚀 Server starting on port %d (environment: %s)", port, app.Config.Environment)
-	
+
 	if err := app.Router.Run(fmt.Sprintf(":%d", port)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
@@ -171,10 +180,10 @@ func (app *App) Run() {
 
 func (app *App) Shutdown() {
 	log.Println("Shutting down application...")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	if err := app.DB.Disconnect(ctx); err != nil {
 		log.Printf("Error disconnecting from MongoDB: %v", err)
 	} else {

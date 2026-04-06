@@ -66,6 +66,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	//auth endpoints
 	userGroup := r.Group("/user")
 	userGroup.POST("/signup", handlers.Register(services.AuthService))
+
+	// Public registration link routes (no auth required)
+	regLinkGroup := r.Group("/coach/registration-link")
+	regLinkGroup.GET("/:token", handlers.ValidateRegistrationLink(services.RegistrationLinkService))
+	regLinkGroup.POST("/:token/register", handlers.RegisterViaLink(services.AuthService, services.RegistrationLinkService))
 	userGroup.POST("/confirm", handlers.Confirm(services.AuthService))
 	userGroup.POST("/resend-confirm", handlers.ResendConfirmEmail(services.AuthService))
 	userGroup.POST("/login", handlers.Login(services.AuthService))
@@ -99,6 +104,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
 			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
+			coachProtectedGroup.POST("/registration-link", handlers.GenerateRegistrationLink(services.RegistrationLinkService))
 		}
 
 		adminGroup := protected.Group("/admin")

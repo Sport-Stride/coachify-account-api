@@ -8,6 +8,7 @@ import (
 	"coachify-account-api/models/mapping"
 	"coachify-account-api/models/masks"
 	"coachify-account-api/oauth2"
+	"coachify-account-api/pkg/chat"
 	"coachify-account-api/pkg/identifier"
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
@@ -45,19 +46,22 @@ type AuthService interface {
 	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
 	HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError)
+	RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 }
 
 type AuthServiceImpl struct {
-	userRepository     repositories.UserRepository
-	coachService       CoachService
-	passwordChecker    core.PasswordChecker
-	activationManager  core.ActivationManager
-	middleware         *jwt.GinJWTMiddleware
-	identifier         *identifier.IdentifierClient
-	invitation         *invitation.InvitationClient
-	notificationClient *notification.NotificationClient
-	providers          map[oauth2.ProviderType]oauth2.Provider
-	payment            *payments.PaymentClient
+	userRepository       repositories.UserRepository
+	coachService         CoachService
+	passwordChecker      core.PasswordChecker
+	activationManager    core.ActivationManager
+	middleware           *jwt.GinJWTMiddleware
+	identifier           *identifier.IdentifierClient
+	invitation           *invitation.InvitationClient
+	notificationClient   *notification.NotificationClient
+	providers            map[oauth2.ProviderType]oauth2.Provider
+	payment              *payments.PaymentClient
+	registrationLinkRepo *repositories.RegistrationLinkRepository
+	chatClient           *chat.ChatClient
 }
 
 func NewAuthService(
@@ -71,19 +75,22 @@ func NewAuthService(
 	invitation *invitation.InvitationClient,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 	payment *payments.PaymentClient,
-
+	registrationLinkRepo *repositories.RegistrationLinkRepository,
+	chatClient *chat.ChatClient,
 ) *AuthServiceImpl {
 	return &AuthServiceImpl{
-		passwordChecker:    pwChecker,
-		userRepository:     *userRepository,
-		coachService:       coachService,
-		middleware:         middleware,
-		activationManager:  activationManager,
-		identifier:         identifier,
-		invitation:         invitation,
-		notificationClient: notificationClient,
-		providers:          providers,
-		payment:            payment,
+		passwordChecker:      pwChecker,
+		userRepository:       *userRepository,
+		coachService:         coachService,
+		middleware:           middleware,
+		activationManager:    activationManager,
+		identifier:           identifier,
+		invitation:           invitation,
+		notificationClient:   notificationClient,
+		providers:            providers,
+		payment:              payment,
+		registrationLinkRepo: registrationLinkRepo,
+		chatClient:           chatClient,
 	}
 }
 
@@ -370,14 +377,47 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 
 	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
-	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
-	if role == "client" {
+
+	// Determine role and coach association.
+	// If a registration link token is present, resolve the coach from it directly
+	// rather than checking the invitation service.
+	var role, coachId string
+	if oauthUser.RegistrationToken != "" {
+		link, err := s.registrationLinkRepo.GetByToken(ctx, oauthUser.RegistrationToken)
+		if err != nil {
+			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+		}
+		if link == nil {
+			return nil, &models.ApiError{Code: http.StatusNotFound, Error: models.ErrRegistrationLinkNotFound}
+		}
+		role = "client"
+		coachId = link.CoachID
 		s.coachService.AddCoachClient(ctx, coachId, newUser.ExternalID)
-	}
-	if Rolerr != nil {
-		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+		if s.chatClient != nil {
+			coachUser, coachUserErr := s.userRepository.GetUserByExternalIdUpdate(ctx, coachId)
+			var coachToken string
+			if coachUserErr == nil && coachUser != nil && coachUser.Token != nil {
+				coachToken = *coachUser.Token
+			}
+			if convErr := s.chatClient.CreateConversation(ctx, coachId, newUser.ExternalID, coachToken); convErr != nil {
+				zap.L().Warn("createNewOAuthUser: failed to create coach-client conversation",
+					zap.String("component", "auth"),
+					zap.Any("error", convErr),
+				)
+			}
+		}
+	} else {
+		var Rolerr error
+		role, coachId, Rolerr = s.setUserRoleByInvitation(ctx, oauthUser.Profile.Email)
+		if role == "client" {
+			s.coachService.AddCoachClient(ctx, coachId, newUser.ExternalID)
+		}
+		if Rolerr != nil {
+			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+		}
 	}
 	newUser.UserRole = role
+
 	// Generate tokens
 	accessToken, refreshToken, apiErr := s.generateTokens(newUser)
 	if apiErr != nil {
@@ -396,18 +436,20 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	if newUser.UserRole == "coach" {
 		newUser.UserStatus = db.ComReg1
-
 	} else {
 		newUser.UserStatus = db.Active
-		zap.L().Debug("accepting client invitation",
-			zap.String("component", "auth"),
-			zap.String("external_id", newUser.ExternalID),
-		)
-		_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail, *newUser.UserRefreshToken)
-		if err != nil {
-			return nil, &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrInvitationNotAccepted,
+		// Only call AcceptInvitation for the invitation flow, not for the registration link flow
+		if oauthUser.RegistrationToken == "" {
+			zap.L().Debug("accepting client invitation",
+				zap.String("component", "auth"),
+				zap.String("external_id", newUser.ExternalID),
+			)
+			_, err := s.invitation.AcceptInvitation(ctx, newUser.ExternalID, newUser.UserEmail, *newUser.UserRefreshToken)
+			if err != nil {
+				return nil, &models.ApiError{
+					Code:  http.StatusInternalServerError,
+					Error: models.ErrInvitationNotAccepted,
+				}
 			}
 		}
 	}
@@ -783,11 +825,39 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		u.UserStatus = db.Active
 		_, err := s.invitation.AcceptInvitation(ctx, u.UserExternalID, u.UserEmail, u.UserRefreshToken)
 		if err != nil {
-			zap.L().Error("confirm: failed to accept invitation",
-				zap.String("component", "auth"),
-				zap.Any("error", err),
-			)
-			return err
+			if err.Code == http.StatusNotFound {
+				// No invitation exists — user registered via public link. Create the conversation now.
+				zap.L().Debug("confirm: no invitation to accept (registration link flow)",
+					zap.String("component", "auth"),
+					zap.String("external_id", u.UserExternalID),
+				)
+				coachID, coachErr := s.coachService.GetCoachIDByClientID(ctx, u.UserExternalID)
+				if coachErr != nil {
+					zap.L().Warn("confirm: could not resolve coach for conversation creation",
+						zap.String("component", "auth"),
+						zap.String("external_id", u.UserExternalID),
+						zap.Error(coachErr),
+					)
+				} else if s.chatClient != nil {
+					coachUser, coachUserErr := s.userRepository.GetUserByExternalIdUpdate(ctx, coachID)
+					var coachToken string
+					if coachUserErr == nil && coachUser != nil && coachUser.Token != nil {
+						coachToken = *coachUser.Token
+					}
+					if convErr := s.chatClient.CreateConversation(ctx, coachID, u.UserExternalID, coachToken); convErr != nil {
+						zap.L().Warn("confirm: failed to create coach-client conversation",
+							zap.String("component", "auth"),
+							zap.Any("error", convErr),
+						)
+					}
+				}
+			} else {
+				zap.L().Error("confirm: failed to accept invitation",
+					zap.String("component", "auth"),
+					zap.Any("error", err),
+				)
+				return err
+			}
 		}
 	}
 
@@ -1159,4 +1229,97 @@ func (s *AuthServiceImpl) setUserRoleByInvitation(ctx context.Context, email str
 		return "client", coach_external_id, nil
 	}
 	return "coach", coach_external_id, nil
+}
+
+// RegisterViaLink registers a new user as a client through a coach's public registration link.
+func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
+	// Validate the token and resolve the coach
+	link, err := s.registrationLinkRepo.GetByToken(ctx, token)
+	if err != nil {
+		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	if link == nil {
+		return nil, &models.ApiError{Code: http.StatusNotFound, Error: models.ErrRegistrationLinkNotFound}
+	}
+
+	// Check if email already exists in the system
+	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
+	if errEmail != nil {
+		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: errEmail}
+	}
+	if userExists {
+		// Check if user is in ToConfirm status — still block, they should use the original flow
+		return nil, &models.ApiError{Code: http.StatusConflict, Error: models.ErrUserExistsUseLogin}
+	}
+
+	// Password validation
+	if !core.ValidatePassword(req.Password) {
+		return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidPassword}
+	}
+
+	encrypted, hashErr := s.passwordChecker.HashPassword(req.Password)
+	if hashErr != nil {
+		return nil, hashErr
+	}
+
+	id, apiErr := s.identifier.GenerateId(ctx, "user")
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	confirmCode := &db.UserConfirmCode{
+		Code:           s.activationManager.GenerateCode(),
+		ExpirationDate: time.Now().Add(24 * time.Hour),
+	}
+
+	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
+	refreshTokenData := mapping.ToRefreshToken(dbUser)
+	accessToken, tokenErr := utils.CreateToken(utils.CreateTokenParams{
+		User: refreshTokenData,
+		Type: "access",
+	})
+	if tokenErr != nil {
+		return nil, tokenErr
+	}
+
+	refreshToken, tokenErr := utils.CreateToken(utils.CreateTokenParams{
+		User: refreshTokenData,
+		Type: "refresh",
+	})
+	if tokenErr != nil {
+		return nil, tokenErr
+	}
+
+	dbUser.Token = &accessToken
+	dbUser.UserRefreshToken = &refreshToken
+	dbUser.UserStatus = db.ToConfirm
+	dbUser.UserRole = "client"
+
+	inserted, createErr := s.userRepository.CreateUser(ctx, dbUser)
+	if createErr != nil {
+		return nil, createErr
+	}
+
+	// Associate client with coach — same pattern as invitation flow
+	s.coachService.AddCoachClient(ctx, link.CoachID, dbUser.ExternalID)
+
+	// Send confirmation email
+	go func() {
+		bgCtx := context.Background()
+		er := s.notificationClient.SendMail(bgCtx, dbUser)
+		if er != nil {
+			zap.L().Warn("failed to send registration email",
+				zap.String("component", "auth"),
+				zap.Any("error", er),
+			)
+		}
+	}()
+
+	resp := &api.RegisterResponse{
+		User:        mapping.ToApiUserResponse(inserted),
+		AuthToken:   accessToken,
+		RereshToken: refreshToken,
+	}
+
+	return resp, nil
 }

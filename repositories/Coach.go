@@ -99,7 +99,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	if query.ClientID != "" {
 		filter["client_id"] = query.ClientID
 	}
-	
+
 	// Date range filter optimization
 	if !query.FromDate.IsZero() || !query.ToDate.IsZero() {
 		dateFilter := bson.M{}
@@ -111,7 +111,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		}
 		filter["created_at"] = dateFilter
 	}
-	
+
 	// Pagination defaults
 	page := query.Page
 	if page < 1 {
@@ -122,14 +122,14 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		size = 10
 	}
 
-	log.Printf("ListCoachClients - CoachID: %s, Page: %d, Size: %d, Filter: %+v", 
+	log.Printf("ListCoachClients - CoachID: %s, Page: %d, Size: %d, Filter: %+v",
 		query.CoachID, page, size, filter)
 
 	// Single aggregation using $facet to get both count and data in one query
 	pipeline := mongo.Pipeline{
 		// Stage 1: Match coach_clients by filter
 		bson.D{{Key: "$match", Value: filter}},
-		
+
 		// Stage 2: Lookup to join with users collection
 		bson.D{
 			{Key: "$lookup", Value: bson.D{
@@ -139,7 +139,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 				{Key: "as", Value: "user"},
 			}},
 		},
-		
+
 		// Stage 3: Unwind user array (filter out non-matching)
 		bson.D{
 			{Key: "$unwind", Value: bson.D{
@@ -147,14 +147,14 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 				{Key: "preserveNullAndEmptyArrays", Value: false},
 			}},
 		},
-		
+
 		// Stage 4: Sort BEFORE facet (important!)
 		bson.D{
 			{Key: "$sort", Value: bson.D{
 				{Key: "created_at", Value: -1},
 			}},
 		},
-		
+
 		// Stage 5: Use $facet to split into count and paginated data
 		bson.D{
 			{Key: "$facet", Value: bson.D{
@@ -233,16 +233,27 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		results = []map[string]interface{}{}
 	}
 
-	log.Printf("ListCoachClients - Returned %d items out of %d total (page %d, size %d)", 
+	log.Printf("ListCoachClients - Returned %d items out of %d total (page %d, size %d)",
 		len(results), total, page, size)
-	
+
 	return results, int(total), nil
 }
+
 // DissociateCoachClient removes a coach-client relationship
 func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
 	filter := bson.M{"coach_id": coachID, "client_id": clientID}
 	_, err := r.collection.DeleteOne(ctx, filter)
 	return err
+}
+
+// IsClientOfCoach checks if a client is already linked to a specific coach.
+func (r *CoachRepository) IsClientOfCoach(ctx context.Context, coachID, clientID string) (bool, error) {
+	filter := bson.M{"coach_id": coachID, "client_id": clientID}
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *CoachRepository) GetCoachIDByClientID(ctx context.Context, clientID string) (string, error) {
@@ -259,23 +270,23 @@ func (r *CoachRepository) GetCoachIDByClientID(ctx context.Context, clientID str
 
 // GetClientIDsByCoach returns all client external IDs belonging to a coach.
 func (r *CoachRepository) GetClientIDsByCoach(ctx context.Context, coachID string) ([]string, error) {
-filter := bson.M{"coach_id": coachID}
-opts := options.Find().SetProjection(bson.M{"client_id": 1})
-cursor, err := r.collection.Find(ctx, filter, opts)
-if err != nil {
-return nil, err
-}
-defer cursor.Close(ctx)
+	filter := bson.M{"coach_id": coachID}
+	opts := options.Find().SetProjection(bson.M{"client_id": 1})
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
 
-var ids []string
-for cursor.Next(ctx) {
-var doc struct {
-ClientID string `bson:"client_id"`
-}
-if err := cursor.Decode(&doc); err != nil {
-return nil, err
-}
-ids = append(ids, doc.ClientID)
-}
-return ids, cursor.Err()
+	var ids []string
+	for cursor.Next(ctx) {
+		var doc struct {
+			ClientID string `bson:"client_id"`
+		}
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, err
+		}
+		ids = append(ids, doc.ClientID)
+	}
+	return ids, cursor.Err()
 }

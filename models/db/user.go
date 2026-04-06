@@ -137,10 +137,11 @@ type OAuthUser struct {
 
 // GoogleLoginRequest represents the payload from NextAuth for Google authentication.
 type GoogleLoginRequest struct {
-	Account      GoogleAccount `json:"account"`
-	Profile      GoogleProfile `json:"profile"`
-	Role         string        `json:"role"`
-	InvitedEmail string        `json:"invited_email,omitempty"`
+	Account           GoogleAccount `json:"account"`
+	Profile           GoogleProfile `json:"profile"`
+	Role              string        `json:"role"`
+	InvitedEmail      string        `json:"invited_email,omitempty"`
+	RegistrationToken string        `json:"registration_token,omitempty"`
 }
 
 type GoogleAccount struct {

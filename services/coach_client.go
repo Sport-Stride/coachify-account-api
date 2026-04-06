@@ -17,6 +17,7 @@ type CoachService interface {
 	DissociateCoachClient(ctx context.Context, coachID, clientID string) error
 	AddCoachClient(ctx context.Context, coachID, clientID string) error
 	GetCoachIDByClientID(ctx context.Context, clientID string) (string, error)
+	IsClientOfCoach(ctx context.Context, coachID, clientID string) (bool, error)
 }
 
 type CoachServiceImpl struct {
@@ -57,4 +58,8 @@ func (s *CoachServiceImpl) AddCoachClient(ctx context.Context, coachID, clientID
 }
 func (s *CoachServiceImpl) GetCoachIDByClientID(ctx context.Context, clientID string) (string, error) {
 	return s.coachRepo.GetCoachIDByClientID(ctx, clientID)
+}
+
+func (s *CoachServiceImpl) IsClientOfCoach(ctx context.Context, coachID, clientID string) (bool, error) {
+	return s.coachRepo.IsClientOfCoach(ctx, coachID, clientID)
 }

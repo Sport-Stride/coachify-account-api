@@ -96,7 +96,8 @@ func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email str
 		}
 		return result.Exists, result.CoachExternalID, nil
 	}
-	return false, "", nil
+	return false, "", models.NewApiError(http.StatusInternalServerError,
+		fmt.Errorf("%w: invitation check returned %d: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(body)))
 }
 
 // ValidateInvitation validates an invitation by ID and email
@@ -167,7 +168,7 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 		ExternalID: invitationID,
 		Email:      email,
 	}
-	
+
 	// Marshal request body to JSON
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
@@ -179,7 +180,7 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 	if err != nil {
 		return nil, models.NewApiError(http.StatusInternalServerError, models.ErrFailedToCreateRequest)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+UserRefreshToken)
 	// Send the request

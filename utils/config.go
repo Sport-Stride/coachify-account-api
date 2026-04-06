@@ -91,10 +91,10 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
 			},
 			InvitationAPI: InvitationAPIConfig{
-				URL: getStringWithDefault("INVITATION_API_URL", "https://api.coachify.tn/invitations"),
+				URL: getStringWithDefault("INVITATION_API_URL", "https://api.coachify.tn/invitation"),
 			},
 			PaymentAPI: PaymentAPIConfig{
-				URL:           getStringWithDefault("PAYMENT_API_URL", "http://localhost:8089"),
+				URL:           getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
 				PlanHexCoach:  getStringWithDefault("PLAN_HEX_COACH", "68a312e60fed38a0afe2cd57"),
 				PlanHexClient: getStringWithDefault("PLAN_HEX_CLIENT", "68b1c82ff8a8e4136caa57bd"),
 			},
@@ -106,7 +106,7 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
 			},
 			ChatAPI: ChatAPIConfig{
-				URL: getStringWithDefault("CHAT_API_URL", "http://localhost:8088"),
+				URL: getStringWithDefault("CHAT_API_URL", "https://api.coachify.tn/chat"),
 			},
 			FacebookOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
