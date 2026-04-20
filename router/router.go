@@ -96,7 +96,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			// The update endpoint ignores any client-provided external ID.
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 			// Delete authenticated user account
-			userProtectedGroup.DELETE("/", handlers.DeleteAuthenticatedUser(services.AuthService))
+			userProtectedGroup.DELETE("", handlers.DeleteAuthenticatedUser(services.AuthService))
 
 		}
 		coachProtectedGroup := protected.Group("/coach")
