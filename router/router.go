@@ -80,7 +80,6 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
 	//userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 	userGroup.GET("/", handlers.GetAllUsersPag(services.AuthService))
-	userGroup.DELETE("/", handlers.DeleteUser(services.AuthService))
 	userGroup.POST("/", handlers.AddUser(services.AuthService))
 	userGroup.GET("/get-user-by-email/:prefix", handlers.GetUserByEmail(services.AuthService))
 	userGroup.GET("/check-email/:prefix", handlers.GetUserByEmail(services.AuthService))
