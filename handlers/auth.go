@@ -406,6 +406,33 @@ func DeleteUser(service services.AuthService) gin.HandlerFunc {
 	}
 }
 
+// DeleteAuthenticatedUser - Delete the authenticated user's account
+func DeleteAuthenticatedUser(service services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		// Extract user ID from JWT token (set by AuthMiddleware)
+		userID, exists := ctx.Get("userID")
+		if !exists {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		externalID, ok := userID.(string)
+		if !ok || externalID == "" {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID in token"})
+			return
+		}
+
+		// Delete the authenticated user
+		apiErr := service.DeleteUser(ctx, externalID)
+		if apiErr != nil {
+			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{"message": "Account deleted successfully"})
+	}
+}
+
 func AddUser(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		req := new(api.CreateUserRequest)
