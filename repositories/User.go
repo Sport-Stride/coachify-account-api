@@ -1444,3 +1444,43 @@ func (r *UserRepository) FindByMatriculeFiscaleStatus(ctx context.Context, statu
 
 	return users, int(count), nil
 }
+
+// ClearTaxRegistration removes the tax registration number and resets status to none.
+// Only allowed when status is pending or rejected — approved cannot be cleared by the user.
+func (r *UserRepository) ClearTaxRegistration(ctx context.Context, externalID string) *models.ApiError {
+	now := time.Now()
+	filter := bson.M{
+		"externalid": externalID,
+		"matricule_fiscale_status": bson.M{"$in": []db.MatriculeFiscaleStatus{
+			db.MatriculeFiscalePending,
+			db.MatriculeFiscaleRejected,
+		}},
+	}
+	update := bson.M{
+		"$unset": bson.M{
+			"matricule_fiscale":              "",
+			"matricule_fiscale_submitted_at": "",
+			"matricule_fiscale_reviewed_at":  "",
+			"matricule_fiscale_reviewed_by":  "",
+		},
+		"$set": bson.M{
+			"matricule_fiscale_status": db.MatriculeFiscaleNone,
+			"updated_at":               now,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	if result.MatchedCount == 0 {
+		return &models.ApiError{
+			Code:  http.StatusConflict,
+			Error: fmt.Errorf("cannot withdraw an approved tax registration number"),
+		}
+	}
+	return nil
+}

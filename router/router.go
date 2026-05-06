@@ -97,8 +97,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 			// Delete authenticated user account
 			userProtectedGroup.DELETE("", handlers.DeleteAuthenticatedUser(services.AuthService))
-			// Matricule fiscale submission (coach/nutritionist only)
+			// Tax registration (coach/nutritionist only)
 			userProtectedGroup.PATCH("/matricule-fiscale", handlers.SubmitMatriculeFiscale(services.AuthService))
+			userProtectedGroup.DELETE("/tax-registration", handlers.WithdrawTaxRegistration(services.AuthService))
 
 		}
 		coachProtectedGroup := protected.Group("/coach")

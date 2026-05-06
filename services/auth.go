@@ -48,6 +48,7 @@ type AuthService interface {
 	HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError)
 	RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	SubmitMatriculeFiscale(ctx context.Context, externalID string, matricule string) *models.ApiError
+	WithdrawTaxRegistration(ctx context.Context, externalID string) *models.ApiError
 	GetMatriculeFiscaleApplications(ctx context.Context, status string, page, limit int) ([]api.MatriculeFiscaleApplication, int, *models.ApiError)
 	ApproveMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError
 	RejectMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError
@@ -1432,4 +1433,10 @@ func (s *AuthServiceImpl) RejectMatriculeFiscale(ctx context.Context, targetExte
 	}()
 
 	return nil
+}
+
+// WithdrawTaxRegistration allows a coach/nutritionist to clear their pending or rejected
+// tax registration submission, resetting status back to none.
+func (s *AuthServiceImpl) WithdrawTaxRegistration(ctx context.Context, externalID string) *models.ApiError {
+	return s.userRepository.ClearTaxRegistration(ctx, externalID)
 }

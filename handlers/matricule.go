@@ -149,3 +149,35 @@ func RejectMatriculeFiscale(authService services.AuthService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"message": "matricule fiscale rejected"})
 	}
 }
+
+// WithdrawTaxRegistration handles DELETE /user/tax-registration
+// Clears a pending or rejected tax registration submission.
+func WithdrawTaxRegistration(authService services.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in token"})
+			return
+		}
+		externalID, ok := userID.(string)
+		if !ok || externalID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "user ID not found in token"})
+			return
+		}
+
+		userRole, _ := c.Get("userRole")
+		role, _ := userRole.(string)
+		if role != "coach" && role != "nutritionist" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "tax registration is only available for coach or nutritionist roles"})
+			return
+		}
+
+		apiErr := authService.WithdrawTaxRegistration(c.Request.Context(), externalID)
+		if apiErr != nil {
+			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "tax registration withdrawn"})
+	}
+}
