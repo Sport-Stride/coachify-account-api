@@ -20,3 +20,12 @@ const (
 	Male   UserGender = "Male"
 	Female UserGender = "Female"
 )
+
+type MatriculeFiscaleStatus string
+
+const (
+	MatriculeFiscaleNone     MatriculeFiscaleStatus = "none"
+	MatriculeFiscalePending  MatriculeFiscaleStatus = "pending"
+	MatriculeFiscaleApproved MatriculeFiscaleStatus = "approved"
+	MatriculeFiscaleRejected MatriculeFiscaleStatus = "rejected"
+)

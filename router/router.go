@@ -97,6 +97,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 			// Delete authenticated user account
 			userProtectedGroup.DELETE("", handlers.DeleteAuthenticatedUser(services.AuthService))
+			// Matricule fiscale submission (coach/nutritionist only)
+			userProtectedGroup.PATCH("/matricule-fiscale", handlers.SubmitMatriculeFiscale(services.AuthService))
 
 		}
 		coachProtectedGroup := protected.Group("/coach")
@@ -112,6 +114,10 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
 			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))
+			// Matricule fiscale admin review queue
+			adminGroup.GET("/matricule-fiscale", handlers.GetMatriculeFiscaleApplications(services.AuthService))
+			adminGroup.POST("/matricule-fiscale/:userId/approve", handlers.ApproveMatriculeFiscale(services.AuthService))
+			adminGroup.POST("/matricule-fiscale/:userId/reject", handlers.RejectMatriculeFiscale(services.AuthService))
 		}
 	}
 

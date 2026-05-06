@@ -37,10 +37,26 @@ type User struct {
 	UserConfirmCode        *UserConfirmCode                `bson:"confirm_code"`
 	UserResetPasswordCode  *UserResetPasswordCode          `bson:"reset_password_code"`
 	UserAddress            Address                         `bson:"address,omitempty"`
-	Metadata               *UserMetadata                   `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	UserCreatedAt          time.Time                       `bson:"created_at"`
-	UserUpdatedAt          time.Time                       `bson:"updated_at"`
-	UserLastLogin          time.Time                       `bson:"last_login"`
+	Metadata                    *UserMetadata                   `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	MatriculeFiscale            string                          `bson:"matricule_fiscale,omitempty" json:"matricule_fiscale,omitempty"`
+	MatriculeFiscaleStatus      MatriculeFiscaleStatus          `bson:"matricule_fiscale_status" json:"matricule_fiscale_status"`
+	MatriculeFiscaleSubmittedAt *time.Time                      `bson:"matricule_fiscale_submitted_at,omitempty" json:"matricule_fiscale_submitted_at,omitempty"`
+	MatriculeFiscaleReviewedAt  *time.Time                      `bson:"matricule_fiscale_reviewed_at,omitempty" json:"matricule_fiscale_reviewed_at,omitempty"`
+	MatriculeFiscaleReviewedBy  string                          `bson:"matricule_fiscale_reviewed_by,omitempty" json:"matricule_fiscale_reviewed_by,omitempty"`
+	UserCreatedAt               time.Time                       `bson:"created_at"`
+	UserUpdatedAt               time.Time                       `bson:"updated_at"`
+	UserLastLogin               time.Time                       `bson:"last_login"`
+}
+
+// IsPaymentUnlocked returns true only when a coach/nutritionist has an approved matricule fiscale.
+func (u *User) IsPaymentUnlocked() bool {
+	if u == nil {
+		return false
+	}
+	if u.UserRole != "coach" && u.UserRole != "nutritionist" {
+		return false
+	}
+	return u.MatriculeFiscaleStatus == MatriculeFiscaleApproved
 }
 type UserMetadata struct {
 	HowHeardAboutUs string   `bson:"how_heard_about_us,omitempty" json:"how_heard_about_us,omitempty"`
@@ -108,6 +124,8 @@ type UserResponse struct {
 	VerificationStatus bool               `bson:"verification_status"`
 	Address            Address            `bson:"address,omitempty"`
 	Metadata           *UserMetadata      `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	MatriculeFiscale       string                 `bson:"matricule_fiscale,omitempty" json:"matricule_fiscale,omitempty"`
+	MatriculeFiscaleStatus MatriculeFiscaleStatus  `bson:"matricule_fiscale_status" json:"matricule_fiscale_status"`
 	CreatedAt          time.Time          `bson:"created_at"`
 	UpdatedAt          time.Time          `bson:"updated_at"`
 	LastLogin          time.Time          `bson:"last_login"`

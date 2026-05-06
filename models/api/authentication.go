@@ -94,53 +94,57 @@ type RegisterResponse struct {
 }
 
 type ApiUser struct {
-	ID                 string                    `json:"id"`
-	ExternalID         string                    `json:"external_id,omitempty"`
-	Firstname          string                    `json:"firstname"`
-	Lastname           string                    `json:"lastname"`
-	Email              string                    `json:"email"`
-	Password           string                    `json:"password"`
-	Role               string                    `json:"role"`
-	Gender             string                    `json:"gender"`
-	Status             string                    `json:"status"`
-	ProfilePicture     string                    `json:"profile_picture,omitempty"`
-	Description        string                    `json:"description,omitempty"`
-	PhoneNumber        string                    `json:"phone_number,omitempty"`
-	Token              *string                   `json:"token"`
-	RefreshToken       *string                   `json:"refresh_token,omitempty"`
-	VerificationStatus bool                      `json:"verification_status"`
-	Autologin          bool                      `json:"autologin"`
-	Address            Address                   `json:"address,omitempty"`
-	ConfirmCode        db.UserConfirmCode        `json:"confirm_code,omitempty"`
-	ResetPasswordCode  *db.UserResetPasswordCode `json:"reset_password_code"`
-	Metadata           *db.UserMetadata          `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	CreatedAt          time.Time                 `json:"created_at"`
-	UpdatedAt          time.Time                 `json:"updated_at"`
-	LastLogin          time.Time                 `json:"last_login"`
+	ID                     string                    `json:"id"`
+	ExternalID             string                    `json:"external_id,omitempty"`
+	Firstname              string                    `json:"firstname"`
+	Lastname               string                    `json:"lastname"`
+	Email                  string                    `json:"email"`
+	Password               string                    `json:"password"`
+	Role                   string                    `json:"role"`
+	Gender                 string                    `json:"gender"`
+	Status                 string                    `json:"status"`
+	ProfilePicture         string                    `json:"profile_picture,omitempty"`
+	Description            string                    `json:"description,omitempty"`
+	PhoneNumber            string                    `json:"phone_number,omitempty"`
+	Token                  *string                   `json:"token"`
+	RefreshToken           *string                   `json:"refresh_token,omitempty"`
+	VerificationStatus     bool                      `json:"verification_status"`
+	Autologin              bool                      `json:"autologin"`
+	Address                Address                   `json:"address,omitempty"`
+	ConfirmCode            db.UserConfirmCode        `json:"confirm_code,omitempty"`
+	ResetPasswordCode      *db.UserResetPasswordCode `json:"reset_password_code"`
+	Metadata               *db.UserMetadata          `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	MatriculeFiscale       string                    `json:"matricule_fiscale,omitempty"`
+	MatriculeFiscaleStatus string                    `json:"matricule_fiscale_status,omitempty"`
+	CreatedAt              time.Time                 `json:"created_at"`
+	UpdatedAt              time.Time                 `json:"updated_at"`
+	LastLogin              time.Time                 `json:"last_login"`
 }
 
 type ApiUserResponse struct {
-	ID                 string           `json:"id"`
-	ExternalID         string           `json:"external_id,omitempty"`
-	Firstname          string           `json:"firstname"`
-	Lastname           string           `json:"lastname"`
-	Email              string           `json:"email"`
-	Password           string           `json:"password"`
-	Role               string           `json:"role"`
-	Gender             string           `json:"gender"`
-	Status             string           `json:"status"`
-	ProfilePicture     string           `json:"profile_picture,omitempty"`
-	Description        string           `json:"description,omitempty"`
-	PhoneNumber        string           `json:"phone_number,omitempty"`
-	Token              *string          `json:"token"`
-	RefreshToken       *string          `json:"refresh_token,omitempty"`
-	VerificationStatus bool             `json:"verification_status"`
-	Autologin          bool             `json:"autologin"`
-	Address            Address          `json:"address,omitempty"`
-	Metadata           *db.UserMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	CreatedAt          time.Time        `json:"created_at"`
-	UpdatedAt          time.Time        `json:"updated_at"`
-	LastLogin          time.Time        `json:"last_login"`
+	ID                     string           `json:"id"`
+	ExternalID             string           `json:"external_id,omitempty"`
+	Firstname              string           `json:"firstname"`
+	Lastname               string           `json:"lastname"`
+	Email                  string           `json:"email"`
+	Password               string           `json:"password"`
+	Role                   string           `json:"role"`
+	Gender                 string           `json:"gender"`
+	Status                 string           `json:"status"`
+	ProfilePicture         string           `json:"profile_picture,omitempty"`
+	Description            string           `json:"description,omitempty"`
+	PhoneNumber            string           `json:"phone_number,omitempty"`
+	Token                  *string          `json:"token"`
+	RefreshToken           *string          `json:"refresh_token,omitempty"`
+	VerificationStatus     bool             `json:"verification_status"`
+	Autologin              bool             `json:"autologin"`
+	Address                Address          `json:"address,omitempty"`
+	Metadata               *db.UserMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	MatriculeFiscale       string           `json:"matricule_fiscale,omitempty"`
+	MatriculeFiscaleStatus string           `json:"matricule_fiscale_status,omitempty"`
+	CreatedAt              time.Time        `json:"created_at"`
+	UpdatedAt              time.Time        `json:"updated_at"`
+	LastLogin              time.Time        `json:"last_login"`
 }
 
 type RequestRefreshtoken struct {

@@ -47,6 +47,10 @@ type AuthService interface {
 	GetOAuth2LoginURL(providerType string, state string) string
 	HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError)
 	RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
+	SubmitMatriculeFiscale(ctx context.Context, externalID string, matricule string) *models.ApiError
+	GetMatriculeFiscaleApplications(ctx context.Context, status string, page, limit int) ([]api.MatriculeFiscaleApplication, int, *models.ApiError)
+	ApproveMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError
+	RejectMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError
 }
 
 type AuthServiceImpl struct {
@@ -1322,4 +1326,110 @@ func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req 
 	}
 
 	return resp, nil
+}
+
+// SubmitMatriculeFiscale allows a coach/nutritionist to submit their matricule fiscale for review.
+func (s *AuthServiceImpl) SubmitMatriculeFiscale(ctx context.Context, externalID string, matricule string) *models.ApiError {
+	matricule = strings.TrimSpace(matricule)
+	if matricule == "" {
+		return &models.ApiError{Code: http.StatusUnprocessableEntity, Error: models.ErrMatriculeFiscaleEmpty}
+	}
+	if len(matricule) > 50 {
+		return &models.ApiError{Code: http.StatusUnprocessableEntity, Error: models.ErrMatriculeFiscaleTooLong}
+	}
+
+	user, apiErr := s.userRepository.GetUserById(ctx, externalID)
+	if apiErr != nil {
+		return apiErr
+	}
+	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrMatriculeFiscaleInvalidRole}
+	}
+	if user.MatriculeFiscaleStatus == db.MatriculeFiscaleApproved {
+		return &models.ApiError{Code: http.StatusConflict, Error: models.ErrMatriculeFiscaleAlreadyApproved}
+	}
+
+	return s.userRepository.UpdateMatriculeFiscale(ctx, externalID, matricule)
+}
+
+// GetMatriculeFiscaleApplications returns paginated list of matricule fiscale applications for admin review.
+func (s *AuthServiceImpl) GetMatriculeFiscaleApplications(ctx context.Context, status string, page, limit int) ([]api.MatriculeFiscaleApplication, int, *models.ApiError) {
+	var dbStatus db.MatriculeFiscaleStatus
+	if status != "" {
+		dbStatus = db.MatriculeFiscaleStatus(status)
+		if dbStatus != db.MatriculeFiscaleNone && dbStatus != db.MatriculeFiscalePending &&
+			dbStatus != db.MatriculeFiscaleApproved && dbStatus != db.MatriculeFiscaleRejected {
+			return nil, 0, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidStatus}
+		}
+	}
+
+	users, total, apiErr := s.userRepository.FindByMatriculeFiscaleStatus(ctx, dbStatus, page, limit)
+	if apiErr != nil {
+		return nil, 0, apiErr
+	}
+
+	applications := make([]api.MatriculeFiscaleApplication, 0, len(users))
+	for _, u := range users {
+		applications = append(applications, api.MatriculeFiscaleApplication{
+			UserID:           u.ExternalID,
+			FullName:         u.UserFirstname + " " + u.UserLastname,
+			Role:             u.UserRole,
+			Email:            u.UserEmail,
+			MatriculeFiscale: u.MatriculeFiscale,
+			Status:           string(u.MatriculeFiscaleStatus),
+			SubmittedAt:      u.MatriculeFiscaleSubmittedAt,
+			ReviewedAt:       u.MatriculeFiscaleReviewedAt,
+			ReviewedBy:       u.MatriculeFiscaleReviewedBy,
+		})
+	}
+
+	return applications, total, nil
+}
+
+// ApproveMatriculeFiscale sets the matricule fiscale status to approved.
+func (s *AuthServiceImpl) ApproveMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError {
+	user, apiErr := s.userRepository.GetUserById(ctx, targetExternalID)
+	if apiErr != nil {
+		return apiErr
+	}
+	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
+	}
+
+	apiErr = s.userRepository.UpdateMatriculeFiscaleStatus(ctx, targetExternalID, db.MatriculeFiscaleApproved, adminExternalID)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	// Notify user asynchronously
+	go func() {
+		bgCtx := context.Background()
+		_ = s.notificationClient.SendMatriculeFiscaleNotification(bgCtx, user, "approved")
+	}()
+
+	return nil
+}
+
+// RejectMatriculeFiscale sets the matricule fiscale status to rejected.
+func (s *AuthServiceImpl) RejectMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError {
+	user, apiErr := s.userRepository.GetUserById(ctx, targetExternalID)
+	if apiErr != nil {
+		return apiErr
+	}
+	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
+	}
+
+	apiErr = s.userRepository.UpdateMatriculeFiscaleStatus(ctx, targetExternalID, db.MatriculeFiscaleRejected, adminExternalID)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	// Notify user asynchronously
+	go func() {
+		bgCtx := context.Background()
+		_ = s.notificationClient.SendMatriculeFiscaleNotification(bgCtx, user, "rejected")
+	}()
+
+	return nil
 }

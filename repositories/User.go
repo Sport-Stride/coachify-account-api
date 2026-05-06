@@ -1327,3 +1327,120 @@ func (r *UserRepository) GetClientsByExternalIDs(ctx context.Context, ids []stri
 	}
 	return results, cursor.Err()
 }
+
+// UpdateMatriculeFiscale sets the matricule fiscale value and transitions status to pending.
+func (r *UserRepository) UpdateMatriculeFiscale(ctx context.Context, externalID string, matricule string) *models.ApiError {
+	now := time.Now()
+	filter := bson.M{"externalid": externalID}
+	update := bson.M{
+		"$set": bson.M{
+			"matricule_fiscale":              matricule,
+			"matricule_fiscale_status":       db.MatriculeFiscalePending,
+			"matricule_fiscale_submitted_at": now,
+			"updated_at":                     now,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return &models.ApiError{
+				Code:  http.StatusConflict,
+				Error: fmt.Errorf("this matricule fiscale is already registered by another user"),
+			}
+		}
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	if result.MatchedCount == 0 {
+		return &models.ApiError{
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
+		}
+	}
+	return nil
+}
+
+// UpdateMatriculeFiscaleStatus transitions the matricule fiscale to approved or rejected.
+func (r *UserRepository) UpdateMatriculeFiscaleStatus(ctx context.Context, externalID string, status db.MatriculeFiscaleStatus, reviewerID string) *models.ApiError {
+	now := time.Now()
+	filter := bson.M{"externalid": externalID}
+	update := bson.M{
+		"$set": bson.M{
+			"matricule_fiscale_status":      status,
+			"matricule_fiscale_reviewed_at": now,
+			"matricule_fiscale_reviewed_by": reviewerID,
+			"updated_at":                    now,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	if result.MatchedCount == 0 {
+		return &models.ApiError{
+			Code:  http.StatusNotFound,
+			Error: models.ErrUserNotFound,
+		}
+	}
+	return nil
+}
+
+// FindByMatriculeFiscaleStatus returns paginated users filtered by matricule_fiscale_status.
+func (r *UserRepository) FindByMatriculeFiscaleStatus(ctx context.Context, status db.MatriculeFiscaleStatus, page, size int) ([]*db.User, int, *models.ApiError) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 10
+	}
+
+	filter := bson.M{
+		"role": bson.M{"$in": []string{"coach", "nutritionist"}},
+	}
+	if status != "" {
+		filter["matricule_fiscale_status"] = status
+	}
+
+	opts := options.Find().
+		SetLimit(int64(size)).
+		SetSkip(int64((page - 1) * size)).
+		SetSort(bson.D{{Key: "matricule_fiscale_submitted_at", Value: -1}})
+
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, 0, &models.ApiError{
+			Code:  http.StatusInternalServerError,
+			Error: models.ErrInternalError,
+		}
+	}
+	defer cursor.Close(ctx)
+
+	var users []*db.User
+	for cursor.Next(ctx) {
+		var u db.User
+		if err := cursor.Decode(&u); err != nil {
+			return nil, 0, &models.ApiError{
+				Code:  http.StatusInternalServerError,
+				Error: models.ErrFailedDecodeUser,
+			}
+		}
+		users = append(users, &u)
+	}
+
+	return users, int(count), nil
+}

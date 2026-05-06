@@ -220,3 +220,29 @@ func (c *NotificationClient) do(ctx context.Context, method, url string, body []
 	req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }
+
+// SendMatriculeFiscaleNotification notifies a coach/nutritionist about their matricule fiscale review result.
+func (c *NotificationClient) SendMatriculeFiscaleNotification(ctx context.Context, user *db.User, action string) error {
+	if user == nil || user.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+
+	var subject, message string
+	switch action {
+	case "approved":
+		subject = "Your Fiscal Verification is Approved"
+		message = "Great news! Your matricule fiscale has been verified and approved. Online payments are now enabled for your clients."
+	case "rejected":
+		subject = "Your Fiscal Verification was Rejected"
+		message = "Your matricule fiscale submission has been rejected. Please review and resubmit a valid matricule fiscale from your account settings."
+	default:
+		return fmt.Errorf("unknown matricule fiscale action: %s", action)
+	}
+
+	dynamicData := map[string]string{
+		"message":  message,
+		"subject":  subject,
+		"username": user.UserFirstname + " " + user.UserLastname,
+	}
+	return c.sendEmail(ctx, user.UserEmail, "matricule-fiscale-"+action, dynamicData)
+}

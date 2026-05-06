@@ -57,6 +57,25 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				Options: options.Index().
 					SetName("idx_users_status_created"),
 			},
+			// Unique sparse index on matricule_fiscale
+			{
+				Keys: bson.D{
+					{Key: "matricule_fiscale", Value: 1},
+				},
+				Options: options.Index().
+					SetUnique(true).
+					SetSparse(true).
+					SetName("idx_users_matricule_fiscale"),
+			},
+			// Index on matricule_fiscale_status for admin review queue
+			{
+				Keys: bson.D{
+					{Key: "matricule_fiscale_status", Value: 1},
+					{Key: "matricule_fiscale_submitted_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_users_matricule_status_submitted"),
+			},
 		},
 		
 		// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
