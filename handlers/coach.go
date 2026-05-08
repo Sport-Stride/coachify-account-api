@@ -3,10 +3,12 @@ package handlers
 import (
 	"coachify-account-api/models/db"
 	"coachify-account-api/services"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // List and filter/paginate coach clients
@@ -107,6 +109,10 @@ func GetCoachIDByClientID(coachService services.CoachService) gin.HandlerFunc {
 		}
 		coachID, err := coachService.GetCoachIDByClientID(c.Request.Context(), clientID)
 		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no coach-client relationship found"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
