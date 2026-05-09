@@ -27,6 +27,12 @@ func initializeMiddlewares(r *gin.Engine) {
 	r.Use(securityHeaders())
 	r.Use(RecoveryWithZap(utils.Logger, true))
 	p := ginprometheus.NewPrometheus("gin")
+	p.ReqCntURLLabelMappingFn = func(c *gin.Context) string {
+		if full := c.FullPath(); full != "" {
+			return full
+		}
+		return "unknown"
+	}
 	p.Use(r) 
 	// dump request in debug
 	if gin.Mode() == gin.DebugMode {
