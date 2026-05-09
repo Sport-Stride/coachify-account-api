@@ -15,6 +15,7 @@ on:
       - 'core/**'
       - 'services/**'
       - 'repositories/**'
+      - 'router/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
