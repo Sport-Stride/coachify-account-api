@@ -42,11 +42,19 @@ func (r *CoachRepository) GetAllCoachClientDetails(ctx context.Context, coachID 
 	pipeline := mongo.Pipeline{
 		// Match coach_id
 		{{Key: "$match", Value: bson.D{{Key: "coach_id", Value: coachID}}}},
-		// Join with users collection
+		// Join with users collection and project only required fields.
 		{{Key: "$lookup", Value: bson.D{
 			{Key: "from", Value: r.userColl.Name()},
-			{Key: "localField", Value: "client_id"},
-			{Key: "foreignField", Value: "externalid"},
+			{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
+			{Key: "pipeline", Value: bson.A{
+				bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$client_id"}}}}}}},
+				bson.D{{Key: "$project", Value: bson.D{
+					{Key: "externalid", Value: 1},
+					{Key: "firstname", Value: 1},
+					{Key: "lastname", Value: 1},
+					{Key: "profile_picture", Value: 1},
+				}}},
+			}},
 			{Key: "as", Value: "user"},
 		}}},
 		// Unwind user array
