@@ -125,49 +125,59 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	log.Printf("ListCoachClients - CoachID: %s, Page: %d, Size: %d, Filter: %+v",
 		query.CoachID, page, size, filter)
 
-	// Single aggregation using $facet to get both count and data in one query
+	// Single aggregation using $facet to get both count and paginated data in one query.
+	// Keep total semantics aligned with previous behavior by counting only rows with a matching user.
 	pipeline := mongo.Pipeline{
 		// Stage 1: Match coach_clients by filter
 		bson.D{{Key: "$match", Value: filter}},
 
-		// Stage 2: Lookup to join with users collection
-		bson.D{
-			{Key: "$lookup", Value: bson.D{
-				{Key: "from", Value: r.userColl.Name()},
-				{Key: "localField", Value: "client_id"},
-				{Key: "foreignField", Value: "externalid"},
-				{Key: "as", Value: "user"},
-			}},
-		},
-
-		// Stage 3: Unwind user array (filter out non-matching)
-		bson.D{
-			{Key: "$unwind", Value: bson.D{
-				{Key: "path", Value: "$user"},
-				{Key: "preserveNullAndEmptyArrays", Value: false},
-			}},
-		},
-
-		// Stage 4: Sort BEFORE facet (important!)
-		bson.D{
-			{Key: "$sort", Value: bson.D{
-				{Key: "created_at", Value: -1},
-			}},
-		},
-
-		// Stage 5: Use $facet to split into count and paginated data
+		// Stage 2: Split into total and data branches.
+		// Avoid sorting in the total branch and push pagination before the heavy lookup in the data branch.
 		bson.D{
 			{Key: "$facet", Value: bson.D{
-				// Count pipeline - counts all matched documents
+				// Count pipeline - preserve previous semantics by counting only entries with a matching user.
 				{Key: "total", Value: bson.A{
+					bson.D{{Key: "$lookup", Value: bson.D{
+						{Key: "from", Value: r.userColl.Name()},
+						{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
+						{Key: "pipeline", Value: bson.A{
+							bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$client_id"}}}}}}},
+							bson.D{{Key: "$project", Value: bson.D{{Key: "_id", Value: 1}}}},
+						}},
+						{Key: "as", Value: "user"},
+					}}},
+					bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
 					bson.D{{Key: "$count", Value: "count"}},
 				}},
 				// Data pipeline - applies pagination and projection
 				{Key: "data", Value: bson.A{
+					// Sort only in data branch.
+					bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: -1}}}},
 					// Skip for pagination
 					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
 					// Limit for page size
 					bson.D{{Key: "$limit", Value: int64(size)}},
+					// Lookup after pagination to reduce joined document volume.
+					bson.D{{Key: "$lookup", Value: bson.D{
+						{Key: "from", Value: r.userColl.Name()},
+						{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
+						{Key: "pipeline", Value: bson.A{
+							bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$client_id"}}}}}}},
+							bson.D{{Key: "$project", Value: bson.D{
+								{Key: "externalid", Value: 1},
+								{Key: "firstname", Value: 1},
+								{Key: "lastname", Value: 1},
+								{Key: "profile_picture", Value: 1},
+								{Key: "email", Value: 1},
+								{Key: "phone_number", Value: 1},
+								{Key: "address", Value: 1},
+								{Key: "status", Value: 1},
+								{Key: "last_login", Value: 1},
+							}}},
+						}},
+						{Key: "as", Value: "user"},
+					}}},
+					bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
 					// Project required fields
 					bson.D{
 						{Key: "$project", Value: bson.D{
@@ -180,6 +190,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 							{Key: "address", Value: "$user.address"},
 							{Key: "status", Value: "$user.status"},
 							{Key: "created_at", Value: "$created_at"},
+							{Key: "last_login", Value: "$user.last_login"},
 						}},
 					},
 				}},
