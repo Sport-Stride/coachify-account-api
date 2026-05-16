@@ -198,7 +198,18 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 							{Key: "address", Value: "$user.address"},
 							{Key: "status", Value: "$user.status"},
 							{Key: "created_at", Value: "$created_at"},
-							{Key: "last_login", Value: "$user.last_login"},
+							// Return null for Go zero-time (0001-01-01) so the frontend
+							// treats it as "Never signed in" rather than showing year 0001.
+							{Key: "last_login", Value: bson.D{
+								{Key: "$cond", Value: bson.A{
+									bson.D{{Key: "$gt", Value: bson.A{
+										"$user.last_login",
+										primitive.NewDateTimeFromTime(time.Unix(0, 0)),
+									}}},
+									"$user.last_login",
+									nil,
+								}},
+							}},
 						}},
 					},
 				}},
