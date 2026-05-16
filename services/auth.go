@@ -382,6 +382,8 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 
 	newUser := mapping.ToDbUserFromGoogleProfile(oauthUser, id.Code)
+	// First successful OAuth sign-in is a real login event.
+	newUser.UserLastLogin = time.Now()
 
 	// Determine role and coach association.
 	// If a registration link token is present, resolve the coach from it directly
