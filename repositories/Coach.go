@@ -241,12 +241,6 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	// Extract data
 	var results []map[string]interface{}
 	if dataArr, ok := facetResult[0]["data"].(primitive.A); ok {
-		log.Printf("DEBUG: data branch has %d items, first item type: %T", len(dataArr), func() interface{} {
-			if len(dataArr) > 0 {
-				return dataArr[0]
-			}
-			return nil
-		}())
 		for _, item := range dataArr {
 			var doc map[string]interface{}
 			switch v := item.(type) {
@@ -258,25 +252,21 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 					doc[e.Key] = e.Value
 				}
 			default:
-				log.Printf("DEBUG: unexpected item type %T, skipping", item)
 				continue
 			}
 			// Guarantee last_login key is always present so JSON always includes it.
 			if _, exists := doc["last_login"]; !exists {
 				doc["last_login"] = nil
 			}
-			log.Printf("DEBUG client last_login: externalid=%v last_login=%v", doc["externalid"], doc["last_login"])
 			results = append(results, doc)
 		}
-	} else {
-		log.Printf("DEBUG: data type assertion failed, type is %T", facetResult[0]["data"])
 	}
 
 	if results == nil {
 		results = []map[string]interface{}{}
 	}
 
-	log.Printf("IBL: ListCoachClients - Returned %d items out of %d total (page %d, size %d)",
+	log.Printf("ListCoachClients - Returned %d items out of %d total (page %d, size %d)",
 		len(results), total, page, size)
 
 	return results, int(total), nil
