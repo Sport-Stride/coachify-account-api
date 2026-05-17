@@ -161,11 +161,8 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 				{Key: "data", Value: bson.A{
 					// Sort only in data branch.
 					bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: -1}}}},
-					// Skip for pagination
-					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
-					// Limit for page size
-					bson.D{{Key: "$limit", Value: int64(size)}},
-					// Lookup after pagination to reduce joined document volume.
+					// Join with users before paginating so that $unwind(preserveNull:false)
+					// removes orphaned coach_client records, then paginate on the cleaned set.
 					bson.D{{Key: "$lookup", Value: bson.D{
 						{Key: "from", Value: r.userColl.Name()},
 						{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
@@ -186,6 +183,9 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 						{Key: "as", Value: "user"},
 					}}},
 					bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
+					// Paginate after join so we skip/limit on actual joined records.
+					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
+					bson.D{{Key: "$limit", Value: int64(size)}},
 					// Project required fields
 					bson.D{
 						{Key: "$project", Value: bson.D{
