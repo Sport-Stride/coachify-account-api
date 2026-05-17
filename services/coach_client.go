@@ -7,6 +7,8 @@ import (
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/repositories"
 	"context"
+	"encoding/json"
+	"log"
 )
 
 // services/coach_service.go
@@ -47,7 +49,14 @@ func NewCoachService(
 
 // Update CoachServiceImpl to match new return type
 func (s *CoachServiceImpl) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
-	return s.coachRepo.ListCoachClients(ctx, query)
+	clients, total, err := s.coachRepo.ListCoachClients(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	if raw, jsonErr := json.Marshal(clients); jsonErr == nil {
+		log.Printf("ListCoachClients service raw result: %s", string(raw))
+	}
+	return clients, total, nil
 }
 
 func (s *CoachServiceImpl) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
