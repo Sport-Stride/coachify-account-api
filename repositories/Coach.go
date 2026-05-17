@@ -198,18 +198,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 							{Key: "address", Value: "$user.address"},
 							{Key: "status", Value: "$user.status"},
 							{Key: "created_at", Value: "$created_at"},
-							// Return null for Go zero-time (0001-01-01) so the frontend
-							// treats it as "Never signed in" rather than showing year 0001.
-							{Key: "last_login", Value: bson.D{
-								{Key: "$cond", Value: bson.A{
-									bson.D{{Key: "$gt", Value: bson.A{
-										"$user.last_login",
-										primitive.NewDateTimeFromTime(time.Unix(0, 0)),
-									}}},
-									"$user.last_login",
-									nil,
-								}},
-							}},
+							{Key: "last_login", Value: "$user.last_login"},
 						}},
 					},
 				}},
@@ -254,6 +243,11 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	if dataArr, ok := facetResult[0]["data"].(primitive.A); ok {
 		for _, item := range dataArr {
 			if doc, ok := item.(bson.M); ok {
+				// Guarantee last_login key is always present so JSON always includes it.
+				if _, exists := doc["last_login"]; !exists {
+					doc["last_login"] = nil
+				}
+				log.Printf("DEBUG client last_login: externalid=%v last_login=%v", doc["externalid"], doc["last_login"])
 				results = append(results, doc)
 			}
 		}
