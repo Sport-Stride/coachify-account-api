@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
@@ -130,9 +129,6 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		size = 10
 	}
 
-	log.Printf("ListCoachClients - CoachID: %s, Page: %d, Size: %d, Filter: %+v",
-		query.CoachID, page, size, filter)
-
 	// Single aggregation using $facet to get both count and paginated data in one query.
 	// Keep total semantics aligned with previous behavior by counting only rows with a matching user.
 	pipeline := mongo.Pipeline{
@@ -189,6 +185,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 					// Project required fields
 					bson.D{
 						{Key: "$project", Value: bson.D{
+							{Key: "_id", Value: 0},
 							{Key: "externalid", Value: "$user.externalid"},
 							{Key: "firstname", Value: "$user.firstname"},
 							{Key: "lastname", Value: "$user.lastname"},
@@ -209,7 +206,6 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	// Execute aggregation
 	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
-		log.Printf("ERROR: Aggregation failed: %v", err)
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
@@ -217,12 +213,10 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	// Parse result
 	var facetResult []bson.M
 	if err := cursor.All(ctx, &facetResult); err != nil {
-		log.Printf("ERROR: Failed to decode results: %v", err)
 		return nil, 0, err
 	}
 
 	if len(facetResult) == 0 {
-		log.Println("No results from aggregation")
 		return []map[string]interface{}{}, 0, nil
 	}
 
@@ -265,9 +259,6 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	if results == nil {
 		results = []map[string]interface{}{}
 	}
-
-	log.Printf("ListCoachClients - Returned %d items out of %d total (page %d, size %d)",
-		len(results), total, page, size)
 
 	return results, int(total), nil
 }
