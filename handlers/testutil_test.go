@@ -84,6 +84,13 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 
 	pa := p.Group("/admin")
 	pa.GET("/coaches", handlers.ListAdminCoaches(s.admin))
+	pa.GET("/users", handlers.ListAdminUsers(s.admin))
+	pa.GET("/users/:id", handlers.GetAdminUser(s.admin))
+	pa.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(s.admin))
+	pa.POST("/users/:id/resend-confirmation", handlers.ResendAdminUserConfirmation(s.admin))
+	pa.POST("/users/:id/password-reset", handlers.SendAdminUserPasswordReset(s.admin))
+	pa.GET("/audit", handlers.ListAdminAudit(s.admin))
+	pa.GET("/stats/users", handlers.GetAdminUserStats(s.admin))
 	pa.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(s.admin))
 	pa.GET("/matricule-fiscale", handlers.GetMatriculeFiscaleApplications(s.auth))
 	pa.POST("/matricule-fiscale/:userId/approve", handlers.ApproveMatriculeFiscale(s.auth))

@@ -22,6 +22,9 @@ func TestAdminRoutesRequireAdminRole(t *testing.T) {
 		for _, tc := range []struct{ method, path string }{
 			{"GET", "/admin/coaches"},
 			{"GET", "/admin/coaches/c1/clients"},
+				{"GET", "/admin/users"},
+				{"GET", "/admin/users/u1"},
+				{"GET", "/admin/stats/users"},
 			{"GET", "/admin/matricule-fiscale"},
 			{"POST", "/admin/matricule-fiscale/u2/approve"},
 			{"POST", "/admin/matricule-fiscale/u2/reject"},
@@ -31,6 +34,9 @@ func TestAdminRoutesRequireAdminRole(t *testing.T) {
 		}
 		s.admin.AssertNotCalled(t, "ListCoaches", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		s.admin.AssertNotCalled(t, "ListCoachClients", mock.Anything, mock.Anything)
+		s.admin.AssertNotCalled(t, "ListUsers", mock.Anything, mock.Anything)
+		s.admin.AssertNotCalled(t, "GetUser", mock.Anything, mock.Anything)
+		s.admin.AssertNotCalled(t, "UserStats", mock.Anything, mock.Anything)
 		s.auth.AssertNotCalled(t, "ApproveMatriculeFiscale", mock.Anything, mock.Anything, mock.Anything)
 		s.auth.AssertNotCalled(t, "RejectMatriculeFiscale", mock.Anything, mock.Anything, mock.Anything)
 	}

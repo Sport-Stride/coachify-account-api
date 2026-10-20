@@ -36,6 +36,7 @@ func InitServices(config utils.AppConfig,
 	payment *payments.PaymentClient,
 	chatClient *chat.ChatClient,
 	teamRepo *repositories.TeamRepository,
+	adminAuditRepo *repositories.AdminAuditRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -67,7 +68,7 @@ func InitServices(config utils.AppConfig,
 	return &Services{
 		AuthService:             authService,
 		CoachService:            coachService,
-		AdminService:            NewAdminService(userRepo, coachRepo),
+		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
 		TeamService:             NewTeamService(userRepo, teamRepo),
 		RegistrationLinkService: registrationLinkService,
 	}

@@ -1268,6 +1268,9 @@ func (r *UserRepository) GetCoachesByPage(ctx context.Context, page, size int, f
 	if f.Unassigned && f.HeadCoach == nil {
 		match = append(match, bson.E{Key: "is_head_coach", Value: bson.D{{Key: "$ne", Value: true}}})
 	}
+	if clause, ok := userSearchClause(f.Q); ok {
+		match = append(match, clause)
+	}
 
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: match}},

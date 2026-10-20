@@ -125,6 +125,13 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		adminGroup := protected.Group("/admin")
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
+			adminGroup.GET("/users", handlers.ListAdminUsers(services.AdminService))
+			adminGroup.GET("/users/:id", handlers.GetAdminUser(services.AdminService))
+			adminGroup.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(services.AdminService))
+			adminGroup.POST("/users/:id/resend-confirmation", handlers.ResendAdminUserConfirmation(services.AdminService))
+			adminGroup.POST("/users/:id/password-reset", handlers.SendAdminUserPasswordReset(services.AdminService))
+			adminGroup.GET("/audit", handlers.ListAdminAudit(services.AdminService))
+			adminGroup.GET("/stats/users", handlers.GetAdminUserStats(services.AdminService))
 			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))
 			adminGroup.PUT("/coaches/:id/head-coach", handlers.AssignCoachToHeadCoach(services.TeamService))
 			adminGroup.DELETE("/coaches/:id/head-coach", handlers.UnassignCoach(services.TeamService))

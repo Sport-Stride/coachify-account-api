@@ -86,6 +86,44 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				Options: options.Index().
 					SetName("idx_users_role_headcoach_updated"),
 			},
+			// Admin user list: role/status filter sorted by signup date
+			{
+				Keys: bson.D{
+					{Key: "role", Value: 1},
+					{Key: "status", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_users_role_status_created"),
+			},
+			// Admin user list: sort by last login
+			{
+				Keys: bson.D{{Key: "last_login", Value: -1}},
+				Options: options.Index().
+					SetName("idx_users_last_login"),
+			},
+		},
+
+		// Admin action audit trail
+		"admin_audit": {
+			{
+				Keys:    bson.D{{Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("idx_admin_audit_created"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "target_id", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().SetName("idx_admin_audit_target_created"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "actor_id", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().SetName("idx_admin_audit_actor_created"),
+			},
 		},
 
 		// Head-coach teams: a coach belongs to at most one team
@@ -262,6 +300,13 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_users_externalid",
 			"idx_users_email",
 			"idx_users_role_headcoach_updated",
+			"idx_users_role_status_created",
+			"idx_users_last_login",
+		},
+		"admin_audit": {
+			"idx_admin_audit_created",
+			"idx_admin_audit_target_created",
+			"idx_admin_audit_actor_created",
 		},
 		"coach_team_members": {
 			"idx_team_members_coach_unique",

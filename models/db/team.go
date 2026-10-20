@@ -98,6 +98,7 @@ type AdminCoachListRow struct {
 type AdminCoachFilter struct {
 	HeadCoach  *bool
 	Unassigned bool
+	Q          string // case-insensitive literal match on firstname/lastname/email
 }
 
 // TeamListQuery paginates and filters a team's coaches.
