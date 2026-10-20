@@ -333,6 +333,11 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 
 func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		if ctx.GetString("userRole") != "admin" {
+			ctx.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			return
+		}
+
 		// Parse the request body into a SearchUser struct
 		var searchQuery api.SearchUser
 		if err := ctx.ShouldBindJSON(&searchQuery); err != nil {
@@ -343,7 +348,7 @@ func GetAllUsersPag(service services.AuthService) gin.HandlerFunc {
 		// Call the service to retrieve paginated users
 		data, count, err := service.GetAllUsersPag(searchQuery)
 		if err != nil {
-			ctx.JSON(err.Code, gin.H{"error": err.Error})
+			ctx.JSON(err.Code, gin.H{"error": err.Error.Error()})
 			return
 		}
 
@@ -435,25 +440,6 @@ func DeleteAuthenticatedUser(service services.AuthService) gin.HandlerFunc {
 	}
 }
 
-func AddUser(service services.AuthService) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		req := new(api.CreateUserRequest)
-
-		err := ctx.ShouldBindJSON(req)
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
-			return
-		}
-
-		user, apiErr := service.AddUser(ctx, req)
-		if apiErr != nil {
-			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
-			return
-		}
-
-		ctx.JSON(http.StatusCreated, gin.H{"message": "user created ", "user": user})
-	}
-}
 
 func getOptionalQueryParam(ctx *gin.Context, param string) *string {
 	value := ctx.DefaultQuery(param, "")

@@ -972,12 +972,14 @@ func (r *UserRepository) GetRefreshToken(ctx context.Context, email string) (*ap
 		"email":         1,
 		"refresh_token": 1,
 		"role":          1,
+		"status":        1,
 	}
 	// Execute the query
 	var result struct {
 		ExternalID       string  `bson:"externalid"`
 		UserRefreshToken *string `bson:"refresh_token,omitempty"`
 		UserRole         string  `bson:"role" `
+		UserStatus       string  `bson:"status"`
 	}
 
 	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
@@ -998,6 +1000,7 @@ func (r *UserRepository) GetRefreshToken(ctx context.Context, email string) (*ap
 		UserEmail:    email,
 		UserRole:     result.UserRole,
 		RefreshToken: result.UserRefreshToken,
+		UserStatus:   result.UserStatus,
 	}
 	return resultToApi, nil
 }

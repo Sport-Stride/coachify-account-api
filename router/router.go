@@ -79,8 +79,6 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup.POST("/reset-password/confirm", handlers.ConfirmResetPassword(services.AuthService))
 	userGroup.POST("/refresh-token", handlers.RefreshToken(services.AuthService))
 	//userGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
-	userGroup.GET("/", handlers.GetAllUsersPag(services.AuthService))
-	userGroup.POST("/", handlers.AddUser(services.AuthService))
 	userGroup.GET("/get-user-by-email/:prefix", handlers.GetUserByEmail(services.AuthService))
 	userGroup.GET("/check-email/:prefix", handlers.GetUserByEmail(services.AuthService))
 	userGroup.GET("/get-user-by-id/:prefix", handlers.GetUserById(services.AuthService))
@@ -94,6 +92,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		userProtectedGroup := protected.Group("/user")
 		{
 			// The update endpoint ignores any client-provided external ID.
+			// Admin-only user listing (handler enforces role)
+			userProtectedGroup.GET("", handlers.GetAllUsersPag(services.AuthService))
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
 			// Delete authenticated user account
 			userProtectedGroup.DELETE("", handlers.DeleteAuthenticatedUser(services.AuthService))

@@ -30,9 +30,9 @@ import (
 )
 
 type AuthService interface {
-	GetUserById(ctx context.Context, userId string) (*api.ApiUser, *models.ApiError)
-	GetUserByEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError)
-	CheckEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError)
+	GetUserById(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError)
+	GetUserByEmail(ctx context.Context, userEmail string) (*api.PublicUser, *models.ApiError)
+	CheckEmail(ctx context.Context, userEmail string) (*api.PublicUser, *models.ApiError)
 	Register(ctx context.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError
 	ResendConfirmEmail(ctx context.Context, email string) *models.ApiError
@@ -40,12 +40,11 @@ type AuthService interface {
 	InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
 	VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
-	GetUserByExternalId(ctx context.Context, userId string) (*api.ApiUserResponse, *models.ApiError)
+	GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
 	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError)
-	GetAllUsersPag(api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError)
+	GetAllUsersPag(api.SearchUser) ([]*api.PublicUser, int, *models.ApiError)
 	DeleteUser(ctx *gin.Context, id string) *models.ApiError
-	AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
 	GetOAuth2LoginURL(providerType string, state string) string
 	HandleOAuthLogin(ctx context.Context, providerType string, oauth db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError)
 	RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError)
@@ -238,7 +237,7 @@ func (s *AuthServiceImpl) generateAndSaveTokens(ctx context.Context, user *db.Us
 	}, nil
 }
 
-func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.ApiUser, *models.ApiError) {
+func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError) {
 	user, err := s.userRepository.GetUserById(ctx, userId)
 	if err != nil {
 
@@ -246,13 +245,13 @@ func (s AuthServiceImpl) GetUserById(ctx context.Context, userId string) (*api.A
 	}
 
 	// Convert the user to the API model
-	apiUser := mapping.ToApiUser(user)
+	apiUser := mapping.ToPublicUser(user)
 
 	// Return the converted API user and no error
 	return &apiUser, nil
 }
 
-func (s AuthServiceImpl) CheckEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError) {
+func (s AuthServiceImpl) CheckEmail(ctx context.Context, userEmail string) (*api.PublicUser, *models.ApiError) {
 	user, err := s.userRepository.CheckEmail(ctx, userEmail)
 	if err != nil {
 
@@ -260,12 +259,12 @@ func (s AuthServiceImpl) CheckEmail(ctx context.Context, userEmail string) (*api
 	}
 
 	// Convert the user to the API model
-	apiUser := mapping.ToApiUser(user)
+	apiUser := mapping.ToPublicUser(user)
 
 	// Return the converted API user and no error
 	return &apiUser, nil
 }
-func (s AuthServiceImpl) GetUserByEmail(ctx context.Context, userEmail string) (*api.ApiUser, *models.ApiError) {
+func (s AuthServiceImpl) GetUserByEmail(ctx context.Context, userEmail string) (*api.PublicUser, *models.ApiError) {
 	user, err := s.userRepository.GetByEmail(ctx, userEmail)
 	if err != nil {
 
@@ -273,7 +272,7 @@ func (s AuthServiceImpl) GetUserByEmail(ctx context.Context, userEmail string) (
 	}
 
 	// Convert the user to the API model
-	apiUser := mapping.ToApiUser(user)
+	apiUser := mapping.ToPublicUser(user)
 
 	// Return the converted API user and no error
 	return &apiUser, nil
@@ -725,6 +724,10 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 		}
 	}
 
+	if apiErr := inactiveAccountError(user.UserStatus); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if user.UserStatus == db.ToConfirm {
 		return nil, &models.ApiError{
 			Code:  http.StatusForbidden,
@@ -1031,13 +1034,13 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 	return nil
 }
 
-func (s AuthServiceImpl) GetUserByExternalId(ctx context.Context, userId string) (*api.ApiUserResponse, *models.ApiError) {
+func (s AuthServiceImpl) GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError) {
 	user, err := s.userRepository.GetUserByExternalId(ctx, userId)
 	if err != nil {
 		return nil, err
 	}
 	// Convert the user to the API model
-	apiUser := mapping.ToApiUserResponse(user)
+	apiUser := mapping.ToPublicUserFromResponse(user)
 
 	return &apiUser, nil
 }
@@ -1047,13 +1050,9 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 	if err != nil {
 		return "", err
 	}
-	if *user.RefreshToken != oldRefreshToken {
-		return "", &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidRefreshToken,
-		}
+	if apiErr := checkRefreshToken(user, oldRefreshToken); apiErr != nil {
+		return "", apiErr
 	}
-
 	accessToken, e := utils.CreateToken(utils.CreateTokenParams{
 		User: *user,
 		Type: "access",
@@ -1177,7 +1176,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 	return &dataResp, nil
 }
 
-func (s *AuthServiceImpl) GetAllUsersPag(searchUser api.SearchUser) ([]*api.ApiUserResponse, int, *models.ApiError) {
+func (s *AuthServiceImpl) GetAllUsersPag(searchUser api.SearchUser) ([]*api.PublicUser, int, *models.ApiError) {
 	// Log the search query for debugging
 	utils.Logger.Info("Search query received", zap.Any("searchUser", searchUser))
 
@@ -1191,9 +1190,9 @@ func (s *AuthServiceImpl) GetAllUsersPag(searchUser api.SearchUser) ([]*api.ApiU
 	}
 
 	// Convert results from DB format to ApiUser format
-	results := make([]*api.ApiUserResponse, 0, len(res))
+	results := make([]*api.PublicUser, 0, len(res))
 	for _, v := range res {
-		result := mapping.ToApiUserResponse(v)
+		result := mapping.ToPublicUserFromResponse(v)
 		results = append(results, &result)
 	}
 
@@ -1219,91 +1218,6 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 	}
 
 	return nil // Return nil if everything was successful
-}
-
-func (s AuthServiceImpl) AddUser(ctx *gin.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
-	now := time.Now()
-	// Password validation
-	if !core.ValidatePassword(req.Password) {
-		return nil, &models.ApiError{
-			Code:  http.StatusBadRequest,
-			Error: models.ErrInvalidPassword,
-		}
-	}
-
-	encrypted, err := s.passwordChecker.HashPassword(req.Password)
-	if err != nil {
-		return nil, err
-	}
-
-	id, _ := s.identifier.GenerateId(ctx, "user")
-
-	confirmCode := &db.UserConfirmCode{
-		Code:           s.activationManager.GenerateCode(), // Générer un code
-		ExpirationDate: time.Now().Add(24 * time.Hour),
-	}
-	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
-	dbUser.UserCreatedAt = now
-	dbUser.UserUpdatedAt = now
-	refreshTokenData := mapping.ToRefreshToken(dbUser)
-	token, err := utils.CreateToken(utils.CreateTokenParams{
-		User: refreshTokenData,
-		Type: "access",
-	})
-	if err != nil {
-
-		return nil, err
-	}
-	refreshToken, err := utils.CreateToken(utils.CreateTokenParams{
-		User: refreshTokenData,
-		Type: "refresh",
-	})
-	if err != nil {
-		return nil, err
-
-	}
-
-	dbUser.Token = &token
-	dbUser.UserRefreshToken = &refreshToken
-	dbUser.UserStatus = db.ToConfirm
-
-	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
-	if err != nil {
-
-		return nil, err
-	}
-
-	// Send the notification email
-	er := s.notificationClient.SendConfirmationEmail(ctx, dbUser)
-	if er != nil {
-		zap.L().Warn("failed to send confirmation email",
-			zap.String("component", "auth"),
-			zap.Any("error", er),
-		)
-	}
-
-	resp := &api.RegisterResponse{
-		User:        mapping.ToApiUserResponse(inserted),
-		AuthToken:   token,
-		RereshToken: refreshToken,
-	}
-
-	if req.Autologin {
-		token, err := utils.CreateToken(utils.CreateTokenParams{
-			User: refreshTokenData,
-			Type: "access",
-		})
-		if err != nil {
-			return nil, &models.ApiError{
-				Code:  http.StatusInternalServerError,
-				Error: models.ErrErrorGeneratingJWTToken,
-			}
-		}
-		resp.AuthToken = token
-
-	}
-
-	return resp, nil
 }
 
 // setUserRoleByInvitation checks invitation and sets the user role accordingly
@@ -1521,4 +1435,23 @@ func (s *AuthServiceImpl) RejectMatriculeFiscale(ctx context.Context, targetExte
 // tax registration submission, resetting status back to none.
 func (s *AuthServiceImpl) WithdrawTaxRegistration(ctx context.Context, externalID string) *models.ApiError {
 	return s.userRepository.ClearTaxRegistration(ctx, externalID)
+}
+
+// inactiveAccountError returns a 403 for accounts that must not authenticate (blocked, suspended, deactivated).
+func inactiveAccountError(status db.UserStatus) *models.ApiError {
+	switch status {
+	case db.Blocked:
+		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrUserBlocked}
+	case db.Suspended, db.Deactivated:
+		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrAccountSuspended}
+	}
+	return nil
+}
+
+// checkRefreshToken rejects inactive accounts and a missing or mismatching stored refresh token.
+func checkRefreshToken(user *api.RefreshToken, given string) *models.ApiError {
+	if user == nil || user.RefreshToken == nil || *user.RefreshToken != given {
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidRefreshToken}
+	}
+	return inactiveAccountError(db.UserStatus(user.UserStatus))
 }

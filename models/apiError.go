@@ -40,6 +40,7 @@ var (
 	ErrInvalidConfirmationCode   = errors.New("invalid confirmation code")
 	ErrInvitationNotAccepted     = errors.New("invitation not accepted")
 	ErrUserBlocked               = errors.New("account is blocked")
+	ErrAccountSuspended          = errors.New("account suspended")
 	ErrAccountNotConfirmed       = errors.New("account not confirmed")
 	ErrAuthenticationFailed      = errors.New("authentication failed")
 	ErrIncorrectPassword         = errors.New("incorrect password provided")

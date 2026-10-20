@@ -221,7 +221,7 @@ func FormattedDateTime() string {
 }
 
 type PaginatedUser struct {
-	Users        []*api.ApiUserResponse `json:"users"`
+	Users        []*api.PublicUser `json:"users"`
 	Page         int                    `json:"page"`
 	TotalPerPage int                    `json:"total_per_page"`
 	Total        int                    `json:"total"`
@@ -267,5 +267,59 @@ func UpdateUserAPIToDB(User api.UserRequest, ExternalID string) db.User {
 		UserAddress:            db.Address(User.UserAddress),
 		UserVerificationStatus: User.VerificationStatus,
 		Autologin:              User.Autologin,
+	}
+}
+
+// ToPublicUser maps a stored user to the credential-free public shape.
+func ToPublicUser(dbUser *db.User) api.PublicUser {
+	return api.PublicUser{
+		ID:                     dbUser.ID.Hex(),
+		ExternalID:             dbUser.ExternalID,
+		Firstname:              dbUser.UserFirstname,
+		Lastname:               dbUser.UserLastname,
+		Email:                  dbUser.UserEmail,
+		Role:                   dbUser.UserRole,
+		Gender:                 string(dbUser.UserGender),
+		Status:                 string(dbUser.UserStatus),
+		ProfilePicture:         dbUser.UserProfilePicture,
+		Description:            dbUser.UserDescription,
+		PhoneNumber:            dbUser.UserPhoneNumber,
+		VerificationStatus:     dbUser.UserVerificationStatus,
+		Autologin:              dbUser.Autologin,
+		Address:                api.Address(dbUser.UserAddress),
+		Metadata:               dbUser.Metadata,
+		MatriculeFiscale:       dbUser.MatriculeFiscale,
+		MatriculeFiscaleStatus: string(dbUser.MatriculeFiscaleStatus),
+		IsHeadCoach:            dbUser.IsHeadCoach,
+		CreatedAt:              dbUser.UserCreatedAt,
+		UpdatedAt:              dbUser.UserUpdatedAt,
+		LastLogin:              dbUser.UserLastLogin,
+	}
+}
+
+// ToPublicUserFromResponse maps a projected DB user to the credential-free public shape.
+func ToPublicUserFromResponse(dbUser *db.UserResponse) api.PublicUser {
+	return api.PublicUser{
+		ID:                     dbUser.Id.Hex(),
+		ExternalID:             dbUser.ExternalID,
+		Firstname:              dbUser.Firstname,
+		Lastname:               dbUser.Lastname,
+		Email:                  dbUser.Email,
+		Role:                   dbUser.Role,
+		Gender:                 dbUser.Gender,
+		Status:                 dbUser.Status,
+		ProfilePicture:         dbUser.ProfilePicture,
+		Description:            dbUser.Description,
+		PhoneNumber:            dbUser.PhoneNumber,
+		VerificationStatus:     dbUser.VerificationStatus,
+		Autologin:              dbUser.Autologin,
+		Address:                api.Address(dbUser.Address),
+		Metadata:               dbUser.Metadata,
+		MatriculeFiscale:       dbUser.MatriculeFiscale,
+		MatriculeFiscaleStatus: string(dbUser.MatriculeFiscaleStatus),
+		IsHeadCoach:            dbUser.IsHeadCoach,
+		CreatedAt:              dbUser.CreatedAt,
+		UpdatedAt:              dbUser.UpdatedAt,
+		LastLogin:              dbUser.LastLogin,
 	}
 }

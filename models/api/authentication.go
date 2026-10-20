@@ -99,7 +99,7 @@ type ApiUser struct {
 	Firstname              string                    `json:"firstname"`
 	Lastname               string                    `json:"lastname"`
 	Email                  string                    `json:"email"`
-	Password               string                    `json:"password"`
+	Password               string                    `json:"-"`
 	Role                   string                    `json:"role"`
 	Gender                 string                    `json:"gender"`
 	Status                 string                    `json:"status"`
@@ -111,8 +111,8 @@ type ApiUser struct {
 	VerificationStatus     bool                      `json:"verification_status"`
 	Autologin              bool                      `json:"autologin"`
 	Address                Address                   `json:"address,omitempty"`
-	ConfirmCode            db.UserConfirmCode        `json:"confirm_code,omitempty"`
-	ResetPasswordCode      *db.UserResetPasswordCode `json:"reset_password_code"`
+	ConfirmCode            db.UserConfirmCode        `json:"-"`
+	ResetPasswordCode      *db.UserResetPasswordCode `json:"-"`
 	Metadata               *db.UserMetadata          `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	MatriculeFiscale       string                    `json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus string                    `json:"matricule_fiscale_status,omitempty"`
@@ -128,7 +128,7 @@ type ApiUserResponse struct {
 	Firstname              string           `json:"firstname"`
 	Lastname               string           `json:"lastname"`
 	Email                  string           `json:"email"`
-	Password               string           `json:"password"`
+	Password               string           `json:"-"`
 	Role                   string           `json:"role"`
 	Gender                 string           `json:"gender"`
 	Status                 string           `json:"status"`
@@ -178,6 +178,7 @@ type RefreshToken struct {
 	UserEmail     string  `bson:"email" validate:"required"`
 	UserRole      string  `json:"role"`
 	RefreshToken  *string `json:"refresh_token,omitempty"`
+	UserStatus    string  `json:"-"`
 }
 
 type GetUserConfirm struct {
@@ -233,4 +234,30 @@ type Address struct {
 	Line2      *string `json:"line2,omitempty" form:"line2"`
 	PostalCode *string `json:"postal_code,omitempty" form:"postal_code"`
 	State      *string `json:"state,omitempty" form:"state"`
+}
+
+// PublicUser is the user shape served by lookup and list endpoints. It carries no credentials:
+// no password hash, access/refresh tokens, confirmation or reset codes.
+type PublicUser struct {
+	ID                     string           `json:"id"`
+	ExternalID             string           `json:"external_id,omitempty"`
+	Firstname              string           `json:"firstname"`
+	Lastname               string           `json:"lastname"`
+	Email                  string           `json:"email"`
+	Role                   string           `json:"role"`
+	Gender                 string           `json:"gender"`
+	Status                 string           `json:"status"`
+	ProfilePicture         string           `json:"profile_picture,omitempty"`
+	Description            string           `json:"description,omitempty"`
+	PhoneNumber            string           `json:"phone_number,omitempty"`
+	VerificationStatus     bool             `json:"verification_status"`
+	Autologin              bool             `json:"autologin"`
+	Address                Address          `json:"address,omitempty"`
+	Metadata               *db.UserMetadata `json:"metadata,omitempty"`
+	MatriculeFiscale       string           `json:"matricule_fiscale,omitempty"`
+	MatriculeFiscaleStatus string           `json:"matricule_fiscale_status,omitempty"`
+	IsHeadCoach            bool             `json:"is_head_coach"`
+	CreatedAt              time.Time        `json:"created_at"`
+	UpdatedAt              time.Time        `json:"updated_at"`
+	LastLogin              time.Time        `json:"last_login"`
 }

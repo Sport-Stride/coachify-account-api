@@ -1,4 +1,4 @@
-﻿package payments
+package payments
 
 import (
 	"coachify-account-api/utils"
