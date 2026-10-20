@@ -43,6 +43,9 @@ type User struct {
 	MatriculeFiscaleSubmittedAt *time.Time                      `bson:"matricule_fiscale_submitted_at,omitempty" json:"matricule_fiscale_submitted_at,omitempty"`
 	MatriculeFiscaleReviewedAt  *time.Time                      `bson:"matricule_fiscale_reviewed_at,omitempty" json:"matricule_fiscale_reviewed_at,omitempty"`
 	MatriculeFiscaleReviewedBy  string                          `bson:"matricule_fiscale_reviewed_by,omitempty" json:"matricule_fiscale_reviewed_by,omitempty"`
+	IsHeadCoach                 bool                            `bson:"is_head_coach,omitempty" json:"is_head_coach"`
+	HeadCoachSince              *time.Time                      `bson:"head_coach_since,omitempty" json:"head_coach_since,omitempty"`
+	HeadCoachPromotedBy         string                          `bson:"head_coach_promoted_by,omitempty" json:"head_coach_promoted_by,omitempty"`
 	UserCreatedAt               time.Time                       `bson:"created_at"`
 	UserUpdatedAt               time.Time                       `bson:"updated_at"`
 	UserLastLogin               time.Time                       `bson:"last_login"`
@@ -126,6 +129,7 @@ type UserResponse struct {
 	Metadata           *UserMetadata      `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	MatriculeFiscale       string                 `bson:"matricule_fiscale,omitempty" json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus MatriculeFiscaleStatus  `bson:"matricule_fiscale_status" json:"matricule_fiscale_status"`
+	IsHeadCoach        bool               `bson:"is_head_coach,omitempty"`
 	CreatedAt          time.Time          `bson:"created_at"`
 	UpdatedAt          time.Time          `bson:"updated_at"`
 	LastLogin          time.Time          `bson:"last_login"`

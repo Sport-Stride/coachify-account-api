@@ -18,6 +18,7 @@ type Services struct {
 	AuthService             AuthService
 	CoachService            CoachService
 	AdminService            AdminService
+	TeamService             TeamService
 	RegistrationLinkService RegistrationLinkService
 }
 
@@ -34,6 +35,7 @@ func InitServices(config utils.AppConfig,
 	providers map[oauth2.ProviderType]oauth2.Provider,
 	payment *payments.PaymentClient,
 	chatClient *chat.ChatClient,
+	teamRepo *repositories.TeamRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -55,6 +57,7 @@ func InitServices(config utils.AppConfig,
 		payment,
 		registrationLinkRepo,
 		chatClient,
+		teamRepo,
 	)
 	registrationLinkService := NewRegistrationLinkService(
 		registrationLinkRepo,
@@ -65,6 +68,7 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo),
+		TeamService:             NewTeamService(userRepo, teamRepo),
 		RegistrationLinkService: registrationLinkService,
 	}
 }

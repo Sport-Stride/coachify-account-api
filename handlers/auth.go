@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
@@ -307,7 +308,8 @@ func UpdateUser(wrapper services.AuthService) gin.HandlerFunc {
 		req := new(api.RequestUpdateUser)
 
 		if err := c.ShouldBindJSON(req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+			zap.L().Warn("update user: invalid payload", zap.String("component", "auth"), zap.Error(err))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 			return
 		}
 		// Retrieve the trusted external ID from the token claims (set by AuthMiddleware)

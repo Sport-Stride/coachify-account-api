@@ -4,9 +4,11 @@ import (
 "net/http"
 "strconv"
 
+"coachify-account-api/models/db"
 "coachify-account-api/services"
 
 "github.com/gin-gonic/gin"
+"go.uber.org/zap"
 )
 
 // ListAdminCoaches returns a paginated list of coaches (user data only).
@@ -27,9 +29,28 @@ if size < 1 || size > 100 {
 size = 20
 }
 
-coaches, total, err := adminService.ListCoaches(c.Request.Context(), page, size)
+var filter db.AdminCoachFilter
+if v := c.Query("head_coach"); v != "" {
+b, perr := strconv.ParseBool(v)
+if perr != nil {
+c.JSON(http.StatusBadRequest, gin.H{"error": "invalid head_coach filter"})
+return
+}
+filter.HeadCoach = &b
+}
+if v := c.Query("unassigned"); v != "" {
+b, perr := strconv.ParseBool(v)
+if perr != nil {
+c.JSON(http.StatusBadRequest, gin.H{"error": "invalid unassigned filter"})
+return
+}
+filter.Unassigned = b
+}
+
+coaches, total, err := adminService.ListCoaches(c.Request.Context(), page, size, filter)
 if err != nil {
-c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+zap.L().Error("admin list coaches failed", zap.String("component", "admin"), zap.Error(err))
+c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 return
 }
 c.JSON(http.StatusOK, gin.H{
@@ -57,7 +78,8 @@ return
 
 clients, err := adminService.ListCoachClients(c.Request.Context(), coachID)
 if err != nil {
-c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+zap.L().Error("admin list coach clients failed", zap.String("component", "admin"), zap.Error(err))
+c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 return
 }
 c.JSON(http.StatusOK, gin.H{"clients": clients, "total": len(clients)})

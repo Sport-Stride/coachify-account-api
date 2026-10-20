@@ -110,6 +110,7 @@ func (app *App) setup() {
 	userRepo := repositories.NewUserRepository(userColl)
 	coachRepo := repositories.NewCoachRepository(db, "coach_clients", userColl)
 	registrationLinkRepo := repositories.NewRegistrationLinkRepository(db, "registration_links")
+	teamRepo := repositories.NewTeamRepository(db, "users", "coach_clients")
 
 	chatClient, err := chat.NewChatClient(config.ChatAPI)
 	if err != nil {
@@ -160,6 +161,7 @@ func (app *App) setup() {
 		providers,
 		payment,
 		chatClient,
+		teamRepo,
 	)
 
 	// Initialize Router

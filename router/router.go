@@ -109,12 +109,30 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
 			coachProtectedGroup.POST("/registration-link", handlers.GenerateRegistrationLink(services.RegistrationLinkService))
+			coachProtectedGroup.GET("/team", handlers.GetMyHeadCoach(services.TeamService))
+		}
+
+		headCoachGroup := protected.Group("/head-coach")
+		{
+			headCoachGroup.GET("/me", handlers.GetHeadCoachMe(services.TeamService))
+			headCoachGroup.GET("/overview", handlers.GetTeamOverview(services.TeamService))
+			headCoachGroup.GET("/coach-ids", handlers.GetMyTeamCoachIDs(services.TeamService))
+			headCoachGroup.GET("/coaches", handlers.ListMyTeamCoaches(services.TeamService))
+			headCoachGroup.GET("/coaches/:id", handlers.GetMyTeamCoach(services.TeamService))
+			headCoachGroup.DELETE("/coaches/:id", handlers.RemoveMyTeamCoach(services.TeamService))
 		}
 
 		adminGroup := protected.Group("/admin")
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
 			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))
+			adminGroup.PUT("/coaches/:id/head-coach", handlers.AssignCoachToHeadCoach(services.TeamService))
+			adminGroup.DELETE("/coaches/:id/head-coach", handlers.UnassignCoach(services.TeamService))
+			adminGroup.GET("/head-coaches", handlers.ListHeadCoaches(services.TeamService))
+			adminGroup.POST("/head-coaches/:id", handlers.PromoteHeadCoach(services.TeamService))
+			adminGroup.DELETE("/head-coaches/:id", handlers.DemoteHeadCoach(services.TeamService))
+			adminGroup.GET("/head-coaches/:id/coaches", handlers.ListHeadCoachTeam(services.TeamService))
+			adminGroup.GET("/team-audit", handlers.ListTeamAudit(services.TeamService))
 			// Matricule fiscale admin review queue
 			adminGroup.GET("/matricule-fiscale", handlers.GetMatriculeFiscaleApplications(services.AuthService))
 			adminGroup.POST("/matricule-fiscale/:userId/approve", handlers.ApproveMatriculeFiscale(services.AuthService))

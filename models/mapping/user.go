@@ -148,6 +148,7 @@ func ToApiUser(dbUser *db.User) api.ApiUser {
 		Metadata:               dbUser.Metadata,
 		MatriculeFiscale:       dbUser.MatriculeFiscale,
 		MatriculeFiscaleStatus: string(dbUser.MatriculeFiscaleStatus),
+		IsHeadCoach:            dbUser.IsHeadCoach,
 		LastLogin:              dbUser.UserLastLogin,
 		ExternalID:             dbUser.ExternalID,
 		Autologin:              dbUser.Autologin,
@@ -179,6 +180,7 @@ func ToApiUserResponse(dbUser *db.UserResponse) api.ApiUserResponse {
 		Metadata:               dbUser.Metadata,
 		MatriculeFiscale:       dbUser.MatriculeFiscale,
 		MatriculeFiscaleStatus: string(dbUser.MatriculeFiscaleStatus),
+		IsHeadCoach:            dbUser.IsHeadCoach,
 		LastLogin:              dbUser.LastLogin,
 		ExternalID:             dbUser.ExternalID,
 		Autologin:              dbUser.Autologin,
@@ -210,6 +212,7 @@ func ToUserResponse(user *db.User) db.UserResponse {
 		Metadata:           user.Metadata,
 		MatriculeFiscale:       user.MatriculeFiscale,
 		MatriculeFiscaleStatus: user.MatriculeFiscaleStatus,
+		IsHeadCoach:            user.IsHeadCoach,
 	}
 }
 

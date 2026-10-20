@@ -76,6 +76,54 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				Options: options.Index().
 					SetName("idx_users_matricule_status_submitted"),
 			},
+			// Admin coach list / head-coach filters
+			{
+				Keys: bson.D{
+					{Key: "role", Value: 1},
+					{Key: "is_head_coach", Value: 1},
+					{Key: "updated_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_users_role_headcoach_updated"),
+			},
+		},
+
+		// Head-coach teams: a coach belongs to at most one team
+		"coach_team_members": {
+			{
+				Keys: bson.D{{Key: "coach_id", Value: 1}},
+				Options: options.Index().
+					SetUnique(true).
+					SetName("idx_team_members_coach_unique"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "head_coach_id", Value: 1},
+					{Key: "assigned_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_team_members_head_assigned"),
+			},
+		},
+
+		// Head-coach team audit trail
+		"coach_team_audit": {
+			{
+				Keys: bson.D{
+					{Key: "head_coach_id", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_team_audit_head_created"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "coach_id", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_team_audit_coach_created"),
+			},
 		},
 		
 		// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
@@ -213,6 +261,15 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 		"users": {
 			"idx_users_externalid",
 			"idx_users_email",
+			"idx_users_role_headcoach_updated",
+		},
+		"coach_team_members": {
+			"idx_team_members_coach_unique",
+			"idx_team_members_head_assigned",
+		},
+		"coach_team_audit": {
+			"idx_team_audit_head_created",
+			"idx_team_audit_coach_created",
 		},
 		"coach_clients": {
 			"idx_coach_clients_coach_created",

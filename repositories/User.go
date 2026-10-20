@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"net/http"
+	"regexp"
 	"time"
 
 	"coachify-account-api/models"
@@ -1241,56 +1242,225 @@ func (r *UserRepository) LinkProviderToUser(ctx context.Context, email string, p
 	return err
 }
 
-// GetCoachesByPage returns a paginated list of users with role=coach.
-func (r *UserRepository) GetCoachesByPage(ctx context.Context, page, size int) ([]*db.UserResponse, int, error) {
+// GetCoachesByPage returns a paginated list of users with role=coach, enriched with team data
+// (is_head_coach, head coach id/name, team size) in a single aggregation.
+func (r *UserRepository) GetCoachesByPage(ctx context.Context, page, size int, f db.AdminCoachFilter) ([]db.AdminCoachListRow, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 {
 		size = 20
 	}
-	filter := bson.M{"role": "coach"}
-	opts := options.Find().
-		SetLimit(int64(size)).
-		SetSkip(int64((page - 1) * size)).
-		SetSort(bson.D{{Key: "updated_at", Value: -1}}).
-		SetProjection(bson.M{
-			"externalid":      1,
-			"firstname":       1,
-			"lastname":        1,
-			"email":           1,
-			"role":            1,
-			"status":          1,
-			"profile_picture": 1,
-			"updated_at":      1,
-			"created_at":      1,
-		})
+	match := bson.D{{Key: "role", Value: "coach"}}
+	if f.HeadCoach != nil {
+		if *f.HeadCoach {
+			match = append(match, bson.E{Key: "is_head_coach", Value: true})
+		} else {
+			match = append(match, bson.E{Key: "is_head_coach", Value: bson.D{{Key: "$ne", Value: true}}})
+		}
+	}
+	if f.Unassigned && f.HeadCoach == nil {
+		match = append(match, bson.E{Key: "is_head_coach", Value: bson.D{{Key: "$ne", Value: true}}})
+	}
 
-	cursor, err := r.collection.Find(ctx, filter, opts)
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: match}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "coach_team_members"},
+			{Key: "localField", Value: "externalid"},
+			{Key: "foreignField", Value: "coach_id"},
+			{Key: "as", Value: "m"},
+		}}},
+	}
+	if f.Unassigned {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "m", Value: bson.D{{Key: "$size", Value: 0}}}}}})
+	}
+	pipeline = append(pipeline, bson.D{{Key: "$facet", Value: bson.D{
+		{Key: "total", Value: bson.A{bson.D{{Key: "$count", Value: "n"}}}},
+		{Key: "data", Value: bson.A{
+			bson.D{{Key: "$sort", Value: bson.D{{Key: "updated_at", Value: -1}, {Key: "externalid", Value: 1}}}},
+			bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
+			bson.D{{Key: "$limit", Value: int64(size)}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: r.collection.Name()},
+				{Key: "let", Value: bson.D{{Key: "hid", Value: bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$m.head_coach_id"}}, ""}}}}}},
+				{Key: "pipeline", Value: bson.A{
+					bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$hid"}}}}}}},
+					bson.D{{Key: "$project", Value: bson.D{{Key: "firstname", Value: 1}, {Key: "lastname", Value: 1}}}},
+				}},
+				{Key: "as", Value: "hc"},
+			}}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "coach_team_members"},
+				{Key: "let", Value: bson.D{{Key: "id", Value: "$externalid"}}},
+				{Key: "pipeline", Value: bson.A{
+					bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$head_coach_id", "$$id"}}}}}}},
+					bson.D{{Key: "$count", Value: "n"}},
+				}},
+				{Key: "as", Value: "ts"},
+			}}},
+			bson.D{{Key: "$project", Value: bson.D{
+				{Key: "_id", Value: 0},
+				{Key: "externalid", Value: 1},
+				{Key: "firstname", Value: 1},
+				{Key: "lastname", Value: 1},
+				{Key: "email", Value: 1},
+				{Key: "status", Value: 1},
+				{Key: "profile_picture", Value: 1},
+				{Key: "updated_at", Value: 1},
+				{Key: "is_head_coach", Value: bson.D{{Key: "$eq", Value: bson.A{"$is_head_coach", true}}}},
+				{Key: "head_coach_id", Value: bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$m.head_coach_id"}}, ""}}}},
+				{Key: "head_coach_name", Value: bson.D{{Key: "$trim", Value: bson.D{{Key: "input", Value: bson.D{{Key: "$concat", Value: bson.A{
+					bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$hc.firstname"}}, ""}}},
+					" ",
+					bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$hc.lastname"}}, ""}}},
+				}}}}}}}},
+				{Key: "team_size", Value: bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$ts.n"}}, 0}}}},
+			}}},
+		}},
+	}}})
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
-		utils.Logger.Error("GetCoachesByPage: find failed", zap.Error(err))
+		utils.Logger.Error("GetCoachesByPage: aggregate failed", zap.Error(err))
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
 
-	count, err := r.collection.CountDocuments(ctx, filter)
+	var out []struct {
+		Total []struct {
+			N int `bson:"n"`
+		} `bson:"total"`
+		Data []db.AdminCoachListRow `bson:"data"`
+	}
+	if err := cursor.All(ctx, &out); err != nil {
+		return nil, 0, err
+	}
+	if len(out) == 0 {
+		return []db.AdminCoachListRow{}, 0, nil
+	}
+	total := 0
+	if len(out[0].Total) > 0 {
+		total = out[0].Total[0].N
+	}
+	if out[0].Data == nil {
+		out[0].Data = []db.AdminCoachListRow{}
+	}
+	return out[0].Data, total, nil
+}
+
+// SetHeadCoach flips the head-coach capability of a coach. Returns mongo.ErrNoDocuments when no such user.
+func (r *UserRepository) SetHeadCoach(ctx context.Context, externalID string, flag bool, promotedBy string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	now := time.Now()
+	var update bson.M
+	if flag {
+		update = bson.M{"$set": bson.M{
+			"is_head_coach":          true,
+			"head_coach_since":       now,
+			"head_coach_promoted_by": promotedBy,
+			"updated_at":             now,
+		}}
+	} else {
+		update = bson.M{
+			"$set":   bson.M{"is_head_coach": false, "updated_at": now},
+			"$unset": bson.M{"head_coach_since": "", "head_coach_promoted_by": ""},
+		}
+	}
+	res, err := r.collection.UpdateOne(ctx, bson.M{"externalid": externalID}, update)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return mongo.ErrNoDocuments
+	}
+	return nil
+}
+
+// ListHeadCoaches returns coaches flagged as head coach with their team size, in one aggregation.
+func (r *UserRepository) ListHeadCoaches(ctx context.Context, page, size int, q string) ([]db.HeadCoachRow, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	match := bson.D{{Key: "role", Value: "coach"}, {Key: "is_head_coach", Value: true}}
+	if q != "" {
+		rx := bson.D{{Key: "$regex", Value: regexp.QuoteMeta(q)}, {Key: "$options", Value: "i"}}
+		match = append(match, bson.E{Key: "$or", Value: bson.A{
+			bson.D{{Key: "firstname", Value: rx}},
+			bson.D{{Key: "lastname", Value: rx}},
+			bson.D{{Key: "email", Value: rx}},
+		}})
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: match}},
+		{{Key: "$facet", Value: bson.D{
+			{Key: "total", Value: bson.A{bson.D{{Key: "$count", Value: "n"}}}},
+			{Key: "data", Value: bson.A{
+				bson.D{{Key: "$sort", Value: bson.D{{Key: "head_coach_since", Value: -1}, {Key: "externalid", Value: 1}}}},
+				bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
+				bson.D{{Key: "$limit", Value: int64(size)}},
+				bson.D{{Key: "$lookup", Value: bson.D{
+					{Key: "from", Value: "coach_team_members"},
+					{Key: "let", Value: bson.D{{Key: "id", Value: "$externalid"}}},
+					{Key: "pipeline", Value: bson.A{
+						bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$head_coach_id", "$$id"}}}}}}},
+						bson.D{{Key: "$count", Value: "n"}},
+					}},
+					{Key: "as", Value: "ts"},
+				}}},
+				bson.D{{Key: "$project", Value: bson.D{
+					{Key: "_id", Value: 0},
+					{Key: "externalid", Value: 1},
+					{Key: "firstname", Value: 1},
+					{Key: "lastname", Value: 1},
+					{Key: "email", Value: 1},
+					{Key: "profile_picture", Value: 1},
+					{Key: "status", Value: 1},
+					{Key: "head_coach_since", Value: 1},
+					{Key: "team_size", Value: bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$ts.n"}}, 0}}}},
+				}}},
+			}},
+		}}},
+	}
+
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, 0, err
 	}
+	defer cursor.Close(ctx)
 
-	var results []*db.UserResponse
-	for cursor.Next(ctx) {
-		var u db.User
-		if err := cursor.Decode(&u); err != nil {
-			return nil, 0, err
-		}
-		resp := mapping.ToUserResponse(&u)
-		results = append(results, &resp)
+	var out []struct {
+		Total []struct {
+			N int `bson:"n"`
+		} `bson:"total"`
+		Data []db.HeadCoachRow `bson:"data"`
 	}
-	if err := cursor.Err(); err != nil {
+	if err := cursor.All(ctx, &out); err != nil {
 		return nil, 0, err
 	}
-	return results, int(count), nil
+	if len(out) == 0 {
+		return []db.HeadCoachRow{}, 0, nil
+	}
+	total := 0
+	if len(out[0].Total) > 0 {
+		total = out[0].Total[0].N
+	}
+	if out[0].Data == nil {
+		out[0].Data = []db.HeadCoachRow{}
+	}
+	return out[0].Data, total, nil
 }
 
 // GetClientsByExternalIDs returns user records for the given external IDs (client role).

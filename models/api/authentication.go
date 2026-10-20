@@ -116,6 +116,7 @@ type ApiUser struct {
 	Metadata               *db.UserMetadata          `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	MatriculeFiscale       string                    `json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus string                    `json:"matricule_fiscale_status,omitempty"`
+	IsHeadCoach            bool                      `json:"is_head_coach"`
 	CreatedAt              time.Time                 `json:"created_at"`
 	UpdatedAt              time.Time                 `json:"updated_at"`
 	LastLogin              time.Time                 `json:"last_login"`
@@ -142,6 +143,7 @@ type ApiUserResponse struct {
 	Metadata               *db.UserMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	MatriculeFiscale       string           `json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus string           `json:"matricule_fiscale_status,omitempty"`
+	IsHeadCoach            bool             `json:"is_head_coach"`
 	CreatedAt              time.Time        `json:"created_at"`
 	UpdatedAt              time.Time        `json:"updated_at"`
 	LastLogin              time.Time        `json:"last_login"`

@@ -14,7 +14,9 @@ import (
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/pkg/payments"
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
@@ -67,6 +69,7 @@ type AuthServiceImpl struct {
 	payment              *payments.PaymentClient
 	registrationLinkRepo *repositories.RegistrationLinkRepository
 	chatClient           *chat.ChatClient
+	teamRepo             *repositories.TeamRepository
 }
 
 func NewAuthService(
@@ -82,6 +85,7 @@ func NewAuthService(
 	payment *payments.PaymentClient,
 	registrationLinkRepo *repositories.RegistrationLinkRepository,
 	chatClient *chat.ChatClient,
+	teamRepo *repositories.TeamRepository,
 ) *AuthServiceImpl {
 	return &AuthServiceImpl{
 		passwordChecker:      pwChecker,
@@ -96,6 +100,7 @@ func NewAuthService(
 		payment:              payment,
 		registrationLinkRepo: registrationLinkRepo,
 		chatClient:           chatClient,
+		teamRepo:             teamRepo,
 	}
 }
 
@@ -1065,13 +1070,65 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 	return accessToken, nil
 }
 
+// completeRegistrationPrefix is the status prefix of the onboarding steps in which the role may still be chosen.
+const completeRegistrationPrefix = "Complete-registration"
+
+func isCoachOrNutritionist(role string) bool {
+	return role == "coach" || role == "nutritionist"
+}
+
+// authorizeUpdateMasks removes the privileged masks from a self-update request.
+// "status" is never client-writable (it is advanced server-side), and "role" is only
+// writable between coach and nutritionist while the caller is still completing registration.
+// A head coach or team member cannot change role (inTeam reports a team membership).
+func authorizeUpdateMasks(current *db.User, req *api.RequestUpdateUser, inTeam bool) ([]string, *models.ApiError) {
+	allowed := make([]string, 0, len(req.UpdateMasks))
+	for _, mask := range req.UpdateMasks {
+		switch mask {
+		case masks.UserUpdateMaskUserStatus:
+			continue
+		case masks.UserUpdateMaskUserRole:
+			if req.User.UserRole == current.UserRole {
+				continue // no-op
+			}
+			if current.IsHeadCoach || inTeam ||
+				!strings.HasPrefix(string(current.UserStatus), completeRegistrationPrefix) ||
+				!isCoachOrNutritionist(current.UserRole) ||
+				!isCoachOrNutritionist(req.User.UserRole) {
+				return nil, &models.ApiError{Code: http.StatusForbidden, Error: errors.New("role change not allowed")}
+			}
+		}
+		allowed = append(allowed, mask)
+	}
+	return allowed, nil
+}
+
 func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError) {
-	// Fetch only the necessary fields (e.g., ExternalID) to verify the user exists
-	// externalID, err := s.userRepository.GetExternalIDByEmail(ctx, req.User.UserEmail)
-	// if err != nil {
-	// 	log.Printf("UpdateUser: error fetching user ExternalID - %v", err)
-	// 	return nil, err
-	// }
+	// Load the caller's current state: privileged fields are authorized against it, never against the request.
+	current, authErr := s.userRepository.GetUserByExternalIdUpdate(ctx, req.User.ExternalID)
+	if authErr != nil {
+		return nil, authErr
+	}
+
+	roleChange := req.User.UserRole != current.UserRole && slices.Contains(req.UpdateMasks, masks.UserUpdateMaskUserRole)
+	inTeam := false
+	if roleChange && s.teamRepo != nil {
+		member, mErr := s.teamRepo.IsMember(ctx, req.User.ExternalID)
+		if mErr != nil {
+			zap.L().Error("update user: failed to check team membership",
+				zap.String("component", "auth"),
+				zap.Error(mErr),
+			)
+			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: errors.New("internal error")}
+		}
+		inTeam = member
+	}
+
+	allowedMasks, authErr := authorizeUpdateMasks(current, &req, inTeam)
+	if authErr != nil {
+		return nil, authErr
+	}
+	req.UpdateMasks = allowedMasks
 
 	// Apply update masks to the user data
 	updateFields, err := masks.UpdateUserMasks(&req)
@@ -1083,13 +1140,16 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 		return nil, err
 	}
 
-	switch req.User.UserStatus {
-	case "Complete-registration-1":
-		updateFields["status"] = "Complete-registration-2"
-	case "Complete-registration-2":
-		updateFields["status"] = "Complete-registration-3"
-	case "Complete-registration-3":
-		updateFields["status"] = "Active"
+	// Registration steps advance server-side, only from the status the user really has.
+	if string(current.UserStatus) == req.User.UserStatus {
+		switch current.UserStatus {
+		case db.ComReg1:
+			updateFields["status"] = string(db.ComReg2)
+		case db.ComReg2:
+			updateFields["status"] = string(db.ComReg3)
+		case db.ComReg3:
+			updateFields["status"] = string(db.Active)
+		}
 	}
 	// Update user data in the repository
 	updatedUser, err := s.userRepository.UpdateUserByMask(ctx, req.User.ExternalID, updateFields)
@@ -1099,6 +1159,16 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 			zap.Any("error", err),
 		)
 		return nil, err
+	}
+
+	// An accepted role change drops any leftover team membership.
+	if roleChange && s.teamRepo != nil {
+		if _, tErr := s.teamRepo.DeleteByAny(ctx, req.User.ExternalID); tErr != nil {
+			zap.L().Error("update user: failed to clean team memberships",
+				zap.String("component", "auth"),
+				zap.Error(tErr),
+			)
+		}
 	}
 
 	// Convert updated data to API user response format
@@ -1136,6 +1206,16 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 	err := s.userRepository.DeleteUser(ctx, id)
 	if err != nil {
 		return err // Return the error if user deletion fails
+	}
+
+	// Drop any team membership the user takes part in (as member or head coach).
+	if s.teamRepo != nil {
+		if _, tErr := s.teamRepo.DeleteByAny(ctx, id); tErr != nil {
+			zap.L().Error("delete user: failed to clean team memberships",
+				zap.String("component", "auth"),
+				zap.Error(tErr),
+			)
+		}
 	}
 
 	return nil // Return nil if everything was successful

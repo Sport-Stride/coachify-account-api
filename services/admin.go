@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"coachify-account-api/models/db"
 	"coachify-account-api/repositories"
 )
 
@@ -18,6 +19,10 @@ type AdminCoachRow struct {
 	Status         string    `json:"status"`
 	ProfilePicture string    `json:"profile_picture,omitempty"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	IsHeadCoach    bool      `json:"is_head_coach"`
+	HeadCoachID    string    `json:"head_coach_id,omitempty"`
+	HeadCoachName  string    `json:"head_coach_name,omitempty"`
+	TeamSize       int       `json:"team_size"`
 }
 
 // AdminClientRow is the client record returned by the admin coach-clients endpoint.
@@ -33,7 +38,7 @@ type AdminClientRow struct {
 
 // AdminService exposes read-only admin views over coaches and their clients.
 type AdminService interface {
-	ListCoaches(ctx context.Context, page, size int) ([]AdminCoachRow, int, error)
+	ListCoaches(ctx context.Context, page, size int, filter db.AdminCoachFilter) ([]AdminCoachRow, int, error)
 	ListCoachClients(ctx context.Context, coachID string) ([]AdminClientRow, error)
 }
 
@@ -52,8 +57,8 @@ func NewAdminService(
 	}
 }
 
-func (s *adminServiceImpl) ListCoaches(ctx context.Context, page, size int) ([]AdminCoachRow, int, error) {
-	users, total, err := s.userRepo.GetCoachesByPage(ctx, page, size)
+func (s *adminServiceImpl) ListCoaches(ctx context.Context, page, size int, filter db.AdminCoachFilter) ([]AdminCoachRow, int, error) {
+	users, total, err := s.userRepo.GetCoachesByPage(ctx, page, size, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -68,6 +73,10 @@ func (s *adminServiceImpl) ListCoaches(ctx context.Context, page, size int) ([]A
 			Status:         u.Status,
 			ProfilePicture: u.ProfilePicture,
 			UpdatedAt:      u.UpdatedAt,
+			IsHeadCoach:    u.IsHeadCoach,
+			HeadCoachID:    u.HeadCoachID,
+			HeadCoachName:  u.HeadCoachName,
+			TeamSize:       u.TeamSize,
 		})
 	}
 	return rows, total, nil
