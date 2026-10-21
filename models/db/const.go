@@ -14,6 +14,10 @@ const (
 	Blocked     UserStatus = "Blocked"
 )
 
+// RoleGymOwner is a business owner above head coaches. It is not a coach: it never goes through
+// signup, trial or invitation flows and is created only by an admin.
+const RoleGymOwner = "gym_owner"
+
 type UserGender string
 
 const (

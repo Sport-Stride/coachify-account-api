@@ -89,6 +89,7 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 	pa.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(s.admin))
 	pa.POST("/users/:id/resend-confirmation", handlers.ResendAdminUserConfirmation(s.admin))
 	pa.POST("/users/:id/password-reset", handlers.SendAdminUserPasswordReset(s.admin))
+	pa.POST("/gym-owners", handlers.CreateAdminGymOwner(s.admin))
 	pa.GET("/audit", handlers.ListAdminAudit(s.admin))
 	pa.GET("/stats/users", handlers.GetAdminUserStats(s.admin))
 	pa.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(s.admin))

@@ -52,7 +52,7 @@ type AdminUserList struct {
 const maxAdminUserIDs = 100
 
 var (
-	adminUserRoles    = map[string]bool{"client": true, "coach": true, "nutritionist": true, "admin": true}
+	adminUserRoles    = map[string]bool{"client": true, "coach": true, "nutritionist": true, "admin": true, db.RoleGymOwner: true}
 	adminUserStatuses = map[string]bool{
 		string(db.Active): true, string(db.Inactive): true, string(db.Suspended): true,
 		string(db.ComReg1): true, string(db.ComReg2): true, string(db.ComReg3): true,
@@ -75,6 +75,7 @@ type AdminService interface {
 	ResendConfirmation(ctx context.Context, actorID, targetID string) *models.ApiError
 	SendPasswordReset(ctx context.Context, actorID, targetID string) *models.ApiError
 	ListAudit(ctx context.Context, f db.AdminAuditFilter, page, size int) (*AdminAuditList, *models.ApiError)
+	CreateGymOwner(ctx context.Context, actorID, firstname, lastname, email string) (*db.AdminUserRow, *models.ApiError)
 }
 
 type adminServiceImpl struct {

@@ -144,6 +144,33 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 			},
 		},
 
+		// Membership history (team now, gym later); at most one open period per member
+		"membership_periods": {
+			{
+				Keys: bson.D{{Key: "kind", Value: 1}, {Key: "member_id", Value: 1}},
+				Options: options.Index().
+					SetUnique(true).
+					SetPartialFilterExpression(bson.M{"end": bson.M{"$type": "null"}}).
+					SetName("idx_periods_open_unique"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "kind", Value: 1},
+					{Key: "parent_id", Value: 1},
+					{Key: "start", Value: 1},
+				},
+				Options: options.Index().SetName("idx_periods_parent_start"),
+			},
+			{
+				Keys: bson.D{
+					{Key: "kind", Value: 1},
+					{Key: "member_id", Value: 1},
+					{Key: "start", Value: 1},
+				},
+				Options: options.Index().SetName("idx_periods_member_start"),
+			},
+		},
+
 		// Head-coach team audit trail
 		"coach_team_audit": {
 			{
@@ -162,9 +189,62 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				Options: options.Index().
 					SetName("idx_team_audit_coach_created"),
 			},
+			{
+				Keys: bson.D{
+					{Key: "gym_id", Value: 1},
+					{Key: "created_at", Value: -1},
+				},
+				Options: options.Index().
+					SetName("idx_team_audit_gym_created"),
+			},
 		},
 		
-		// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
+		// Gyms
+			"gyms": {
+				{
+					Keys:    bson.D{{Key: "owner_id", Value: 1}, {Key: "status", Value: 1}},
+					Options: options.Index().SetName("idx_gyms_owner_status"),
+				},
+				{
+					Keys:    bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: -1}},
+					Options: options.Index().SetName("idx_gyms_status_created"),
+				},
+			},
+
+			// A head coach belongs to at most one gym
+			"gym_head_coaches": {
+				{
+					Keys: bson.D{{Key: "head_coach_id", Value: 1}},
+					Options: options.Index().
+						SetUnique(true).
+						SetName("idx_gym_heads_head_unique"),
+				},
+				{
+					Keys:    bson.D{{Key: "gym_id", Value: 1}, {Key: "added_at", Value: -1}},
+					Options: options.Index().SetName("idx_gym_heads_gym_added"),
+				},
+			},
+
+			// Gym invitations: one pending invitation per gym and email
+			"gym_invitations": {
+				{
+					Keys: bson.D{{Key: "gym_id", Value: 1}, {Key: "email", Value: 1}},
+					Options: options.Index().
+						SetUnique(true).
+						SetPartialFilterExpression(bson.M{"status": "pending"}).
+						SetName("idx_gym_invites_pending_unique"),
+				},
+				{
+					Keys:    bson.D{{Key: "email", Value: 1}, {Key: "status", Value: 1}},
+					Options: options.Index().SetName("idx_gym_invites_email_status"),
+				},
+				{
+					Keys:    bson.D{{Key: "gym_id", Value: 1}, {Key: "status", Value: 1}, {Key: "created_at", Value: -1}},
+					Options: options.Index().SetName("idx_gym_invites_gym_status_created"),
+				},
+			},
+
+			// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
 		"coach_clients": {
 			// Primary index: coach_id + created_at (for most common queries)
 			// Supports: Finding all clients for a coach with sorting
@@ -312,9 +392,28 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_team_members_coach_unique",
 			"idx_team_members_head_assigned",
 		},
+		"membership_periods": {
+			"idx_periods_open_unique",
+			"idx_periods_parent_start",
+			"idx_periods_member_start",
+		},
 		"coach_team_audit": {
 			"idx_team_audit_head_created",
 			"idx_team_audit_coach_created",
+				"idx_team_audit_gym_created",
+		},
+		"gyms": {
+			"idx_gyms_owner_status",
+			"idx_gyms_status_created",
+		},
+		"gym_head_coaches": {
+			"idx_gym_heads_head_unique",
+			"idx_gym_heads_gym_added",
+		},
+		"gym_invitations": {
+			"idx_gym_invites_pending_unique",
+			"idx_gym_invites_email_status",
+			"idx_gym_invites_gym_status_created",
 		},
 		"coach_clients": {
 			"idx_coach_clients_coach_created",

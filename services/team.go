@@ -95,10 +95,23 @@ type TeamService interface {
 type teamServiceImpl struct {
 	userRepo TeamUserStore
 	teamRepo TeamStore
+	gyms     GymMembershipReleaser
 }
 
-func NewTeamService(userRepo TeamUserStore, teamRepo TeamStore) TeamService {
-	return &teamServiceImpl{userRepo: userRepo, teamRepo: teamRepo}
+// TeamOption customises the team service.
+type TeamOption func(*teamServiceImpl)
+
+// WithGymMembership makes Demote also remove the head coach from its gym.
+func WithGymMembership(g GymMembershipReleaser) TeamOption {
+	return func(s *teamServiceImpl) { s.gyms = g }
+}
+
+func NewTeamService(userRepo TeamUserStore, teamRepo TeamStore, opts ...TeamOption) TeamService {
+	s := &teamServiceImpl{userRepo: userRepo, teamRepo: teamRepo}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // Compile-time checks that the concrete repositories satisfy the stores.
@@ -274,6 +287,18 @@ func (s *teamServiceImpl) Demote(ctx context.Context, adminID, headCoachID strin
 		return 0, s.internal("Demote.delete", err)
 	}
 
+	// A demoted head coach leaves its gym too (the gym owner cannot demote, only remove from the gym).
+	gymID := ""
+	if s.gyms != nil {
+		gid, removed, gErr := s.gyms.ReleaseHead(ctx, headCoachID, db.PeriodReasonDemote)
+		if gErr != nil {
+			return 0, s.internal("Demote.gym", gErr)
+		}
+		if removed {
+			gymID = gid
+		}
+	}
+
 	entries := make([]*db.TeamAuditEntry, 0, len(ids)+1)
 	entries = append(entries, &db.TeamAuditEntry{
 		Action:      db.TeamActionDemote,
@@ -288,6 +313,15 @@ func (s *teamServiceImpl) Demote(ctx context.Context, adminID, headCoachID strin
 			ActorRole:   db.TeamActorRoleAdmin,
 			HeadCoachID: headCoachID,
 			CoachID:     id,
+		})
+	}
+	if gymID != "" {
+		entries = append(entries, &db.TeamAuditEntry{
+			Action:      db.TeamActionGymRemoveHead,
+			ActorID:     adminID,
+			ActorRole:   db.TeamActorRoleAdmin,
+			HeadCoachID: headCoachID,
+			GymID:       gymID,
 		})
 	}
 	if err := s.teamRepo.InsertAuditMany(ctx, entries); err != nil {
@@ -475,7 +509,7 @@ func (s *teamServiceImpl) RemoveMyCoach(ctx context.Context, callerID, coachID s
 	if m == nil || m.HeadCoachID != callerID {
 		return teamErr(http.StatusNotFound, errCoachNotFound)
 	}
-	n, err := s.teamRepo.DeleteByCoach(ctx, coachID)
+	n, err := s.teamRepo.DeleteByCoach(repositories.WithPeriodReason(ctx, db.PeriodReasonRemovedByHead), coachID)
 	if err != nil {
 		return s.internal("RemoveMyCoach.delete", err)
 	}

@@ -291,3 +291,60 @@ func TestListAdminAudit(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateAdminGymOwner(t *testing.T) {
+	const path = "/admin/gym-owners"
+	const body = `{"firstname":"Ada","lastname":"L","email":"ada@gym.io"}`
+
+	t.Run("non admin 403", func(t *testing.T) {
+		for _, role := range []string{"coach", "client", "gym_owner", ""} {
+			s := newSvcs()
+			w := do(newAPIRouter(s, "c1", role), http.MethodPost, path, body)
+			assert.Equal(t, http.StatusForbidden, w.Code, role)
+			assert.Empty(t, s.admin.Calls, role)
+		}
+	})
+
+	t.Run("201, actor from token, never exposes a code", func(t *testing.T) {
+		s := newSvcs()
+		s.admin.On("CreateGymOwner", mock.Anything, "a1", "Ada", "L", "ada@gym.io").
+			Return(&db.AdminUserRow{ExternalID: "g1", Role: "gym_owner", Status: "Active"}, nil)
+		w := do(newAPIRouter(s, "a1", "admin"), http.MethodPost, path, body)
+		require.Equal(t, http.StatusCreated, w.Code)
+		u := decode(t, w)["user"].(map[string]interface{})
+		assert.Equal(t, "gym_owner", u["role"])
+		assert.NotContains(t, w.Body.String(), "code")
+		s.admin.AssertExpectations(t)
+	})
+
+	t.Run("bad body 400", func(t *testing.T) {
+		s := newSvcs()
+		w := do(newAPIRouter(s, "a1", "admin"), http.MethodPost, path, `{nope`)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Empty(t, s.admin.Calls)
+	})
+
+	t.Run("service errors passed through, 500 hidden", func(t *testing.T) {
+		for _, tc := range []struct {
+			code      int
+			msg, want string
+		}{
+			{http.StatusBadRequest, "invalid email", "invalid email"},
+			{http.StatusConflict, "email already exists", "email already exists"},
+			{http.StatusInternalServerError, "mongo: secret", "internal error"},
+		} {
+			s := newSvcs()
+			s.admin.On("CreateGymOwner", mock.Anything, "a1", "Ada", "L", "ada@gym.io").Return(nil, apiErr(tc.code, tc.msg))
+			w := do(newAPIRouter(s, "a1", "admin"), http.MethodPost, path, body)
+			assert.Equal(t, tc.code, w.Code)
+			assert.Equal(t, tc.want, decode(t, w)["error"])
+		}
+	})
+}
+
+func TestGymOwnerCannotGenerateRegistrationLink(t *testing.T) {
+	s := newSvcs()
+	w := do(newAPIRouter(s, "g1", "gym_owner"), http.MethodPost, "/coach/registration-link", "")
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Empty(t, s.reg.Calls)
+}

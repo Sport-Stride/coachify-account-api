@@ -14,6 +14,8 @@ import (
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/pkg/payments"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -427,6 +429,9 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 		}
 	}
+	if isAdminProvisionedRole(role) {
+		return nil, &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
+	}
 	newUser.UserRole = role
 
 	// Generate tokens
@@ -772,6 +777,58 @@ func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequ
 
 }
 
+// isAdminProvisionedRole reports roles that exist only through admin creation: no signup confirmation,
+// payments trial or invitation acceptance may ever run for them.
+var errConfirmNotApplicable = errors.New("confirmation not applicable to this account")
+
+func isAdminProvisionedRole(role string) bool {
+	return role == db.RoleGymOwner
+}
+
+// CreateGymOwnerAccount inserts an Active, verified gym_owner. The password is random and discarded:
+// the owner sets a real one through the reset-password flow.
+func (s *AuthServiceImpl) CreateGymOwnerAccount(ctx context.Context, firstname, lastname, email string) (string, *models.ApiError) {
+	exists, err := s.userRepository.EmailExists(ctx, email)
+	if err != nil {
+		zap.L().Error("create gym owner: email check failed", zap.String("component", "auth"), zap.Error(err))
+		return "", &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	if exists {
+		return "", &models.ApiError{Code: http.StatusConflict, Error: models.ErrEmailAlreadyExists}
+	}
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	hash, apiErr := s.passwordChecker.HashPassword(hex.EncodeToString(buf))
+	if apiErr != nil {
+		return "", apiErr
+	}
+
+	id, apiErr := s.identifier.GenerateId(ctx, "user")
+	if apiErr != nil {
+		return "", apiErr
+	}
+
+	now := time.Now()
+	if _, apiErr := s.userRepository.CreateUser(ctx, &db.User{
+		ExternalID:             id.Code,
+		UserFirstname:          firstname,
+		UserLastname:           lastname,
+		UserEmail:              email,
+		UserPassword:           hash,
+		UserRole:               db.RoleGymOwner,
+		UserStatus:             db.Active,
+		UserVerificationStatus: true,
+		UserCreatedAt:          now,
+		UserUpdatedAt:          now,
+	}); apiErr != nil {
+		return "", apiErr
+	}
+	return id.Code, nil
+}
+
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {
 	u, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
 	if err != nil {
@@ -781,6 +838,9 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 			zap.Any("error", err),
 		)
 		return err
+	}
+	if isAdminProvisionedRole(u.UserRole) {
+		return &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
 	}
 
 	// Check if the confirmation code is expired or missing
@@ -911,6 +971,9 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 	u, err := s.userRepository.GetByEmailToConfirm(ctx, email)
 	if err != nil {
 		return err
+	}
+	if isAdminProvisionedRole(u.UserRole) {
+		return &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
 	}
 	confirmCode := &db.UserConfirmCode{
 		Code:           s.activationManager.GenerateCode(),

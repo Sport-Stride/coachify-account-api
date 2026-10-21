@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ const (
 	auditActionStatusChanged      = "user.status_changed"
 	auditActionConfirmationResent = "user.confirmation_resent"
 	auditActionPasswordResetSent  = "user.password_reset_sent"
+	auditActionGymOwnerCreated    = "gym_owner.created"
 	auditTargetUser               = "user"
 )
 
@@ -56,6 +58,8 @@ type AdminAuditStore interface {
 type AccountEmailSender interface {
 	ResendConfirmEmail(ctx context.Context, email string) *models.ApiError
 	InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
+	// CreateGymOwnerAccount inserts an Active, verified gym_owner with an unusable password and returns its external id.
+	CreateGymOwnerAccount(ctx context.Context, firstname, lastname, email string) (string, *models.ApiError)
 }
 
 // AdminAuditList is a page of audit entries.
@@ -174,6 +178,45 @@ func (s *adminServiceImpl) SendPasswordReset(ctx context.Context, actorID, targe
 	}
 	s.recordAudit(ctx, &db.AdminAuditEntry{ActorID: actorID, Action: auditActionPasswordResetSent, TargetID: targetID})
 	return nil
+}
+
+// CreateGymOwner creates a gym_owner account and emails it a set-password code (never returned or logged).
+// The account exists even when the email step fails: the admin can resend via the password reset endpoint.
+func (s *adminServiceImpl) CreateGymOwner(ctx context.Context, actorID, firstname, lastname, email string) (*db.AdminUserRow, *models.ApiError) {
+	firstname, lastname, email = strings.TrimSpace(firstname), strings.TrimSpace(lastname), strings.TrimSpace(email)
+	if firstname == "" || lastname == "" {
+		return nil, badRequest("firstname and lastname are required")
+	}
+	if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+		return nil, badRequest("invalid email")
+	}
+
+	id, apiErr := s.mailer.CreateGymOwnerAccount(ctx, firstname, lastname, email)
+	if apiErr != nil {
+		return nil, s.mailerError("admin create gym owner failed", apiErr)
+	}
+
+	s.recordAudit(ctx, &db.AdminAuditEntry{
+		ActorID:  actorID,
+		Action:   auditActionGymOwnerCreated,
+		TargetID: id,
+		After:    map[string]interface{}{"role": db.RoleGymOwner, "status": string(db.Active)},
+	})
+
+	if apiErr := s.mailer.InitResetPassword(ctx, &api.ResetPasswordRequest{Email: email}); apiErr != nil {
+		return nil, s.mailerError("admin gym owner set-password email failed", apiErr)
+	}
+
+	return &db.AdminUserRow{
+		ExternalID:         id,
+		Firstname:          firstname,
+		Lastname:           lastname,
+		Email:              email,
+		Role:               db.RoleGymOwner,
+		Status:             string(db.Active),
+		VerificationStatus: true,
+		CreatedAt:          time.Now(),
+	}, nil
 }
 
 // mailerError passes 4xx through and hides 5xx details.

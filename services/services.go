@@ -1,6 +1,8 @@
 package services
 
 import (
+	"time"
+
 	"coachify-account-api/core"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/chat"
@@ -19,6 +21,8 @@ type Services struct {
 	CoachService            CoachService
 	AdminService            AdminService
 	TeamService             TeamService
+	GymService              GymService
+	AnalyticsScopeService   AnalyticsScopeService
 	RegistrationLinkService RegistrationLinkService
 }
 
@@ -37,6 +41,7 @@ func InitServices(config utils.AppConfig,
 	chatClient *chat.ChatClient,
 	teamRepo *repositories.TeamRepository,
 	adminAuditRepo *repositories.AdminAuditRepository,
+	gymRepo *repositories.GymRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -69,7 +74,9 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
-		TeamService:             NewTeamService(userRepo, teamRepo),
+		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo)),
+		GymService:              NewGymService(userRepo, gymRepo, GymSettings{InviteTTL: time.Duration(config.Gym.InviteTTLHours) * time.Hour, InvitesPerDay: config.Gym.InvitesPerDay}),
+		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 	}
 }

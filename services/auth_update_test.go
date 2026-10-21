@@ -79,6 +79,27 @@ func TestAuthorizeUpdateMasks(t *testing.T) {
 		assert.EqualError(t, apiErr.Error, "role change not allowed")
 	})
 
+	t.Run("gym_owner role change is refused in every direction and status", func(t *testing.T) {
+		for _, st := range []db.UserStatus{db.Active, db.ComReg1, db.ComReg2, db.ComReg3} {
+			for _, tc := range []struct{ from, to string }{
+				{"gym_owner", "coach"}, {"gym_owner", "nutritionist"}, {"gym_owner", "admin"}, {"gym_owner", "client"},
+				{"coach", "gym_owner"}, {"nutritionist", "gym_owner"}, {"client", "gym_owner"},
+			} {
+				current := &db.User{UserRole: tc.from, UserStatus: st}
+				_, apiErr := authorizeUpdateMasks(current, updateReq(tc.to, "role"), false)
+				require.NotNil(t, apiErr, "%s->%s in %s", tc.from, tc.to, st)
+				assert.Equal(t, http.StatusForbidden, apiErr.Code)
+			}
+		}
+	})
+
+	t.Run("gym_owner unchanged role is a no-op", func(t *testing.T) {
+		current := &db.User{UserRole: "gym_owner", UserStatus: db.Active}
+		allowed, apiErr := authorizeUpdateMasks(current, updateReq("gym_owner", "role", "firstname"), false)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"firstname"}, allowed)
+	})
+
 	t.Run("team member cannot change role", func(t *testing.T) {
 		current := &db.User{UserRole: "coach", UserStatus: db.ComReg1}
 		_, apiErr := authorizeUpdateMasks(current, updateReq("nutritionist", "role"), true)
@@ -87,3 +108,9 @@ func TestAuthorizeUpdateMasks(t *testing.T) {
 	})
 }
 
+func TestIsAdminProvisionedRole(t *testing.T) {
+	assert.True(t, isAdminProvisionedRole("gym_owner"))
+	for _, r := range []string{"", "client", "coach", "nutritionist", "admin"} {
+		assert.False(t, isAdminProvisionedRole(r), r)
+	}
+}

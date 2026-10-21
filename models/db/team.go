@@ -17,6 +17,19 @@ const (
 	TeamActionReassign   = "reassign"
 	TeamActorRoleAdmin   = "admin"
 	TeamActorRoleHead    = "head_coach"
+
+	TeamActorRoleGymOwner = "gym_owner"
+
+	TeamActionGymCreate        = "gym_create"
+	TeamActionGymArchive       = "gym_archive"
+	TeamActionGymTransfer      = "gym_transfer"
+	TeamActionGymAddHead       = "gym_add_head"
+	TeamActionGymRemoveHead    = "gym_remove_head"
+	TeamActionGymInvite        = "gym_invite"
+	TeamActionGymInviteAccept  = "gym_invite_accept"
+	TeamActionGymInviteDecline = "gym_invite_decline"
+	TeamActionGymInviteRevoke  = "gym_invite_revoke"
+	TeamActionGymLeave         = "gym_leave"
 )
 
 // TeamMember links a coach to exactly one head coach (flat hierarchy, coach_id is unique).
@@ -38,6 +51,9 @@ type TeamAuditEntry struct {
 	HeadCoachID     string             `bson:"head_coach_id,omitempty" json:"head_coach_id,omitempty"`
 	CoachID         string             `bson:"coach_id,omitempty" json:"coach_id,omitempty"`
 	PrevHeadCoachID string             `bson:"prev_head_coach_id,omitempty" json:"prev_head_coach_id,omitempty"`
+	GymID           string             `bson:"gym_id,omitempty" json:"gym_id,omitempty"`
+	OwnerID         string             `bson:"owner_id,omitempty" json:"owner_id,omitempty"`
+	PrevOwnerID     string             `bson:"prev_owner_id,omitempty" json:"prev_owner_id,omitempty"`
 	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
 }
 
@@ -77,6 +93,8 @@ type HeadCoachRow struct {
 	Status         string     `bson:"status" json:"status"`
 	HeadCoachSince *time.Time `bson:"head_coach_since,omitempty" json:"head_coach_since,omitempty"`
 	TeamSize       int        `bson:"team_size" json:"team_size"`
+	GymID          string     `bson:"gym_id,omitempty" json:"gym_id,omitempty"`     // admin list only
+	GymName        string     `bson:"gym_name,omitempty" json:"gym_name,omitempty"` // admin list only
 }
 
 // AdminCoachListRow is a coach row for the admin list, enriched with team data.

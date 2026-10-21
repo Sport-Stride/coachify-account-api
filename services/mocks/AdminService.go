@@ -103,6 +103,19 @@ func (_m *AdminService) SendPasswordReset(ctx context.Context, actorID string, t
 	return nil
 }
 
+func (_m *AdminService) CreateGymOwner(ctx context.Context, actorID string, firstname string, lastname string, email string) (*db.AdminUserRow, *models.ApiError) {
+	ret := _m.Called(ctx, actorID, firstname, lastname, email)
+	var r0 *db.AdminUserRow
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*db.AdminUserRow)
+	}
+	var r1 *models.ApiError
+	if ret.Get(1) != nil {
+		r1 = ret.Get(1).(*models.ApiError)
+	}
+	return r0, r1
+}
+
 func (_m *AdminService) ListAudit(ctx context.Context, f db.AdminAuditFilter, page int, size int) (*services.AdminAuditList, *models.ApiError) {
 	ret := _m.Called(ctx, f, page, size)
 	var r0 *services.AdminAuditList

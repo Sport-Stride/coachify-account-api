@@ -172,6 +172,32 @@ func SendAdminUserPasswordReset(adminService services.AdminService) gin.HandlerF
 	}
 }
 
+type createGymOwnerRequest struct {
+	Firstname string `json:"firstname"`
+	Lastname  string `json:"lastname"`
+	Email     string `json:"email"`
+}
+
+// CreateAdminGymOwner creates an Active gym_owner and emails it a set-password code; the code is never returned.
+func CreateAdminGymOwner(adminService services.AdminService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !adminOnly(c) {
+			return
+		}
+		var req createGymOwnerRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		row, apiErr := adminService.CreateGymOwner(c.Request.Context(), c.GetString("userID"), req.Firstname, req.Lastname, req.Email)
+		if apiErr != nil {
+			respondAdminError(c, apiErr)
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"user": row})
+	}
+}
+
 // ListAdminAudit returns the admin audit trail, newest first. from is inclusive, to exclusive (RFC3339).
 func ListAdminAudit(adminService services.AdminService) gin.HandlerFunc {
 	return func(c *gin.Context) {

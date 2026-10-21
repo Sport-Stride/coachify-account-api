@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -32,6 +33,19 @@ type AppConfig struct {
 	CoachifySecretKey               string
 	WelcomeTemplate                 string
 	PaymentAPI                      PaymentAPIConfig
+	Gym                             GymConfig
+	Analytics                       AnalyticsConfig
+}
+
+// AnalyticsConfig holds the analytics scope limits.
+type AnalyticsConfig struct {
+	ScopeMaxCoaches int
+}
+
+// GymConfig holds the optional gym invitation limits.
+type GymConfig struct {
+	InviteTTLHours int
+	InvitesPerDay  int
 }
 
 type BaseURLConfig struct {
@@ -81,10 +95,10 @@ func LoadConfig() *AppConfig {
 				URL: getStringWithDefault("BASE_URL", "http://localhost:8086"),
 			},
 			MongoDB: MongoConfig{
-				URI: getStringWithDefault("MONGODB_URI", "mongodb+srv://sportstride727:EHPbrGUJYUellUdg@sportstride.spdvs.mongodb.net"),
+				URI: getStringWithDefault("MONGODB_URI", ""),
 			},
 			Notification: NotificationConfig{
-				MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+				MailgunAPIKey: getStringWithDefault("MAILGUN_API_KEY", ""),
 				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost:8080"),
 			},
 			IdentifierAPI: IdentifierAPIConfig{
@@ -110,28 +124,61 @@ func LoadConfig() *AppConfig {
 			},
 			FacebookOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),
-				ClientSecret: getStringWithDefault("FACEBOOK_APP_SECRET", "43c4ac5e6a25ff81f3d1e53c39ca36b3"),
+				ClientSecret: getStringWithDefault("FACEBOOK_APP_SECRET", ""),
 				RedirectURL:  getStringWithDefault("FACEBOOK_REDIRECT_URL", "http://localhost:8060/oauth/facebook/callback"),
 				Scopes:       []string{"public_profile", "email"},
 				Endpoint:     facebook.Endpoint,
 			},
-			FacebookEncryptionKey: getStringWithDefault("FACEBOOK_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
+			FacebookEncryptionKey: getStringWithDefault("FACEBOOK_ENCRYPTION_KEY", ""),
 			GoogleOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("GOOGLE_APP_ID", "597425356866-6vephqb542a7brgmk7sho06ojct1tqtt.apps.googleusercontent.com"),
-				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", "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"),
+				ClientSecret: getStringWithDefault("GOOGLE_APP_SECRET", ""),
 				RedirectURL:  getStringWithDefault("GOOGLE_REDIRECT_URL", "http://localhost:8060/oauth/google/callback"),
 				Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 				Endpoint:     google.Endpoint,
 			},
-			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
-			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", "mR8z3Q2tP9fW7kL1xY0nC5bV6sA4jE2Z"),
-			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", "E3F9B6F9D7914B424E58DDF91AD86"),
+			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", ""),
+			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", ""),
+			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", ""),
 			WelcomeTemplate:       getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
+		}
+
+		cfg.Gym = GymConfig{
+			InviteTTLHours: getIntWithDefault("GYM_INVITE_TTL_HOURS", 168),
+			InvitesPerDay:  getIntWithDefault("GYM_INVITES_PER_DAY", 20),
+		}
+
+		cfg.Analytics = AnalyticsConfig{
+			ScopeMaxCoaches: getIntWithDefault("ANALYTICS_SCOPE_MAX_COACHES", 5000),
 		}
 
 		configInstance = cfg
 	})
 	return configInstance
+}
+
+// Validate fails fast when a secret this service needs is not supplied by the environment.
+// Only variable names are reported, never values.
+func (c *AppConfig) Validate() error {
+	required := []struct{ name, value string }{
+		{"MONGODB_URI", c.MongoDB.URI},
+		{"FACEBOOK_APP_SECRET", c.FacebookOAuth.ClientSecret},
+		{"FACEBOOK_ENCRYPTION_KEY", c.FacebookEncryptionKey},
+		{"GOOGLE_APP_SECRET", c.GoogleOAuth.ClientSecret},
+		{"GOOGLE_ENCRYPTION_KEY", c.GoogleEncryptionKey},
+		{"COACHIFY_ENCRYPTION_KEY", c.CoachifyEncryptionKey},
+		{"COACHIFY_SECRET_KEY", c.CoachifySecretKey},
+	}
+	var missing []string
+	for _, r := range required {
+		if r.value == "" {
+			missing = append(missing, r.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("required environment variables are missing: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 func getStringRequired(key string) string {

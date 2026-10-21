@@ -50,6 +50,7 @@ type fakeUsers struct {
 	services.AdminUserStore
 	detail      *db.AdminUserDetail
 	updateCalls []string
+	listedRole  string
 }
 
 func (f *fakeUsers) GetAdminUserDetail(context.Context, string) (*db.AdminUserDetail, error) {
@@ -76,6 +77,16 @@ type fakeMailer struct {
 	confirmEmails []string
 	resetEmails   []string
 	err           *models.ApiError
+	createdOwners []string
+	createErr     *models.ApiError
+}
+
+func (f *fakeMailer) CreateGymOwnerAccount(_ context.Context, _, _, email string) (string, *models.ApiError) {
+	if f.createErr != nil {
+		return "", f.createErr
+	}
+	f.createdOwners = append(f.createdOwners, email)
+	return "g1", nil
 }
 
 func (f *fakeMailer) ResendConfirmEmail(_ context.Context, email string) *models.ApiError {
@@ -206,4 +217,99 @@ func TestAdminSendPasswordReset(t *testing.T) {
 	assert.Nil(t, e.Before)
 	assert.Nil(t, e.After)
 	assert.Empty(t, e.Reason)
+}
+
+func (f *fakeUsers) ListAdminUsers(_ context.Context, q db.AdminUserQuery) ([]db.AdminUserRow, int, error) {
+	f.listedRole = q.Role
+	return nil, 0, nil
+}
+
+func TestAdminListUsersAcceptsGymOwnerRole(t *testing.T) {
+	users := &fakeUsers{}
+	svc := services.NewAdminService(users, nil, &fakeAudit{}, &fakeMailer{})
+	_, apiErr := svc.ListUsers(context.Background(), db.AdminUserQuery{Role: "gym_owner"})
+	require.Nil(t, apiErr)
+	assert.Equal(t, "gym_owner", users.listedRole)
+}
+
+func TestAdminCreateGymOwner(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name               string
+		first, last, email string
+		wantCode           int
+		wantMsg            string
+	}{
+		{"missing firstname", " ", "B", "a@b.io", 400, "firstname and lastname are required"},
+		{"missing lastname", "A", "", "a@b.io", 400, "firstname and lastname are required"},
+		{"bad email", "A", "B", "not-an-email", 400, "invalid email"},
+		{"display name email", "A", "B", "Evil <a@b.io>", 400, "invalid email"},
+		{"empty email", "A", "B", "", 400, "invalid email"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mailer, audit := &fakeMailer{}, &fakeAudit{}
+			svc := services.NewAdminService(&fakeUsers{}, nil, audit, mailer)
+			row, apiErr := svc.CreateGymOwner(ctx, "a1", tc.first, tc.last, tc.email)
+			assert.Nil(t, row)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tc.wantCode, apiErr.Code)
+			assert.EqualError(t, apiErr.Error, tc.wantMsg)
+			assert.Empty(t, mailer.createdOwners)
+			assert.Empty(t, mailer.resetEmails)
+			assert.Empty(t, audit.entries)
+		})
+	}
+
+	t.Run("email exists is 409 and nothing is sent or audited", func(t *testing.T) {
+		mailer, audit := &fakeMailer{createErr: models.NewApiError(http.StatusConflict, models.ErrEmailAlreadyExists)}, &fakeAudit{}
+		svc := services.NewAdminService(&fakeUsers{}, nil, audit, mailer)
+		row, apiErr := svc.CreateGymOwner(ctx, "a1", "A", "B", "a@b.io")
+		assert.Nil(t, row)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusConflict, apiErr.Code)
+		assert.Empty(t, mailer.resetEmails)
+		assert.Empty(t, audit.entries)
+	})
+
+	t.Run("create failure 500 is hidden", func(t *testing.T) {
+		mailer := &fakeMailer{createErr: models.NewApiError(http.StatusInternalServerError, errors.New("mongo secret"))}
+		svc := services.NewAdminService(&fakeUsers{}, nil, &fakeAudit{}, mailer)
+		_, apiErr := svc.CreateGymOwner(ctx, "a1", "A", "B", "a@b.io")
+		require.NotNil(t, apiErr)
+		assert.EqualError(t, apiErr.Error, "internal error")
+	})
+
+	t.Run("success: active verified gym_owner, reset email sent, audited without secrets", func(t *testing.T) {
+		mailer, audit := &fakeMailer{}, &fakeAudit{}
+		svc := services.NewAdminService(&fakeUsers{}, nil, audit, mailer)
+		row, apiErr := svc.CreateGymOwner(ctx, "a1", " Ada ", "Lovelace", " ada@gym.io ")
+		require.Nil(t, apiErr)
+		assert.Equal(t, "g1", row.ExternalID)
+		assert.Equal(t, "gym_owner", row.Role)
+		assert.Equal(t, "Active", row.Status)
+		assert.True(t, row.VerificationStatus)
+		assert.Equal(t, "ada@gym.io", row.Email)
+		assert.Equal(t, "Ada", row.Firstname)
+		assert.Equal(t, []string{"ada@gym.io"}, mailer.createdOwners)
+		assert.Equal(t, []string{"ada@gym.io"}, mailer.resetEmails)
+		require.Len(t, audit.entries, 1)
+		e := audit.entries[0]
+		assert.Equal(t, "gym_owner.created", e.Action)
+		assert.Equal(t, "user", e.TargetType)
+		assert.Equal(t, "a1", e.ActorID)
+		assert.Equal(t, "g1", e.TargetID)
+		assert.NotContains(t, e.After, "email")
+	})
+
+	t.Run("reset email failure still audits the created account and returns the error", func(t *testing.T) {
+		mailer, audit := &fakeMailer{err: models.NewApiError(http.StatusInternalServerError, errors.New("smtp secret"))}, &fakeAudit{}
+		svc := services.NewAdminService(&fakeUsers{}, nil, audit, mailer)
+		row, apiErr := svc.CreateGymOwner(ctx, "a1", "A", "B", "a@b.io")
+		assert.Nil(t, row)
+		require.NotNil(t, apiErr)
+		assert.EqualError(t, apiErr.Error, "internal error")
+		require.Len(t, audit.entries, 1)
+		assert.Equal(t, "gym_owner.created", audit.entries[0].Action)
+	})
 }

@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.uber.org/zap"
 
 	"coachify-account-api/models/db"
 )
@@ -25,6 +26,10 @@ type TeamRepository struct {
 	audit        *mongo.Collection
 	usersName    string
 	clientsName  string
+	periods      *MembershipPeriodRepository
+	gymHeads     *mongo.Collection
+	users        *mongo.Collection
+	clients      *mongo.Collection
 }
 
 func NewTeamRepository(database *mongo.Database, usersColl, coachClientsColl string) *TeamRepository {
@@ -33,13 +38,43 @@ func NewTeamRepository(database *mongo.Database, usersColl, coachClientsColl str
 		audit:       database.Collection(teamAuditCollection),
 		usersName:   usersColl,
 		clientsName: coachClientsColl,
+		periods:     NewMembershipPeriodRepository(database),
+		gymHeads:    database.Collection(gymHeadCoachesCollection),
+		users:       database.Collection(usersColl),
+		clients:     database.Collection(coachClientsColl),
 	}
+}
+
+// Periods exposes the membership history repository (used by the startup reconciler).
+func (r *TeamRepository) Periods() *MembershipPeriodRepository { return r.periods }
+
+// periodFailed logs a failed history write with ids only; the membership write already succeeded.
+func periodFailed(op string, err error, ids ...string) {
+	zap.L().Error("membership period write failed",
+		zap.String("component", "repository"),
+		zap.String("op", op),
+		zap.Strings("ids", ids),
+		zap.Error(err),
+	)
+}
+
+// ScopePeriodsForHead returns the coaches currently in a head coach's team and every coach that ever was, with their periods.
+func (r *TeamRepository) ScopePeriodsForHead(ctx context.Context, headID string) (*db.HeadScope, error) {
+	current, err := r.IDsByHead(ctx, headID)
+	if err != nil {
+		return nil, err
+	}
+	ps, err := r.periods.ListForParent(ctx, db.PeriodKindTeam, headID)
+	if err != nil {
+		return nil, err
+	}
+	return &db.HeadScope{CurrentCoachIDs: current, Coaches: GroupPeriodsByMember(ps)}, nil
 }
 
 // Upsert sets the head coach of a coach in a single atomic operation (unique index on coach_id).
 // It returns the previous membership, or nil when the coach had none.
 func (r *TeamRepository) Upsert(ctx context.Context, m *db.TeamMember) (*db.TeamMember, error) {
-	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
 
 	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.Before)
@@ -54,11 +89,17 @@ func (r *TeamRepository) Upsert(ctx context.Context, m *db.TeamMember) (*db.Team
 	var err error
 	// Two concurrent first-time upserts can race on the unique index: the loser retries as an update.
 	for attempt := 0; attempt < 2; attempt++ {
-		err = r.members.FindOneAndUpdate(ctx, bson.M{"coach_id": m.CoachID}, update, opts).Decode(&prev)
+		err = r.members.FindOneAndUpdate(opCtx, bson.M{"coach_id": m.CoachID}, update, opts).Decode(&prev)
 		if err == nil {
+			reason := db.PeriodReasonAssign
+			if prev.HeadCoachID != m.HeadCoachID {
+				reason = db.PeriodReasonReassign
+			}
+			r.openPeriod(ctx, m, reason)
 			return &prev, nil
 		}
 		if errors.Is(err, mongo.ErrNoDocuments) {
+			r.openPeriod(ctx, m, db.PeriodReasonAssign)
 			return nil, nil
 		}
 		if !mongo.IsDuplicateKeyError(err) {
@@ -68,36 +109,77 @@ func (r *TeamRepository) Upsert(ctx context.Context, m *db.TeamMember) (*db.Team
 	return nil, err
 }
 
+// openPeriod records the membership start after the membership write succeeded; failures are logged only.
+func (r *TeamRepository) openPeriod(ctx context.Context, m *db.TeamMember, reason string) {
+	at := m.AssignedAt
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if err := r.periods.OpenPeriod(ctx, db.PeriodKindTeam, m.CoachID, m.HeadCoachID, reason, at); err != nil {
+		periodFailed("openPeriod", err, m.CoachID, m.HeadCoachID)
+	}
+}
+
+// DeleteByCoach removes a coach's membership; the period reason defaults to unassign (see WithPeriodReason).
 func (r *TeamRepository) DeleteByCoach(ctx context.Context, coachID string) (int64, error) {
-	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
-	res, err := r.members.DeleteOne(ctx, bson.M{"coach_id": coachID})
+	res, err := r.members.DeleteOne(opCtx, bson.M{"coach_id": coachID})
 	if err != nil {
 		return 0, err
+	}
+	if res.DeletedCount > 0 {
+		if err := r.periods.ClosePeriod(ctx, db.PeriodKindTeam, coachID, periodReason(ctx, db.PeriodReasonUnassign), time.Now()); err != nil {
+			periodFailed("closePeriod", err, coachID)
+		}
 	}
 	return res.DeletedCount, nil
 }
 
 func (r *TeamRepository) DeleteByHead(ctx context.Context, headID string) (int64, error) {
-	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
-	res, err := r.members.DeleteMany(ctx, bson.M{"head_coach_id": headID})
+	res, err := r.members.DeleteMany(opCtx, bson.M{"head_coach_id": headID})
 	if err != nil {
 		return 0, err
+	}
+	if err := r.periods.CloseByParent(ctx, db.PeriodKindTeam, headID, periodReason(ctx, db.PeriodReasonDemote), time.Now()); err != nil {
+		periodFailed("closeByParent", err, headID)
 	}
 	return res.DeletedCount, nil
 }
 
 // DeleteByAny removes every membership the user takes part in, as member or as head.
 func (r *TeamRepository) DeleteByAny(ctx context.Context, userID string) (int64, error) {
-	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
-	res, err := r.members.DeleteMany(ctx, bson.M{"$or": bson.A{
+	res, err := r.members.DeleteMany(opCtx, bson.M{"$or": bson.A{
 		bson.M{"coach_id": userID},
 		bson.M{"head_coach_id": userID},
 	}})
 	if err != nil {
 		return 0, err
+	}
+	now := time.Now()
+	reason := periodReason(ctx, db.PeriodReasonAccountGone)
+	if err := r.periods.ClosePeriod(ctx, db.PeriodKindTeam, userID, reason, now); err != nil {
+		periodFailed("closePeriod", err, userID)
+	}
+	if err := r.periods.CloseByParent(ctx, db.PeriodKindTeam, userID, reason, now); err != nil {
+		periodFailed("closeByParent", err, userID)
+	}
+
+	// A head coach that goes away also leaves its gym.
+	gymCtx, gymCancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer gymCancel()
+	gres, err := r.gymHeads.DeleteOne(gymCtx, bson.M{"head_coach_id": userID})
+	if err != nil {
+		return res.DeletedCount, err
+	}
+	if gres.DeletedCount > 0 {
+		if err := r.periods.ClosePeriod(ctx, db.PeriodKindGym, userID, reason, now); err != nil {
+			periodFailed("closeGymPeriod", err, userID)
+		}
 	}
 	return res.DeletedCount, nil
 }

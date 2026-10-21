@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"coachify-account-api/models/api"
+	"coachify-account-api/models/db"
 	"coachify-account-api/services"
 	"net/http"
 
@@ -15,6 +16,10 @@ func GenerateRegistrationLink(service services.RegistrationLinkService) gin.Hand
 		tokenUserID, exists := c.Get("userID")
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		if c.GetString("userRole") == db.RoleGymOwner {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Coach access required"})
 			return
 		}
 		coachID, ok := tokenUserID.(string)

@@ -1426,6 +1426,30 @@ func (r *UserRepository) ListHeadCoaches(ctx context.Context, page, size int, q 
 					}},
 					{Key: "as", Value: "ts"},
 				}}},
+				// Current gym (a head coach has at most one membership), then the gym itself.
+				bson.D{{Key: "$lookup", Value: bson.D{
+					{Key: "from", Value: gymHeadCoachesCollection},
+					{Key: "let", Value: bson.D{{Key: "id", Value: "$externalid"}}},
+					{Key: "pipeline", Value: bson.A{
+						bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$head_coach_id", "$$id"}}}}}}},
+						bson.D{{Key: "$limit", Value: 1}},
+						bson.D{{Key: "$lookup", Value: bson.D{
+							{Key: "from", Value: gymsCollection},
+							{Key: "let", Value: bson.D{{Key: "gid", Value: "$gym_id"}}},
+							{Key: "pipeline", Value: bson.A{
+								bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{
+									"$_id",
+									bson.D{{Key: "$convert", Value: bson.D{
+										{Key: "input", Value: "$$gid"}, {Key: "to", Value: "objectId"}, {Key: "onError", Value: nil},
+									}}},
+								}}}}}}},
+								bson.D{{Key: "$project", Value: bson.D{{Key: "name", Value: 1}}}},
+							}},
+							{Key: "as", Value: "g"},
+						}}},
+					}},
+					{Key: "as", Value: "gh"},
+				}}},
 				bson.D{{Key: "$project", Value: bson.D{
 					{Key: "_id", Value: 0},
 					{Key: "externalid", Value: 1},
@@ -1436,6 +1460,8 @@ func (r *UserRepository) ListHeadCoaches(ctx context.Context, page, size int, q 
 					{Key: "status", Value: 1},
 					{Key: "head_coach_since", Value: 1},
 					{Key: "team_size", Value: bson.D{{Key: "$ifNull", Value: bson.A{bson.D{{Key: "$first", Value: "$ts.n"}}, 0}}}},
+					{Key: "gym_id", Value: bson.D{{Key: "$first", Value: "$gh.gym_id"}}},
+					{Key: "gym_name", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$first", Value: "$gh.g.name"}}}}},
 				}}},
 			}},
 		}}},

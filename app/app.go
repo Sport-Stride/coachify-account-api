@@ -40,6 +40,9 @@ func New() *App {
 func (app *App) setup() {
 	// Load configuration
 	config := utils.LoadConfig()
+	if err := config.Validate(); err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 
 	// Establish connection to MongoDB
 	log.Println("Connecting to MongoDB...")
@@ -112,6 +115,14 @@ func (app *App) setup() {
 	registrationLinkRepo := repositories.NewRegistrationLinkRepository(db, "registration_links")
 	teamRepo := repositories.NewTeamRepository(db, "users", "coach_clients")
 	adminAuditRepo := repositories.NewAdminAuditRepository(db, "admin_audit")
+	gymRepo := repositories.NewGymRepository(db, teamRepo)
+
+	// Align membership history with current team rows (idempotent, runs at every startup)
+	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if _, _, err := teamRepo.Periods().ReconcileTeam(reconcileCtx); err != nil {
+		log.Printf("WARNING: membership period reconcile failed: %v", err)
+	}
+	reconcileCancel()
 
 	chatClient, err := chat.NewChatClient(config.ChatAPI)
 	if err != nil {
@@ -164,6 +175,7 @@ func (app *App) setup() {
 		chatClient,
 		teamRepo,
 		adminAuditRepo,
+		gymRepo,
 	)
 
 	// Initialize Router

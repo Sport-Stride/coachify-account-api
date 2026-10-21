@@ -110,16 +110,43 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
 			coachProtectedGroup.POST("/registration-link", handlers.GenerateRegistrationLink(services.RegistrationLinkService))
 			coachProtectedGroup.GET("/team", handlers.GetMyHeadCoach(services.TeamService))
+			coachProtectedGroup.GET("/gym-invitations", handlers.ListMyGymInvitations(services.GymService))
+			coachProtectedGroup.POST("/gym-invitations/:id/accept", handlers.AcceptGymInvitation(services.GymService))
+			coachProtectedGroup.POST("/gym-invitations/:id/decline", handlers.DeclineGymInvitation(services.GymService))
+		}
+
+		// Analytics scope: any authenticated role, the service authorizes from the database.
+		analyticsGroup := protected.Group("/analytics")
+		{
+			analyticsGroup.GET("/scope", handlers.GetAnalyticsScope(services.AnalyticsScopeService))
+			analyticsGroup.POST("/clients/lookup", handlers.LookupAnalyticsClients(services.AnalyticsScopeService))
 		}
 
 		headCoachGroup := protected.Group("/head-coach")
 		{
+			headCoachGroup.GET("/clients", handlers.ListHeadCoachClients(services.AnalyticsScopeService))
 			headCoachGroup.GET("/me", handlers.GetHeadCoachMe(services.TeamService))
 			headCoachGroup.GET("/overview", handlers.GetTeamOverview(services.TeamService))
 			headCoachGroup.GET("/coach-ids", handlers.GetMyTeamCoachIDs(services.TeamService))
 			headCoachGroup.GET("/coaches", handlers.ListMyTeamCoaches(services.TeamService))
 			headCoachGroup.GET("/coaches/:id", handlers.GetMyTeamCoach(services.TeamService))
 			headCoachGroup.DELETE("/coaches/:id", handlers.RemoveMyTeamCoach(services.TeamService))
+			headCoachGroup.GET("/gym", handlers.GetMyGym(services.GymService))
+			headCoachGroup.DELETE("/gym", handlers.LeaveMyGym(services.GymService))
+		}
+
+		gymOwnerGroup := protected.Group("/gym-owner")
+		{
+			gymOwnerGroup.GET("/me", handlers.GetGymOwnerMe(services.GymService))
+			gymOwnerGroup.GET("/gyms/:gym_id/overview", handlers.GetGymOverview(services.GymService))
+			gymOwnerGroup.PATCH("/gyms/:gym_id", handlers.RenameGym(services.GymService))
+			gymOwnerGroup.GET("/gyms/:gym_id/head-coaches", handlers.ListGymHeadCoaches(services.GymService))
+			gymOwnerGroup.DELETE("/gyms/:gym_id/head-coaches/:id", handlers.RemoveGymHeadCoach(services.GymService))
+			gymOwnerGroup.GET("/gyms/:gym_id/coaches", handlers.ListGymCoaches(services.GymService))
+			gymOwnerGroup.GET("/gyms/:gym_id/clients", handlers.ListGymClients(services.GymService))
+			gymOwnerGroup.POST("/gyms/:gym_id/invitations", handlers.InviteGymHeadCoach(services.GymService))
+			gymOwnerGroup.GET("/gyms/:gym_id/invitations", handlers.ListGymInvitations(services.GymService))
+			gymOwnerGroup.DELETE("/gyms/:gym_id/invitations/:id", handlers.RevokeGymInvitation(services.GymService))
 		}
 
 		adminGroup := protected.Group("/admin")
@@ -130,6 +157,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			adminGroup.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(services.AdminService))
 			adminGroup.POST("/users/:id/resend-confirmation", handlers.ResendAdminUserConfirmation(services.AdminService))
 			adminGroup.POST("/users/:id/password-reset", handlers.SendAdminUserPasswordReset(services.AdminService))
+			adminGroup.POST("/gym-owners", handlers.CreateAdminGymOwner(services.AdminService))
 			adminGroup.GET("/audit", handlers.ListAdminAudit(services.AdminService))
 			adminGroup.GET("/stats/users", handlers.GetAdminUserStats(services.AdminService))
 			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))
@@ -140,6 +168,13 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			adminGroup.DELETE("/head-coaches/:id", handlers.DemoteHeadCoach(services.TeamService))
 			adminGroup.GET("/head-coaches/:id/coaches", handlers.ListHeadCoachTeam(services.TeamService))
 			adminGroup.GET("/team-audit", handlers.ListTeamAudit(services.TeamService))
+			adminGroup.GET("/gyms", handlers.ListAdminGyms(services.GymService))
+			adminGroup.POST("/gyms", handlers.CreateAdminGym(services.GymService))
+			adminGroup.PATCH("/gyms/:id", handlers.UpdateAdminGym(services.GymService))
+			adminGroup.GET("/gyms/:id/head-coaches", handlers.ListAdminGymHeadCoaches(services.GymService))
+			adminGroup.PUT("/gyms/:id/head-coaches/:hcid", handlers.AddAdminGymHeadCoach(services.GymService))
+			adminGroup.DELETE("/gyms/:id/head-coaches/:hcid", handlers.RemoveAdminGymHeadCoach(services.GymService))
+			adminGroup.GET("/gyms/:id/audit", handlers.ListAdminGymAudit(services.GymService))
 			// Matricule fiscale admin review queue
 			adminGroup.GET("/matricule-fiscale", handlers.GetMatriculeFiscaleApplications(services.AuthService))
 			adminGroup.POST("/matricule-fiscale/:userId/approve", handlers.ApproveMatriculeFiscale(services.AuthService))
