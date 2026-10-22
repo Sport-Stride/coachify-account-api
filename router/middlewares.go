@@ -1,10 +1,7 @@
 package router
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -54,28 +51,19 @@ func securityHeaders() gin.HandlerFunc {
 		c.Next()
 	}
 }
+// requestLogger logs method, path, status and latency only. Request bodies
+// carry credentials and tokens and must never be logged.
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		buf, _ := ioutil.ReadAll(c.Request.Body)
-		rdr1 := ioutil.NopCloser(bytes.NewBuffer(buf))
-		rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf))
-
-		if body := readBody(rdr1); body != "" {
-			zap.L().Debug("request body", zap.String("body", body))
-		}
-
-		c.Request.Body = rdr2
+		start := time.Now()
 		c.Next()
+		zap.L().Debug("request",
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Duration("latency", time.Since(start)),
+		)
 	}
-}
-
-// util
-func readBody(reader io.Reader) string {
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(reader)
-
-	s := buf.String()
-	return s
 }
 
 func Ginzap(logger utils.LogWrapperObj, timeFormat string, utc bool, alwaysLog bool) gin.HandlerFunc {
