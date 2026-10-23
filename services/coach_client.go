@@ -14,6 +14,7 @@ import (
 // ListCoachClients returns enriched client details as []map[string]interface{}
 type CoachService interface {
 	ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error)
+	ListCoachClientsSummary(ctx context.Context, coachID string, page, size int) ([]db.CoachClientSummary, int, error)
 	DissociateCoachClient(ctx context.Context, coachID, clientID string) error
 	AddCoachClient(ctx context.Context, coachID, clientID string) error
 	GetCoachIDByClientID(ctx context.Context, clientID string) (string, error)
@@ -48,6 +49,10 @@ func NewCoachService(
 // Update CoachServiceImpl to match new return type
 func (s *CoachServiceImpl) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
 	return s.coachRepo.ListCoachClients(ctx, query)
+}
+
+func (s *CoachServiceImpl) ListCoachClientsSummary(ctx context.Context, coachID string, page, size int) ([]db.CoachClientSummary, int, error) {
+	return s.coachRepo.ListCoachClientsSummary(ctx, coachID, page, size)
 }
 
 func (s *CoachServiceImpl) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {

@@ -263,6 +263,56 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	return results, int(total), nil
 }
 
+// ListCoachClientsSummary returns a page of lightweight client rows plus the coach's total link count.
+// One aggregation: indexed match + sort + page on coach_clients first, then join users via the
+// unique externalid index and project only the summary fields.
+func (r *CoachRepository) ListCoachClientsSummary(ctx context.Context, coachID string, page, size int) ([]db.CoachClientSummary, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 200
+	}
+	filter := bson.M{"coach_id": coachID}
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: filter}},
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: -1}}}},
+		bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
+		bson.D{{Key: "$limit", Value: int64(size)}},
+		bson.D{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: r.userColl.Name()},
+			{Key: "localField", Value: "client_id"},
+			{Key: "foreignField", Value: "externalid"},
+			{Key: "as", Value: "user"},
+		}}},
+		bson.D{{Key: "$unwind", Value: "$user"}},
+		bson.D{{Key: "$project", Value: bson.D{
+			{Key: "_id", Value: 0},
+			{Key: "externalid", Value: "$user.externalid"},
+			{Key: "firstname", Value: "$user.firstname"},
+			{Key: "lastname", Value: "$user.lastname"},
+			{Key: "profile_picture", Value: "$user.profile_picture"},
+		}}},
+	}
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+	out := []db.CoachClientSummary{}
+	if err := cursor.All(ctx, &out); err != nil {
+		return nil, 0, err
+	}
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, int(total), nil
+}
+
 // DissociateCoachClient removes a coach-client relationship
 func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
 	filter := bson.M{"coach_id": coachID, "client_id": clientID}

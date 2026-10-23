@@ -78,6 +78,7 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 
 	pc := p.Group("/coach")
 	pc.GET("/clients", handlers.ListCoachClients(s.coach))
+	pc.GET("/clients/summary", handlers.ListCoachClientsSummary(s.coach))
 	pc.GET("/client", handlers.GetCoachIDByClientID(s.coach))
 	pc.DELETE("/client/:client_id", handlers.DissociateCoachClient(s.coach))
 	pc.POST("/registration-link", handlers.GenerateRegistrationLink(s.reg))

@@ -155,3 +155,40 @@ func TestRegistrationLinks(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 }
+
+func TestListCoachClientsSummary(t *testing.T) {
+	rows := []db.CoachClientSummary{{ExternalID: "cl1", FirstName: "A", LastName: "B", ProfilePicture: "p"}}
+	for _, tc := range []struct {
+		name, qs   string
+		page, size int
+		retErr     error
+		code       int
+	}{
+		{"defaults", "", 1, 200, nil, http.StatusOK},
+		{"paging forwarded", "?page=3&size=50", 3, 50, nil, http.StatusOK},
+		{"size capped", "?size=99999", 1, 1000, nil, http.StatusOK},
+		{"service error", "", 1, 200, errors.New("boom"), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSvcs()
+			s.coach.On("ListCoachClientsSummary", mock.Anything, "coach1", tc.page, tc.size).Return(rows, 7, tc.retErr)
+			w := get(newAPIRouter(s, "coach1", "coach"), "/coach/clients/summary"+tc.qs)
+			require.Equal(t, tc.code, w.Code)
+			body := decode(t, w)
+			if tc.retErr != nil {
+				assert.Contains(t, body, "error")
+				return
+			}
+			assert.Equal(t, float64(7), body["total"])
+			assert.Len(t, body["clients"], 1)
+		})
+	}
+	t.Run("bad page", func(t *testing.T) {
+		w := get(newAPIRouter(newSvcs(), "coach1", "coach"), "/coach/clients/summary?page=abc")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+	t.Run("no token", func(t *testing.T) {
+		w := get(newAPIRouter(newSvcs(), "", ""), "/coach/clients/summary")
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}

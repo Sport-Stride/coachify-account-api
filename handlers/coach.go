@@ -68,6 +68,46 @@ func ListCoachClients(coachService services.CoachService) gin.HandlerFunc {
 	}
 }
 
+// ListCoachClientsSummary returns lightweight client rows (externalid, names, picture) for the token's coach.
+// Query: page (default 1), size (default 200, max 1000).
+func ListCoachClientsSummary(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenUserID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
+			return
+		}
+		coachID, ok := tokenUserID.(string)
+		if !ok || coachID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+			return
+		}
+		var query struct {
+			Page int `form:"page"`
+			Size int `form:"size"`
+		}
+		if err := c.ShouldBindQuery(&query); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query params"})
+			return
+		}
+		if query.Page < 1 {
+			query.Page = 1
+		}
+		if query.Size < 1 {
+			query.Size = 200
+		}
+		if query.Size > 1000 {
+			query.Size = 1000
+		}
+		clients, total, err := coachService.ListCoachClientsSummary(c.Request.Context(), coachID, query.Page, query.Size)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"clients": clients, "total": total})
+	}
+}
+
 // Dissociate a coach and a client
 func DissociateCoachClient(coachService services.CoachService) gin.HandlerFunc {
 	return func(c *gin.Context) {

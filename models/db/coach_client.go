@@ -23,3 +23,11 @@ type CoachClientListQuery struct {
 	Page     int       // pagination
 	Size     int       // pagination
 }
+
+// CoachClientSummary is the lightweight client projection (no address/phone/email/last_login).
+type CoachClientSummary struct {
+	ExternalID     string `json:"externalid" bson:"externalid"`
+	FirstName      string `json:"firstname" bson:"firstname"`
+	LastName       string `json:"lastname" bson:"lastname"`
+	ProfilePicture string `json:"profile_picture" bson:"profile_picture"`
+}

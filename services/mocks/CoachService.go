@@ -24,6 +24,15 @@ func (_m *CoachService) ListCoachClients(ctx context.Context, query db.CoachClie
 	return r0, ret.Int(1), ret.Error(2)
 }
 
+func (_m *CoachService) ListCoachClientsSummary(ctx context.Context, coachID string, page int, size int) ([]db.CoachClientSummary, int, error) {
+	ret := _m.Called(ctx, coachID, page, size)
+	var r0 []db.CoachClientSummary
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).([]db.CoachClientSummary)
+	}
+	return r0, ret.Int(1), ret.Error(2)
+}
+
 func (_m *CoachService) DissociateCoachClient(ctx context.Context, coachID string, clientID string) error {
 	return _m.Called(ctx, coachID, clientID).Error(0)
 }
