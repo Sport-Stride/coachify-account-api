@@ -210,8 +210,19 @@ func (r *TeamRepository) CountByHead(ctx context.Context, headID string) (int, e
 	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
 	// Same lookup+unwind as ListByHead, so memberships whose coach user is gone are not counted.
-	pipeline := r.teamRowStages(bson.D{{Key: "head_coach_id", Value: headID}})
-	pipeline = append(pipeline, bson.D{{Key: "$count", Value: "n"}})
+	// Index-backed join on idx_users_externalid with an _id-only projection; no row shaping needed for a count.
+	pipeline := []bson.D{
+		{{Key: "$match", Value: bson.D{{Key: "head_coach_id", Value: headID}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: r.usersName},
+			{Key: "localField", Value: "coach_id"},
+			{Key: "foreignField", Value: "externalid"},
+			{Key: "pipeline", Value: bson.A{bson.D{{Key: "$project", Value: bson.D{{Key: "_id", Value: 1}}}}}},
+			{Key: "as", Value: "u"},
+		}}},
+		{{Key: "$unwind", Value: "$u"}},
+		{{Key: "$count", Value: "n"}},
+	}
 	cursor, err := r.members.Aggregate(ctx, pipeline)
 	if err != nil {
 		return 0, err

@@ -46,7 +46,13 @@ func (app *App) setup() {
 
 	// Establish connection to MongoDB
 	log.Println("Connecting to MongoDB...")
-	clientOptions := options.Client().ApplyURI(config.MongoDB.URI)
+	clientOptions := options.Client().ApplyURI(config.MongoDB.URI).
+		SetMonitor(utils.NewSlowMongoMonitor(utils.SlowMongoThreshold))
+	// Keep a few warm connections: a new connection pays TCP + SCRAM auth, which took seconds on the loaded host.
+	// A pool size set in the URI wins.
+	if clientOptions.MinPoolSize == nil {
+		clientOptions.SetMinPoolSize(5)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

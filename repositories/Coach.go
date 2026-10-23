@@ -129,60 +129,40 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		size = 10
 	}
 
-	// Single aggregation using $facet to get both count and paginated data in one query.
-	// Keep total semantics aligned with previous behavior by counting only rows with a matching user.
+	// Single aggregation: one indexed join (localField/foreignField uses idx_users_externalid) before the facet.
+	// $unwind(preserveNull:false) drops orphaned coach_client rows, so total counts only entries with a matching user
+	// and pagination runs on the cleaned set, same as before. The join used to run twice (once per facet branch).
 	pipeline := mongo.Pipeline{
-		// Stage 1: Match coach_clients by filter
 		bson.D{{Key: "$match", Value: filter}},
-
-		// Stage 2: Split into total and data branches.
-		// Avoid sorting in the total branch and push pagination before the heavy lookup in the data branch.
+		bson.D{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: r.userColl.Name()},
+			{Key: "localField", Value: "client_id"},
+			{Key: "foreignField", Value: "externalid"},
+			{Key: "pipeline", Value: bson.A{
+				bson.D{{Key: "$project", Value: bson.D{
+					{Key: "externalid", Value: 1},
+					{Key: "firstname", Value: 1},
+					{Key: "lastname", Value: 1},
+					{Key: "profile_picture", Value: 1},
+					{Key: "email", Value: 1},
+					{Key: "phone_number", Value: 1},
+					{Key: "address", Value: 1},
+					{Key: "status", Value: 1},
+					{Key: "last_login", Value: 1},
+				}}},
+			}},
+			{Key: "as", Value: "user"},
+		}}},
+		bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
 		bson.D{
 			{Key: "$facet", Value: bson.D{
-				// Count pipeline - preserve previous semantics by counting only entries with a matching user.
 				{Key: "total", Value: bson.A{
-					bson.D{{Key: "$lookup", Value: bson.D{
-						{Key: "from", Value: r.userColl.Name()},
-						{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
-						{Key: "pipeline", Value: bson.A{
-							bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$client_id"}}}}}}},
-							bson.D{{Key: "$project", Value: bson.D{{Key: "_id", Value: 1}}}},
-						}},
-						{Key: "as", Value: "user"},
-					}}},
-					bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
 					bson.D{{Key: "$count", Value: "count"}},
 				}},
-				// Data pipeline - applies pagination and projection
 				{Key: "data", Value: bson.A{
-					// Sort only in data branch.
 					bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: -1}}}},
-					// Join with users before paginating so that $unwind(preserveNull:false)
-					// removes orphaned coach_client records, then paginate on the cleaned set.
-					bson.D{{Key: "$lookup", Value: bson.D{
-						{Key: "from", Value: r.userColl.Name()},
-						{Key: "let", Value: bson.D{{Key: "client_id", Value: "$client_id"}}},
-						{Key: "pipeline", Value: bson.A{
-							bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$externalid", "$$client_id"}}}}}}},
-							bson.D{{Key: "$project", Value: bson.D{
-								{Key: "externalid", Value: 1},
-								{Key: "firstname", Value: 1},
-								{Key: "lastname", Value: 1},
-								{Key: "profile_picture", Value: 1},
-								{Key: "email", Value: 1},
-								{Key: "phone_number", Value: 1},
-								{Key: "address", Value: 1},
-								{Key: "status", Value: 1},
-								{Key: "last_login", Value: 1},
-							}}},
-						}},
-						{Key: "as", Value: "user"},
-					}}},
-					bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$user"}, {Key: "preserveNullAndEmptyArrays", Value: false}}}},
-					// Paginate after join so we skip/limit on actual joined records.
 					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
 					bson.D{{Key: "$limit", Value: int64(size)}},
-					// Project required fields
 					bson.D{
 						{Key: "$project", Value: bson.D{
 							{Key: "_id", Value: 0},
@@ -202,6 +182,9 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 			}},
 		},
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	// Execute aggregation
 	cursor, err := r.collection.Aggregate(ctx, pipeline)

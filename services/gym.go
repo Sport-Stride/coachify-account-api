@@ -546,11 +546,9 @@ func (s *gymServiceImpl) ListMyInvitations(ctx context.Context, callerID string)
 		return nil, apiErr
 	}
 	email := strings.ToLower(strings.TrimSpace(u.UserEmail))
-	now := time.Now()
-	if err := s.gyms.ExpireDue(ctx, "", email, now); err != nil {
-		return nil, s.internal("ListMyInvitations.expire", err)
-	}
-	views, err := s.gyms.ListPendingForEmail(ctx, email, now)
+	// No ExpireDue write here: the list already excludes expired rows, Accept re-checks expiry,
+	// and the gym-side list/invite paths flip the stored status. A write per page load stalls on journal fsync.
+	views, err := s.gyms.ListPendingForEmail(ctx, email, time.Now())
 	if err != nil {
 		return nil, s.internal("ListMyInvitations.list", err)
 	}

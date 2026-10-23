@@ -96,6 +96,7 @@ type teamServiceImpl struct {
 	userRepo TeamUserStore
 	teamRepo TeamStore
 	gyms     GymMembershipReleaser
+	reads    *readCache
 }
 
 // TeamOption customises the team service.
@@ -104,6 +105,11 @@ type TeamOption func(*teamServiceImpl)
 // WithGymMembership makes Demote also remove the head coach from its gym.
 func WithGymMembership(g GymMembershipReleaser) TeamOption {
 	return func(s *teamServiceImpl) { s.gyms = g }
+}
+
+// WithReadCache caches the hot read endpoints (Me, MyHeadCoach) for ttl; mutations in this service purge it.
+func WithReadCache(ttl time.Duration) TeamOption {
+	return func(s *teamServiceImpl) { s.reads = newReadCache(ttl) }
 }
 
 func NewTeamService(userRepo TeamUserStore, teamRepo TeamStore, opts ...TeamOption) TeamService {
@@ -199,6 +205,7 @@ func headCoachRow(u *db.User, teamSize int) *db.HeadCoachRow {
 }
 
 func (s *teamServiceImpl) Promote(ctx context.Context, adminID, coachID string) (*db.HeadCoachRow, *models.ApiError) {
+	defer s.reads.purge()
 	u, apiErr := s.loadUser(ctx, "Promote.load", coachID, errCoachNotFound)
 	if apiErr != nil {
 		return nil, apiErr
@@ -256,6 +263,7 @@ func (s *teamServiceImpl) Promote(ctx context.Context, adminID, coachID string) 
 }
 
 func (s *teamServiceImpl) Demote(ctx context.Context, adminID, headCoachID string) (int, *models.ApiError) {
+	defer s.reads.purge()
 	u, apiErr := s.loadUser(ctx, "Demote.load", headCoachID, errCoachNotFound)
 	if apiErr != nil {
 		return 0, apiErr
@@ -350,6 +358,7 @@ func (s *teamServiceImpl) ListTeam(ctx context.Context, headCoachID string, q db
 }
 
 func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoachID string) (*db.TeamMember, *models.ApiError) {
+	defer s.reads.purge()
 	if coachID == "" || headCoachID == "" || coachID == headCoachID {
 		return nil, teamErr(http.StatusBadRequest, errSameCoach)
 	}
@@ -416,6 +425,7 @@ func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoac
 }
 
 func (s *teamServiceImpl) Unassign(ctx context.Context, adminID, coachID string) *models.ApiError {
+	defer s.reads.purge()
 	prev, err := s.teamRepo.GetHeadOf(ctx, coachID)
 	if err != nil {
 		return s.internal("Unassign.get", err)
@@ -448,6 +458,10 @@ func (s *teamServiceImpl) ListAudit(ctx context.Context, headCoachID, coachID st
 // ---------- Head coach ----------
 
 func (s *teamServiceImpl) Me(ctx context.Context, callerID string) (*HeadCoachMe, *models.ApiError) {
+	return cachedRead(s.reads, "me:"+callerID, func() (*HeadCoachMe, *models.ApiError) { return s.me(ctx, callerID) })
+}
+
+func (s *teamServiceImpl) me(ctx context.Context, callerID string) (*HeadCoachMe, *models.ApiError) {
 	u, apiErr := s.loadUser(ctx, "Me.load", callerID, errCoachNotFound)
 	if apiErr != nil {
 		return nil, apiErr
@@ -499,6 +513,7 @@ func (s *teamServiceImpl) GetMyCoach(ctx context.Context, callerID, coachID stri
 }
 
 func (s *teamServiceImpl) RemoveMyCoach(ctx context.Context, callerID, coachID string) *models.ApiError {
+	defer s.reads.purge()
 	if _, apiErr := s.requireHead(ctx, callerID); apiErr != nil {
 		return apiErr
 	}
@@ -537,6 +552,10 @@ func (s *teamServiceImpl) MyCoachIDs(ctx context.Context, callerID string) ([]st
 // ---------- Any coach ----------
 
 func (s *teamServiceImpl) MyHeadCoach(ctx context.Context, coachID string) (*TeamHeadInfo, *models.ApiError) {
+	return cachedRead(s.reads, "head:"+coachID, func() (*TeamHeadInfo, *models.ApiError) { return s.myHeadCoach(ctx, coachID) })
+}
+
+func (s *teamServiceImpl) myHeadCoach(ctx context.Context, coachID string) (*TeamHeadInfo, *models.ApiError) {
 	m, err := s.teamRepo.GetHeadOf(ctx, coachID)
 	if err != nil {
 		return nil, s.internal("MyHeadCoach.get", err)

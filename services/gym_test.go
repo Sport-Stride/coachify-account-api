@@ -817,3 +817,18 @@ func TestAdminListGymHeadCoaches(t *testing.T) {
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
 }
+
+// ListMyInvitations is a pure read: it returns a non-nil list and never flips stored statuses.
+func TestListMyInvitationsIsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	svc, u, g := newGymSvc(10)
+	givenUser(u, gymUser("c1", "coach", db.Active, "C1@Mail.com", false))
+	id := primitive.NewObjectID()
+	g.invites[id.Hex()] = &db.GymInvitation{ID: id, GymID: "g1", Email: "c1@mail.com",
+		Status: db.GymInvitePending, ExpiresAt: time.Now().Add(-time.Hour)}
+
+	views, apiErr := svc.ListMyInvitations(ctx, "c1")
+	require.Nil(t, apiErr)
+	assert.NotNil(t, views)
+	assert.Equal(t, db.GymInvitePending, g.invites[id.Hex()].Status)
+}

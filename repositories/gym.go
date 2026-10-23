@@ -863,12 +863,14 @@ func (r *GymRepository) ListPendingForEmail(ctx context.Context, email string, n
 		{{Key: "$match", Value: bd("email", email, "status", db.GymInvitePending, "expires_at", bd("$gt", now))}},
 		{{Key: "$sort", Value: bd("created_at", -1)}},
 		{{Key: "$limit", Value: int64(100)}},
+		// gym_id is stored as a string; convert once so the join hits the _id index (a computed $expr match cannot).
+		{{Key: "$addFields", Value: bd("gid_oid", bd("$convert", bd("input", "$gym_id", "to", "objectId", "onError", nil, "onNull", nil)))}},
 		{{Key: "$lookup", Value: bd(
 			"from", gymsCollection,
-			"let", bd("gid", "$gym_id"),
+			"localField", "gid_oid",
+			"foreignField", "_id",
 			"pipeline", bson.A{
-				bd("$match", bd("status", db.GymStatusActive,
-					"$expr", bd("$eq", bson.A{"$_id", bd("$toObjectId", "$$gid")}))),
+				bd("$match", bd("status", db.GymStatusActive)),
 				bd("$project", bd("name", 1, "owner_id", 1)),
 			},
 			"as", "g",
@@ -876,9 +878,9 @@ func (r *GymRepository) ListPendingForEmail(ctx context.Context, email string, n
 		{{Key: "$unwind", Value: "$g"}},
 		{{Key: "$lookup", Value: bd(
 			"from", r.team.usersName,
-			"let", bd("oid", "$g.owner_id"),
+			"localField", "g.owner_id",
+			"foreignField", "externalid",
 			"pipeline", bson.A{
-				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$oid"}))),
 				bd("$project", bd("firstname", 1, "lastname", 1)),
 			},
 			"as", "o",
