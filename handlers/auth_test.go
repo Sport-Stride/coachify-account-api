@@ -260,6 +260,17 @@ func TestOAuth2Login(t *testing.T) {
 	s.auth.AssertCalled(t, "GetOAuth2LoginURL", "google", cookie.Value)
 }
 
+func TestOAuth2LoginUnknownProviderIs400(t *testing.T) {
+	s := newSvcs()
+	s.auth.On("GetOAuth2LoginURL", "github", mock.AnythingOfType("string")).Return("")
+	w := get(newAPIRouter(s, "", ""), "/oauth/github/login")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Empty(t, w.Header().Get("Location"), "must not redirect to an empty URL")
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.NotEmpty(t, body["error"])
+}
+
 func TestOAuth2ServerSideCallback(t *testing.T) {
 	t.Run("invalid payload", func(t *testing.T) {
 		s := newSvcs()

@@ -6,6 +6,7 @@ import (
 	"coachify-account-api/models/db"
 	"log"
 	"net/http"
+	"regexp"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -153,13 +154,13 @@ func SearchUserMasks(s *db.SearchUser) bson.M {
 	filters := bson.M{}
 
 	if s.UserFirstname != "" {
-		filters["firstname"] = bson.M{"$regex": s.UserFirstname, "$options": "i"}
+		filters["firstname"] = bson.M{"$regex": safeRegex(s.UserFirstname), "$options": "i"}
 	}
 	if s.UserLastname != "" {
-		filters["lastname"] = bson.M{"$regex": s.UserLastname, "$options": "i"}
+		filters["lastname"] = bson.M{"$regex": safeRegex(s.UserLastname), "$options": "i"}
 	}
 	if s.UserEmail != "" {
-		filters["email"] = bson.M{"$regex": s.UserEmail, "$options": "i"}
+		filters["email"] = bson.M{"$regex": safeRegex(s.UserEmail), "$options": "i"}
 	}
 	if s.UserRole != "" {
 		filters["role"] = s.UserRole
@@ -171,7 +172,7 @@ func SearchUserMasks(s *db.SearchUser) bson.M {
 		filters["gender"] = s.UserGender
 	}
 	if s.UserPhoneNumber != "" {
-		filters["phone_number"] = bson.M{"$regex": s.UserPhoneNumber, "$options": "i"}
+		filters["phone_number"] = bson.M{"$regex": safeRegex(s.UserPhoneNumber), "$options": "i"}
 	}
 	if s.UserVerificationStatus {
 		filters["verification_status"] = s.UserVerificationStatus
@@ -181,24 +182,35 @@ func SearchUserMasks(s *db.SearchUser) bson.M {
 	}
 	if s.UserAddress != nil {
 		if s.UserAddress.City != nil {
-			filters["address.city"] = bson.M{"$regex": s.UserAddress.City, "$options": "i"}
+			filters["address.city"] = bson.M{"$regex": safeRegex(*s.UserAddress.City), "$options": "i"}
 		}
 		if s.UserAddress.Country != nil {
-			filters["address.country"] = bson.M{"$regex": s.UserAddress.Country, "$options": "i"}
+			filters["address.country"] = bson.M{"$regex": safeRegex(*s.UserAddress.Country), "$options": "i"}
 		}
 		if s.UserAddress.Line1 != nil {
-			filters["address.line1"] = bson.M{"$regex": s.UserAddress.Line1, "$options": "i"}
+			filters["address.line1"] = bson.M{"$regex": safeRegex(*s.UserAddress.Line1), "$options": "i"}
 		}
 		if s.UserAddress.Line2 != nil {
-			filters["address.line2"] = bson.M{"$regex": s.UserAddress.Line2, "$options": "i"}
+			filters["address.line2"] = bson.M{"$regex": safeRegex(*s.UserAddress.Line2), "$options": "i"}
 		}
 		if s.UserAddress.PostalCode != nil {
-			filters["address.postal_code"] = bson.M{"$regex": s.UserAddress.PostalCode, "$options": "i"}
+			filters["address.postal_code"] = bson.M{"$regex": safeRegex(*s.UserAddress.PostalCode), "$options": "i"}
 		}
 		if s.UserAddress.State != nil {
-			filters["address.state"] = bson.M{"$regex": s.UserAddress.State, "$options": "i"}
+			filters["address.state"] = bson.M{"$regex": safeRegex(*s.UserAddress.State), "$options": "i"}
 		}
 	}
 
 	return filters
+}
+
+// maxSearchLen caps user-supplied search terms before they reach $regex.
+const maxSearchLen = 100
+
+// safeRegex caps the length and escapes regex metacharacters so user input matches literally.
+func safeRegex(s string) string {
+	if len(s) > maxSearchLen {
+		s = s[:maxSearchLen]
+	}
+	return regexp.QuoteMeta(s)
 }

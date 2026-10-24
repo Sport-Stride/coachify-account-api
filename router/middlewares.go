@@ -1,7 +1,6 @@
 package router
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -117,7 +116,7 @@ func RecoveryWithZap(logger utils.LogWrapperObj, stack bool) gin.HandlerFunc {
 					}
 				}
 
-				httpRequest, _ := httputil.DumpRequest(c.Request, false)
+				httpRequest, _ := httputil.DumpRequest(redactedRequest(c.Request), false)
 				if brokenPipe {
 					logger.Error(c.Request.URL.Path,
 						zap.Any("error", err),
@@ -182,13 +181,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		// Validate the token
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// Check if the signing method is correct
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return secretKey, nil
-		})
+		token, err := utils.ParseSignedToken(tokenString, secretKey)
 
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
@@ -214,4 +207,16 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Continue to the protected route
 		c.Next()
 	}
+}
+
+// redactedRequest returns a copy of r whose credential headers are masked, so
+// request dumps in panic logs never contain tokens or session cookies.
+func redactedRequest(r *http.Request) *http.Request {
+	clone := r.Clone(r.Context())
+	for _, h := range []string{"Authorization", "Cookie", "X-Auth-Token", "X-Api-Key"} {
+		if clone.Header.Get(h) != "" {
+			clone.Header.Set(h, "[REDACTED]")
+		}
+	}
+	return clone
 }

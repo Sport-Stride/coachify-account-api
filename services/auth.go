@@ -1121,7 +1121,7 @@ func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefr
 		Type: "access",
 	})
 	if e != nil {
-		return "", err
+		return "", e
 	}
 	//user.UserRefreshToken = &newRefreshToken
 

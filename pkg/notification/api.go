@@ -42,13 +42,16 @@ func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) erro
 	if dbUser.UserEmail == "" {
 		return fmt.Errorf("no email recipient provided")
 	}
+	if dbUser.UserConfirmCode == nil {
+		return fmt.Errorf("user confirmation code is missing")
+	}
 
 	// Construct the endpoint URL correctly
 	url := c.baseURL + c.notificationEndpoint
 	zap.L().Info("calling notification-api",
 		zap.String("component", "external"),
 		zap.String("target", "notification-api"),
-		zap.String("email", dbUser.UserEmail),
+		zap.String("userId", dbUser.ExternalID),
 	)
 	// Build the request body
 	requestBody := map[string]interface{}{
@@ -86,11 +89,14 @@ func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) erro
 	case http.StatusOK, http.StatusAccepted:
 		return nil
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid request: %s", string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("invalid request: status %d", resp.StatusCode)
 	case http.StatusInternalServerError:
-		return fmt.Errorf("server error: %s", string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("server error: status %d", resp.StatusCode)
 	default:
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
 	}
 
 }
@@ -104,7 +110,7 @@ func (c *NotificationClient) SendConfirmationEmail(ctx context.Context, dbUser *
 		zap.L().Warn("user confirmation code is nil",
 			zap.String("component", "external"),
 			zap.String("target", "notification-api"),
-			zap.String("email", dbUser.UserEmail),
+			zap.String("userId", dbUser.ExternalID),
 		)
 		return fmt.Errorf("user confirmation code is missing")
 	}
@@ -121,6 +127,9 @@ func (c *NotificationClient) SendConfirmationEmail(ctx context.Context, dbUser *
 func (c *NotificationClient) SendResendConfirmationEmail(ctx context.Context, dbUser *db.User) error {
 	if dbUser.UserEmail == "" {
 		return fmt.Errorf("no email recipient provided")
+	}
+	if dbUser.UserConfirmCode == nil {
+		return fmt.Errorf("user confirmation code is missing")
 	}
 	template := utils.LoadConfig().ResendConfirmationTemplate
 	dynamicData := map[string]string{
@@ -203,11 +212,14 @@ func (c *NotificationClient) sendEmail(ctx context.Context, to, template string,
 	case http.StatusOK, http.StatusAccepted:
 		return nil
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid request: %s", string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("invalid request: status %d", resp.StatusCode)
 	case http.StatusInternalServerError:
-		return fmt.Errorf("server error: %s", string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("server error: status %d", resp.StatusCode)
 	default:
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyResp))
+		utils.LogDownstreamBody("notification-api", resp.StatusCode, bodyResp)
+		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
 	}
 }
 

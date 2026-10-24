@@ -4,8 +4,35 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
+
+func TestLoadConfig_SingletonWithEnvAndDefaults(t *testing.T) {
+	cfg := LoadConfig()
+	require.NotNil(t, cfg)
+	assert.Same(t, cfg, LoadConfig())
+	assert.Equal(t, testSecret, cfg.CoachifySecretKey)
+	assert.Equal(t, testEncKey, cfg.CoachifyEncryptionKey)
+	assert.Equal(t, 168, cfg.Gym.InviteTTLHours)
+	assert.Equal(t, 5000, cfg.Analytics.ScopeMaxCoaches)
+	assert.NotNil(t, cfg.GoogleOAuth)
+	assert.NotNil(t, cfg.FacebookOAuth)
+}
+
+func TestConfigHelpers(t *testing.T) {
+	assert.Equal(t, "dflt", getStringWithDefault("UNSET_KEY_FOR_TEST", "dflt"))
+	assert.Equal(t, 7, getIntWithDefault("UNSET_INT_FOR_TEST", 7))
+	t.Setenv("SET_INT_FOR_TEST", "42")
+	t.Setenv("SET_STR_FOR_TEST", "val")
+	viper.AutomaticEnv()
+	assert.Equal(t, 42, getIntWithDefault("SET_INT_FOR_TEST", 7))
+	assert.Equal(t, "val", getStringWithDefault("SET_STR_FOR_TEST", "d"))
+	assert.Equal(t, "val", getStringRequired("SET_STR_FOR_TEST"))
+	assert.Panics(t, func() { getStringRequired("UNSET_REQUIRED_FOR_TEST") })
+}
 
 func TestValidateReportsMissingNamesOnly(t *testing.T) {
 	cfg := &AppConfig{FacebookOAuth: &oauth2.Config{}, GoogleOAuth: &oauth2.Config{}, CoachifySecretKey: "x"}

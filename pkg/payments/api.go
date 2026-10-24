@@ -72,7 +72,8 @@ func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, role, UserRefres
 	// Accept 200 OK or 201 Created as success
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("subscription API failed: status=%d body=%s", resp.StatusCode, string(b))
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return nil, fmt.Errorf("subscription API failed: status=%d", resp.StatusCode)
 	}
 
 	b, err := io.ReadAll(resp.Body)
@@ -116,7 +117,8 @@ func (c *PaymentClient) GetBulkBillingInfo(ctx context.Context, adminToken strin
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("payments-api bulk billing failed: status=%d body=%s", resp.StatusCode, string(b))
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return nil, fmt.Errorf("payments-api bulk billing failed: status=%d", resp.StatusCode)
 	}
 
 	b, err := io.ReadAll(resp.Body)

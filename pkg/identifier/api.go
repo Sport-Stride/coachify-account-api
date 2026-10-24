@@ -70,7 +70,8 @@ func (c *IdentifierClient) GenerateId(ctx context.Context, label string) (Entity
 	case http.StatusBadRequest:
 		return Entity{}, models.NewApiError(http.StatusBadRequest, models.ErrBadRequestToIdentifier)
 	default:
-		return Entity{}, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d, body: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(bodyResp)))
+		utils.LogDownstreamBody("identifier-api", resp.StatusCode, bodyResp)
+		return Entity{}, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
 	}
 }
 
