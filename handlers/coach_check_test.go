@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,8 @@ func TestCheckClientLinks(t *testing.T) {
 		{"blank id", `{"client_ids":["c1","  "]}`},
 		{"empty id", `{"client_ids":[""]}`},
 		{"duplicate ids", `{"client_ids":["c1","c1"]}`},
+		{"id over 64 chars", `{"client_ids":["` + strings.Repeat("x", 65) + `"]}`},
+		{"body over 64KB", `{"client_ids":["c1"],"pad":"` + strings.Repeat("x", 70000) + `"}`},
 	} {
 		t.Run("400 "+tc.name, func(t *testing.T) {
 			s := newSvcs()

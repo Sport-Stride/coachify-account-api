@@ -1114,9 +1114,20 @@ func isCoachOrNutritionist(role string) bool {
 // A head coach or team member cannot change role (inTeam reports a team membership).
 func authorizeUpdateMasks(current *db.User, req *api.RequestUpdateUser, inTeam bool) ([]string, *models.ApiError) {
 	allowed := make([]string, 0, len(req.UpdateMasks))
+	var dropped []string
+	defer func() {
+		if len(dropped) > 0 {
+			zap.L().Warn("update masks dropped: not client-writable",
+				zap.String("component", "auth"),
+				zap.String("external_id", current.ExternalID),
+				zap.Strings("masks", dropped),
+			)
+		}
+	}()
 	for _, mask := range req.UpdateMasks {
 		switch mask {
 		case masks.UserUpdateMaskUserStatus, masks.UserUpdateMaskUserEmail, masks.UserUpdateMaskUserVerificationStatus:
+			dropped = append(dropped, mask)
 			continue
 		case masks.UserUpdateMaskUserRole:
 			if req.User.UserRole == current.UserRole {

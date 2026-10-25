@@ -8,6 +8,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
@@ -94,4 +97,17 @@ func TestApplyVerifiedClaims_NormalizesEmail(t *testing.T) {
 	req := &db.GoogleLoginRequest{}
 	require.Nil(t, applyVerifiedClaims(req, &oauth2.TokenClaims{Email: "  Me@Example.COM ", Subject: "s", EmailVerified: true}))
 	assert.Equal(t, "me@example.com", req.Profile.Email)
+}
+
+func TestAuthorizeUpdateMasks_WarnsOnDroppedMasks(t *testing.T) {
+	core, logs := observer.New(zapcore.WarnLevel)
+	restore := zap.ReplaceGlobals(zap.New(core))
+	defer restore()
+	current := &db.User{ExternalID: "u1", UserRole: "coach", UserStatus: db.Active}
+	_, apiErr := authorizeUpdateMasks(current, updateReq("coach", "email", "verification_status", "firstname"), false)
+	require.Nil(t, apiErr)
+	require.Equal(t, 1, logs.Len())
+	e := logs.All()[0]
+	assert.Equal(t, "u1", e.ContextMap()["external_id"])
+	assert.ElementsMatch(t, []interface{}{"email", "verification_status"}, e.ContextMap()["masks"])
 }

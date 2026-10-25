@@ -161,7 +161,11 @@ func GetCoachIDByClientID(coachService services.CoachService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"coach_id": coachID})
 	}
 }
-const maxCheckClientIDs = 200
+const (
+	maxCheckClientIDs   = 200
+	maxCheckClientIDLen = 64
+	maxCheckBodyBytes   = 64 << 10
+)
 
 // checkLinksRoles lists the roles allowed to query client links; admin short-circuits to all true.
 var checkLinksRoles = map[string]bool{"coach": true, "nutritionist": true, "head_coach": true, "admin": true}
@@ -183,6 +187,7 @@ func CheckClientLinks(coachService services.CoachService) gin.HandlerFunc {
 		var req struct {
 			ClientIDs []string `json:"client_ids"`
 		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCheckBodyBytes)
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
@@ -195,6 +200,10 @@ func CheckClientLinks(coachService services.CoachService) gin.HandlerFunc {
 		for _, id := range req.ClientIDs {
 			if strings.TrimSpace(id) == "" {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "client_ids must not contain blank ids"})
+				return
+			}
+			if len(id) > maxCheckClientIDLen {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "client ids must be at most 64 characters"})
 				return
 			}
 			if _, dup := seen[id]; dup {
