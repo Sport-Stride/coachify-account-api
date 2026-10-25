@@ -6,14 +6,26 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// LastIssuedAt, RegenWindowStart and RegenCount are regeneration bookkeeping that survives new
+// codes, so resending cannot refill the guess budget.
 type UserConfirmCode struct {
-	Code           string    `json:"code"`
-	ExpirationDate time.Time `json:"expiration_date"`
+	Code             string    `json:"code"`
+	ExpirationDate   time.Time `json:"expiration_date"`
+	Attempts         int       `json:"-"`
+	LockedUntil      time.Time `json:"-"`
+	LastIssuedAt     time.Time `json:"-"`
+	RegenWindowStart time.Time `json:"-"`
+	RegenCount       int       `json:"-"`
 }
 
 type UserResetPasswordCode struct {
-	Code           string    `json:"code"`
-	ExpirationDate time.Time `json:"expiration_date"`
+	Code             string    `json:"code"`
+	ExpirationDate   time.Time `json:"expiration_date"`
+	Attempts         int       `json:"-"`
+	LockedUntil      time.Time `json:"-"`
+	LastIssuedAt     time.Time `json:"-"`
+	RegenWindowStart time.Time `json:"-"`
+	RegenCount       int       `json:"-"`
 }
 
 type User struct {

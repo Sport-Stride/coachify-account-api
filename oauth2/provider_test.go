@@ -98,14 +98,14 @@ func TestExchangeCode(t *testing.T) {
 
 func TestValidateToken_RejectsGarbage(t *testing.T) {
 	g := NewGoogleProvider("c", "s", "http://cb", testKey)
-	okv, apiErr := g.ValidateToken(context.Background(), "garbage")
-	assert.False(t, okv)
+	claims, apiErr := g.ValidateToken(context.Background(), "garbage")
+	assert.Nil(t, claims)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnauthorized, apiErr.Code)
 
 	f := NewFacebookProvider("c", "s", "http://cb", testKey)
-	okv, apiErr = f.ValidateToken(context.Background(), "garbage")
-	assert.False(t, okv)
+	claims, apiErr = f.ValidateToken(context.Background(), "garbage")
+	assert.Nil(t, claims)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnauthorized, apiErr.Code)
 }

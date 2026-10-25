@@ -35,6 +35,7 @@ type AppConfig struct {
 	PaymentAPI                      PaymentAPIConfig
 	Gym                             GymConfig
 	Analytics                       AnalyticsConfig
+	InternalAPIKey                  string
 }
 
 // AnalyticsConfig holds the analytics scope limits.
@@ -62,13 +63,16 @@ type NotificationConfig struct {
 }
 
 type IdentifierAPIConfig struct {
-	URL string
+	URL    string
+	APIKey string
 }
 type NotificationAPIConfig struct {
-	URL string
+	URL    string
+	APIKey string
 }
 type InvitationAPIConfig struct {
-	URL string
+	URL    string
+	APIKey string
 }
 type PaymentAPIConfig struct {
 	URL           string
@@ -88,6 +92,8 @@ func LoadConfig() *AppConfig {
 	configOnce.Do(func() {
 		viper.AutomaticEnv()
 
+		internalKey := getStringWithDefault("INTERNAL_API_KEY", "")
+
 		cfg := &AppConfig{
 			Port:        getIntWithDefault("PORT", 8086),
 			Environment: getStringWithDefault("ENVIRONMENT", "development"),
@@ -102,10 +108,12 @@ func LoadConfig() *AppConfig {
 				MailgunDomain: getStringWithDefault("MAILGUN_DOMAIN", "http://localhost:8080"),
 			},
 			IdentifierAPI: IdentifierAPIConfig{
-				URL: getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+				URL:    getStringWithDefault("IDENTIFIER_API_URL", "http://localhost:8084"),
+				APIKey: internalKey,
 			},
 			InvitationAPI: InvitationAPIConfig{
-				URL: getStringWithDefault("INVITATION_API_URL", "https://api.coachify.tn/invitation"),
+				URL:    getStringWithDefault("INVITATION_API_URL", "https://api.coachify.tn/invitation"),
+				APIKey: internalKey,
 			},
 			PaymentAPI: PaymentAPIConfig{
 				URL:           getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
@@ -117,7 +125,8 @@ func LoadConfig() *AppConfig {
 			ResetPasswordTemplate:           getStringWithDefault("RESET_PASSWORD_TEMPLATE", "reset_password"),
 			ConfirmResetPasswordTemplate:    getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
 			NotificationAPI: NotificationAPIConfig{
-				URL: getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
+				URL:    getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
+				APIKey: internalKey,
 			},
 			ChatAPI: ChatAPIConfig{
 				URL: getStringWithDefault("CHAT_API_URL", "https://api.coachify.tn/chat"),
@@ -141,6 +150,7 @@ func LoadConfig() *AppConfig {
 			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", ""),
 			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", ""),
 			WelcomeTemplate:       getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
+			InternalAPIKey:        internalKey,
 		}
 
 		cfg.Gym = GymConfig{

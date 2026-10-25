@@ -345,10 +345,13 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 		}
 	}
 
-	// Fetch user info
-	_, err := provider.ValidateToken(ctx, oauth.Account.IdToken)
+	// Identity comes from the validated token only; the client-sent profile is never trusted.
+	claims, err := provider.ValidateToken(ctx, oauth.Account.IdToken)
 	if err != nil {
 		return nil, err
+	}
+	if vErr := applyVerifiedClaims(&oauth, claims); vErr != nil {
+		return nil, vErr
 	}
 
 	// Check if a user with this email already exists
@@ -492,6 +495,24 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 }
 
 func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
+	takeover, newStatus, planErr := oauthLinkPlan(user)
+	if planErr != nil {
+		return nil, planErr
+	}
+	if takeover {
+		// The account may have been pre-registered by someone who does not own this mailbox:
+		// wipe the password, codes and sessions before linking the verified identity.
+		if err := s.userRepository.ResetUnverifiedForOAuth(ctx, user.UserEmail, newStatus); err != nil {
+			return nil, err
+		}
+		user.UserPassword = ""
+		user.UserConfirmCode = nil
+		user.UserResetPasswordCode = nil
+		user.UserRefreshToken = nil
+		user.Token = nil
+		user.UserVerificationStatus = true
+		user.UserStatus = newStatus
+	}
 	// Use the refactored token validation
 	tokenData, err := s.ValidateAndRefreshTokens(user)
 	if err != nil {
@@ -567,7 +588,8 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	if userExists {
-		// Check if user is in ToConfirm status, if so, regenerate code and resend
+		// An unconfirmed email only gets its confirmation code re-sent. The response must never
+		// carry the existing account's data or tokens: it is identical for anyone who knows the email.
 		userToConfirm, err := s.userRepository.GetByEmailToConfirm(ctx, req.Email)
 		if err != nil {
 			return nil, &models.ApiError{
@@ -576,37 +598,26 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 			}
 		}
 		if userToConfirm.UserStatus == db.ToConfirm {
-			confirmCode := &db.UserConfirmCode{
-				Code:           s.activationManager.GenerateCode(),
-				ExpirationDate: time.Now().Add(24 * time.Hour),
-			}
-			userToConfirm.UserConfirmCode = confirmCode
-			userToConfirm.UserUpdatedAt = time.Now()
-			err := s.userRepository.UpdateConfirmationCode(ctx, userToConfirm)
+			issued, err := s.issueConfirmCode(ctx, req.Email, userToConfirm.UserConfirmCode)
 			if err != nil {
 				return nil, &models.ApiError{
 					Code:  http.StatusInternalServerError,
 					Error: err.Error,
 				}
 			}
-			// Send confirmation email
-			// Get the full user for email sending
-			userFull, err := s.userRepository.GetByEmail(ctx, req.Email)
-			if err == nil {
-				if err := s.notificationClient.SendConfirmationEmail(ctx, userFull); err != nil {
-					zap.L().Warn("failed to send confirmation email",
-						zap.String("component", "auth"),
-						zap.Error(err),
-					)
+			if issued {
+				// Get the full user for email sending
+				userFull, err := s.userRepository.GetByEmail(ctx, req.Email)
+				if err == nil {
+					if err := s.notificationClient.SendConfirmationEmail(ctx, userFull); err != nil {
+						zap.L().Warn("failed to send confirmation email",
+							zap.String("component", "auth"),
+							zap.Error(err),
+						)
+					}
 				}
 			}
-			// Return a response indicating code was resent (tokens empty)
-			userResp := mapping.ToUserResponse(userFull)
-			return &api.RegisterResponse{
-				User:        mapping.ToApiUserResponse(&userResp),
-				AuthToken:   "",
-				RereshToken: "",
-			}, nil
+			return genericSignupResponse(req), nil
 		}
 		// User exists but not in ToConfirm, return error
 		return nil, &models.ApiError{
@@ -635,7 +646,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 
 	confirmCode := &db.UserConfirmCode{
 		Code:           s.activationManager.GenerateCode(), // Générer un code
-		ExpirationDate: time.Now().Add(24 * time.Hour),
+		ExpirationDate: time.Now().Add(core.ConfirmCodeTTL),
 	}
 
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
@@ -693,25 +704,8 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		}
 	}()
 	// Send the notification email
-
-	resp := &api.RegisterResponse{
-		User:        mapping.ToApiUserResponse(inserted),
-		AuthToken:   token, // Inclure le token dans la réponse
-		RereshToken: refreshToken,
-	}
-
-	if req.Autologin {
-		token, err := utils.CreateToken(utils.CreateTokenParams{
-			User: refreshTokenData,
-			Type: "access",
-		})
-		if err != nil {
-			return nil, err
-		}
-		resp.AuthToken = token
-	}
-
-	return resp, nil
+	// The account is unconfirmed, so no session tokens are handed out; the client signs in after confirming.
+	return signupResponse(inserted), nil
 }
 
 func (s AuthServiceImpl) TryToConnect(ctx context.Context, request api.LoginRequest) (*api.LoginResponse, *models.ApiError) {
@@ -845,20 +839,17 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 
 	// Check if the confirmation code is expired or missing
 	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
-		confirmCode := &db.UserConfirmCode{
-			Code:           s.activationManager.GenerateCode(),
-			ExpirationDate: time.Now().Add(24 * time.Hour),
-		}
-
-		u.UserConfirmCode = confirmCode
-		u.UserUpdatedAt = time.Now()
-		err := s.userRepository.UpdateConfirmationCode(ctx, u)
+		invalid := &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
+		issued, err := s.issueConfirmCode(ctx, u.UserEmail, u.UserConfirmCode)
 		if err != nil {
 			zap.L().Error("confirm: failed to update confirmation code",
 				zap.String("component", "auth"),
 				zap.Any("error", err),
 			)
 			return err
+		}
+		if !issued {
+			return invalid
 		}
 
 		// Get the user from the database using email
@@ -884,14 +875,8 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		}
 	}
 
-	if req.ConfirmCode != u.UserConfirmCode.Code {
-		zap.L().Warn("confirm: code mismatch",
-			zap.String("component", "auth"),
-		)
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidConfirmationCode,
-		}
+	if apiErr := s.checkConfirmCode(ctx, u.UserEmail, req.ConfirmCode); apiErr != nil {
+		return apiErr
 	}
 	s.payment.SubscribeWithTrial(ctx, u.UserRole, u.UserRefreshToken)
 	if u.UserRole == "coach" {
@@ -937,6 +922,11 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	}
 
 	u.UserVerificationStatus = true
+	if u.UserConfirmCode != nil {
+		// Successful confirmation: the guess budget resets.
+		u.UserConfirmCode.Attempts = 0
+		u.UserConfirmCode.LockedUntil = time.Time{}
+	}
 	err = s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {
 		zap.L().Error("confirm: failed to finalize verification",
@@ -975,15 +965,12 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 	if isAdminProvisionedRole(u.UserRole) {
 		return &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
 	}
-	confirmCode := &db.UserConfirmCode{
-		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(24 * time.Hour),
-	}
-
-	u.UserConfirmCode = confirmCode
-	err = s.userRepository.UpdateConfirmationCode(ctx, u)
+	issued, err := s.issueConfirmCode(ctx, email, u.UserConfirmCode)
 	if err != nil {
 		return err
+	}
+	if !issued {
+		return nil // locked, cooling down or over the hourly cap: no new code, same response as success
 	}
 
 	// Get the user from the database using email
@@ -1009,15 +996,14 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 
 		return err
 	}
-
-	user.UserResetPasswordCode = db.UserResetPasswordCode{
-		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(24 * time.Hour),
-	}
-	err = s.userRepository.UpdateResetPasswordCode(ctx, request.Email, &user.UserResetPasswordCode)
+	code, err := s.issueResetCode(ctx, request.Email, user.UserResetPasswordCode)
 	if err != nil {
 		return err
 	}
+	if code == "" {
+		return nil // locked, cooling down or over the hourly cap: no new code, same response as success
+	}
+	user.UserResetPasswordCode.Code = code
 
 	// Get the user from the database using email
 
@@ -1033,26 +1019,12 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 }
 
 func (s AuthServiceImpl) VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError {
-	user, err := s.userRepository.GetByEmailToResetPassword(ctx, request.Email)
+	_, err := s.userRepository.GetByEmailToResetPassword(ctx, request.Email)
 	if err != nil {
 		return err
 	}
 
-	resetCode := user.UserResetPasswordCode
-	if resetCode.Code == "" {
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidResetPasswordCode,
-		}
-	}
-	if resetCode.ExpirationDate.Before(time.Now()) || resetCode.Code != request.Code {
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidResetPasswordCode,
-		}
-	}
-
-	return nil
+	return s.checkResetCode(ctx, request.Email, request.Code)
 }
 
 func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError {
@@ -1068,12 +1040,8 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 
 		return err
 	}
-	resetPasswordCode := user.UserResetPasswordCode
-	if resetPasswordCode.ExpirationDate.Before(time.Now()) || resetPasswordCode.Code != request.Code {
-		return &models.ApiError{
-			Code:  http.StatusUnauthorized,
-			Error: models.ErrInvalidResetPasswordCode,
-		}
+	if apiErr := s.checkResetCode(ctx, request.Email, request.Code); apiErr != nil {
+		return apiErr
 	}
 
 	encrypted, err := s.passwordChecker.HashPassword(request.NewPassword)
@@ -1140,14 +1108,26 @@ func isCoachOrNutritionist(role string) bool {
 }
 
 // authorizeUpdateMasks removes the privileged masks from a self-update request.
-// "status" is never client-writable (it is advanced server-side), and "role" is only
+// "status", "email" and "verification_status" are never client-writable (status is advanced server-side,
+// email and verification only change through the confirm flow), and "role" is only
 // writable between coach and nutritionist while the caller is still completing registration.
 // A head coach or team member cannot change role (inTeam reports a team membership).
 func authorizeUpdateMasks(current *db.User, req *api.RequestUpdateUser, inTeam bool) ([]string, *models.ApiError) {
 	allowed := make([]string, 0, len(req.UpdateMasks))
+	var dropped []string
+	defer func() {
+		if len(dropped) > 0 {
+			zap.L().Warn("update masks dropped: not client-writable",
+				zap.String("component", "auth"),
+				zap.String("external_id", current.ExternalID),
+				zap.Strings("masks", dropped),
+			)
+		}
+	}()
 	for _, mask := range req.UpdateMasks {
 		switch mask {
-		case masks.UserUpdateMaskUserStatus:
+		case masks.UserUpdateMaskUserStatus, masks.UserUpdateMaskUserEmail, masks.UserUpdateMaskUserVerificationStatus:
+			dropped = append(dropped, mask)
 			continue
 		case masks.UserUpdateMaskUserRole:
 			if req.User.UserRole == current.UserRole {
@@ -1333,7 +1313,7 @@ func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req 
 
 	confirmCode := &db.UserConfirmCode{
 		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(24 * time.Hour),
+		ExpirationDate: time.Now().Add(core.ConfirmCodeTTL),
 	}
 
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
@@ -1379,13 +1359,8 @@ func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req 
 		}
 	}()
 
-	resp := &api.RegisterResponse{
-		User:        mapping.ToApiUserResponse(inserted),
-		AuthToken:   accessToken,
-		RereshToken: refreshToken,
-	}
-
-	return resp, nil
+	// Unconfirmed account: no session tokens in the response.
+	return signupResponse(inserted), nil
 }
 
 // SubmitMatriculeFiscale allows a coach/nutritionist to submit their matricule fiscale for review.
@@ -1517,4 +1492,67 @@ func checkRefreshToken(user *api.RefreshToken, given string) *models.ApiError {
 		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidRefreshToken}
 	}
 	return inactiveAccountError(db.UserStatus(user.UserStatus))
+}
+
+// checkResetCode counts one wrong try against the reset code and rejects wrong, expired or locked
+// codes with a single uniform error. The try is counted before comparing so parallel guesses cannot
+// skip the cap; a right code clears the budget instead of consuming it, so verify followed by confirm
+// of the same code costs a legit user nothing. The fifth wrong try invalidates the code and blocks
+// issuing a new one for a while.
+func (s AuthServiceImpl) checkResetCode(ctx context.Context, email, given string) *models.ApiError {
+	res, err := core.VerifyCode(s.resetOps(ctx, email), given, time.Now())
+	if err != nil {
+		return internalErr()
+	}
+	if res != core.CodeOK {
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidResetPasswordCode}
+	}
+	return nil
+}
+
+// checkConfirmCode is checkResetCode for the signup confirmation code.
+func (s AuthServiceImpl) checkConfirmCode(ctx context.Context, email, given string) *models.ApiError {
+	res, err := core.VerifyCode(s.confirmOps(ctx, email), given, time.Now())
+	if err != nil {
+		return internalErr()
+	}
+	if res != core.CodeOK {
+		zap.L().Warn("confirm: code mismatch", zap.String("component", "auth"))
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
+	}
+	return nil
+}
+
+// genericSignupResponse answers a signup for an already-registered, unconfirmed email. It is
+// built from the request only, so it carries nothing about the existing account.
+func genericSignupResponse(req *api.CreateUserRequest) *api.RegisterResponse {
+	return &api.RegisterResponse{
+		User: api.ApiUserResponse{Email: req.Email, Status: string(db.ToConfirm)},
+	}
+}
+
+// signupResponse maps a freshly created (still unconfirmed) user without any session tokens.
+func signupResponse(u *db.UserResponse) *api.RegisterResponse {
+	user := mapping.ToApiUserResponse(u)
+	user.Token = nil
+	user.RefreshToken = nil
+	return &api.RegisterResponse{User: user}
+}
+
+// applyVerifiedClaims replaces the client-supplied profile identity with the claims of the
+// provider-validated token, and rejects tokens whose email is missing or unverified.
+func applyVerifiedClaims(req *db.GoogleLoginRequest, claims *oauth2.TokenClaims) *models.ApiError {
+	if claims == nil || claims.Email == "" || claims.Subject == "" {
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidIDToken}
+	}
+	if !claims.EmailVerified {
+		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrEmailNotVerified}
+	}
+	req.Profile.Email = normalizeClaimEmail(claims.Email)
+	req.Profile.Sub = claims.Subject
+	req.Profile.EmailVerified = true
+	req.Profile.GivenName = claims.GivenName
+	req.Profile.FamilyName = claims.FamilyName
+	req.Profile.Picture = claims.Picture
+	return nil
 }

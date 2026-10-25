@@ -27,19 +27,18 @@ func TestUpdateUserMasks_NilRequest(t *testing.T) {
 func TestUpdateUserMasks_ScalarFields(t *testing.T) {
 	req := &api.RequestUpdateUser{
 		User: api.UserRequest{
-			UserFirstname: "A", UserLastname: "B", UserEmail: "a@b.c", UserRole: "coach",
+			UserFirstname: "A", UserLastname: "B", UserRole: "coach",
 			UserGender: "female", UserStatus: "Active", UserProfilePicture: "pic", UserDescription: "d",
-			UserPhoneNumber: "123", VerificationStatus: true,
+			UserPhoneNumber: "123",
 		},
-		UpdateMasks: []string{"firstname", "lastname", "email", "role", "gender", "status",
-			"profile_picture", "description", "phone_number", "verification_status"},
+		UpdateMasks: []string{"firstname", "lastname", "role", "gender", "status",
+			"profile_picture", "description", "phone_number"},
 	}
 	f, apiErr := UpdateUserMasks(req)
 	require.Nil(t, apiErr)
 	assert.Equal(t, bson.M{
-		"firstname": "A", "lastname": "B", "email": "a@b.c", "role": "coach", "gender": "female",
+		"firstname": "A", "lastname": "B", "role": "coach", "gender": "female",
 		"status": "Active", "profile_picture": "pic", "description": "d", "phone_number": "123",
-		"verification_status": true,
 	}, f)
 }
 
@@ -167,4 +166,14 @@ func TestSearchUserMasks_RegexEscapedAndCapped(t *testing.T) {
 	long := strings.Repeat("a", 500)
 	got := SearchUserMasks(&db.SearchUser{UserLastname: long})["lastname"].(bson.M)["$regex"].(string)
 	assert.Len(t, got, 100)
+}
+
+func TestUpdateUserMasks_IgnoresEmailAndVerificationStatus(t *testing.T) {
+	req := &api.RequestUpdateUser{
+		User:        api.UserRequest{UserFirstname: "A", UserEmail: "attacker@x.y", VerificationStatus: true},
+		UpdateMasks: []string{"email", "verification_status", "firstname"},
+	}
+	f, apiErr := UpdateUserMasks(req)
+	require.Nil(t, apiErr)
+	assert.Equal(t, bson.M{"firstname": "A"}, f)
 }

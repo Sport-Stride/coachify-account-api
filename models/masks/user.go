@@ -41,6 +41,8 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 		}
 	}
 
+	// "email" and "verification_status" are deliberately not writable here: changing them
+	// would let a user re-point the account or self-verify.
 	// Create a map to store the fields to be updated
 	updateFields := bson.M{}
 
@@ -52,9 +54,6 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 
 		case UserUpdateMaskUserLastname:
 			updateFields["lastname"] = req.User.UserLastname
-
-		case UserUpdateMaskUserEmail:
-			updateFields["email"] = req.User.UserEmail
 
 		case UserUpdateMaskUserRole:
 			updateFields["role"] = req.User.UserRole
@@ -106,8 +105,6 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 				log.Printf("[DEBUG] address.state updated: %v", req.User.UserAddress.State)
 			}
 
-		case UserUpdateMaskUserVerificationStatus:
-			updateFields["verification_status"] = req.User.VerificationStatus
 			// --- Metadata fields update ---
 		case UserUpdateMaskUserMetadataHowHeard:
 			// Ensure metadata is not nil before updating the nested field

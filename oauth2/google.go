@@ -47,26 +47,46 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2
 	return token, nil
 }
 
-func (p *GoogleProvider) ValidateToken(ctx context.Context, idToken string) (bool, *models.ApiError) {
+func (p *GoogleProvider) ValidateToken(ctx context.Context, idToken string) (*TokenClaims, *models.ApiError) {
 
 	// Validate the ID token with Google's certificates
 	payload, err := idtoken.Validate(ctx, idToken, p.config.ClientID)
 	if err != nil {
-		return false, &models.ApiError{
+		return nil, &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: fmt.Errorf("invalid ID token: %v", err),
 		}
 	}
 
 	// Validate audience
-	if payload.Claims["aud"].(string) != p.config.ClientID {
-		return false, &models.ApiError{
+	if aud, _ := payload.Claims["aud"].(string); aud != p.config.ClientID {
+		return nil, &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidAudience,
 		}
 
 	}
-	return true, nil
+	return claimsFromPayload(payload.Claims), nil
+}
+
+// claimsFromPayload extracts the identity claims; email_verified may arrive as a bool or a string.
+func claimsFromPayload(c map[string]interface{}) *TokenClaims {
+	str := func(k string) string { s, _ := c[k].(string); return s }
+	verified := false
+	switch v := c["email_verified"].(type) {
+	case bool:
+		verified = v
+	case string:
+		verified = v == "true"
+	}
+	return &TokenClaims{
+		Email:         str("email"),
+		Subject:       str("sub"),
+		EmailVerified: verified,
+		GivenName:     str("given_name"),
+		FamilyName:    str("family_name"),
+		Picture:       str("picture"),
+	}
 }
 func (p *GoogleProvider) GetUserInfo(ctx context.Context, token *oauth2.Token) (*db.OAuthUser, *models.ApiError) {
 	// Validate ID token instead of using userinfo endpoint

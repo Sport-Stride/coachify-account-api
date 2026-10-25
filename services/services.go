@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
 	"time"
 
 	"coachify-account-api/core"
+	"coachify-account-api/models/db"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/chat"
 	"coachify-account-api/pkg/identifier"
@@ -24,6 +26,7 @@ type Services struct {
 	GymService              GymService
 	AnalyticsScopeService   AnalyticsScopeService
 	RegistrationLinkService RegistrationLinkService
+	UserStatus              UserStatusLookup
 }
 
 func InitServices(config utils.AppConfig,
@@ -78,5 +81,12 @@ func InitServices(config utils.AppConfig,
 		GymService:              NewGymService(userRepo, gymRepo, GymSettings{InviteTTL: time.Duration(config.Gym.InviteTTLHours) * time.Hour, InvitesPerDay: config.Gym.InvitesPerDay}),
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
+		UserStatus:              userRepo,
 	}
+}
+
+// UserStatusLookup returns an account's current status; the auth middleware uses it to
+// reject blocked accounts whose JWT is still valid.
+type UserStatusLookup interface {
+	GetStatusByExternalID(ctx context.Context, externalID string) (db.UserStatus, error)
 }

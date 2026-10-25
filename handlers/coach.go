@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"coachify-account-api/models"
 	"coachify-account-api/models/db"
 	"coachify-account-api/services"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -157,5 +159,75 @@ func GetCoachIDByClientID(coachService services.CoachService) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"coach_id": coachID})
+	}
+}
+const (
+	maxCheckClientIDs   = 200
+	maxCheckClientIDLen = 64
+	maxCheckBodyBytes   = 64 << 10
+)
+
+// checkLinksRoles lists the roles allowed to query client links; admin short-circuits to all true.
+var checkLinksRoles = map[string]bool{"coach": true, "nutritionist": true, "head_coach": true, "admin": true}
+
+// CheckClientLinks reports, for each requested client id, whether the token's user is linked to it.
+// Used by sibling services to authorize coach access to client data.
+func CheckClientLinks(coachService services.CoachService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actorID := c.GetString("userID")
+		if actorID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+			return
+		}
+		role := c.GetString("userRole")
+		if !checkLinksRoles[role] {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		var req struct {
+			ClientIDs []string `json:"client_ids"`
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCheckBodyBytes)
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+		if len(req.ClientIDs) == 0 || len(req.ClientIDs) > maxCheckClientIDs {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "client_ids must contain between 1 and 200 ids"})
+			return
+		}
+		seen := make(map[string]struct{}, len(req.ClientIDs))
+		for _, id := range req.ClientIDs {
+			if strings.TrimSpace(id) == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "client_ids must not contain blank ids"})
+				return
+			}
+			if len(id) > maxCheckClientIDLen {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "client ids must be at most 64 characters"})
+				return
+			}
+			if _, dup := seen[id]; dup {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "client_ids must be unique"})
+				return
+			}
+			seen[id] = struct{}{}
+		}
+
+		var links map[string]bool
+		if role == "admin" {
+			links = make(map[string]bool, len(req.ClientIDs))
+			for _, id := range req.ClientIDs {
+				links[id] = true
+			}
+		} else {
+			var apiErr *models.ApiError
+			links, apiErr = coachService.CheckClientLinks(c.Request.Context(), actorID, req.ClientIDs)
+			if apiErr != nil {
+				c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+				return
+			}
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"coach_id": actorID, "links": links})
 	}
 }

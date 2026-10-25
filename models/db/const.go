@@ -14,6 +14,11 @@ const (
 	Blocked     UserStatus = "Blocked"
 )
 
+// IsInactive reports statuses that must not authenticate (blocked, suspended, deactivated).
+func (s UserStatus) IsInactive() bool {
+	return s == Blocked || s == Suspended || s == Deactivated
+}
+
 // RoleGymOwner is a business owner above head coaches. It is not a coach: it never goes through
 // signup, trial or invitation flows and is created only by an admin.
 const RoleGymOwner = "gym_owner"

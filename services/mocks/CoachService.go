@@ -7,6 +7,7 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	models "coachify-account-api/models"
 	db "coachify-account-api/models/db"
 )
 
@@ -49,4 +50,17 @@ func (_m *CoachService) GetCoachIDByClientID(ctx context.Context, clientID strin
 func (_m *CoachService) IsClientOfCoach(ctx context.Context, coachID string, clientID string) (bool, error) {
 	ret := _m.Called(ctx, coachID, clientID)
 	return ret.Bool(0), ret.Error(1)
+}
+
+func (_m *CoachService) CheckClientLinks(ctx context.Context, coachID string, clientIDs []string) (map[string]bool, *models.ApiError) {
+	ret := _m.Called(ctx, coachID, clientIDs)
+	var r0 map[string]bool
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(map[string]bool)
+	}
+	var r1 *models.ApiError
+	if ret.Get(1) != nil {
+		r1 = ret.Get(1).(*models.ApiError)
+	}
+	return r0, r1
 }
