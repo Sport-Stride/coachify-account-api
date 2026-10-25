@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coachify-account-api/models"
 	"coachify-account-api/models/api"
 	"coachify-account-api/models/db"
 	"coachify-account-api/models/mapping"
@@ -18,7 +19,7 @@ func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state, err := utils.GenerateRandomString(32)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error.Error()})
 			return
 		}
 		// Store state in secure cookie/redis (with expiry)
@@ -26,6 +27,10 @@ func OAuth2Login(authService services.AuthService) gin.HandlerFunc {
 		c.SetCookie("oauth_state", state, 600, "/", "", true, true)
 		providerType := c.Param("provider")
 		url := authService.GetOAuth2LoginURL(providerType, state) // Update interface
+		if url == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": models.ErrProviderNotFound.Error()})
+			return
+		}
 		c.Redirect(http.StatusTemporaryRedirect, url)
 	}
 }

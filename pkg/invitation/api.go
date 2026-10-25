@@ -96,8 +96,9 @@ func (c *InvitationClient) CheckInvitationByEmail(ctx context.Context, email str
 		}
 		return result.Exists, result.CoachExternalID, nil
 	}
+	utils.LogDownstreamBody("invitation-api", resp.StatusCode, body)
 	return false, "", models.NewApiError(http.StatusInternalServerError,
-		fmt.Errorf("%w: invitation check returned %d: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(body)))
+		fmt.Errorf("%w: invitation check returned %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
 }
 
 // ValidateInvitation validates an invitation by ID and email
@@ -154,7 +155,8 @@ func (c *InvitationClient) ValidateInvitation(ctx context.Context, invitationID,
 	case http.StatusBadRequest:
 		return nil, models.NewApiError(http.StatusBadRequest, fmt.Errorf("invitation bad request"))
 	default:
-		return nil, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d, body: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(bodyResp)))
+		utils.LogDownstreamBody("invitation-api", resp.StatusCode, bodyResp)
+		return nil, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
 	}
 }
 
@@ -214,7 +216,8 @@ func (c *InvitationClient) AcceptInvitation(ctx context.Context, invitationID, e
 	case http.StatusBadRequest:
 		return nil, models.NewApiError(http.StatusBadRequest, fmt.Errorf("invitation bad request"))
 	default:
-		return nil, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d, body: %s", models.ErrUnexpectedStatusCode, resp.StatusCode, string(bodyResp)))
+		utils.LogDownstreamBody("invitation-api", resp.StatusCode, bodyResp)
+		return nil, models.NewApiError(http.StatusInternalServerError, fmt.Errorf("%w: %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
 	}
 }
 

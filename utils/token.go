@@ -77,9 +77,7 @@ func IsTokenExpired(tokenString string) (bool, error) {
 
 	// Parse the decrypted token
 	secretKey := []byte(LoadConfig().CoachifySecretKey)
-	token, err := jwt.Parse(decryptedToken, func(token *jwt.Token) (interface{}, error) {
-		return secretKey, nil
-	})
+	token, err := ParseSignedToken(decryptedToken, secretKey)
 	if err != nil {
 		// If token parsing fails, treat the token as expired.
 		return true, err
@@ -108,9 +106,7 @@ func LogTokenClaims(tokenString string, logger *log.Logger) error {
 
 	// Parse the decrypted token
 	secretKey := []byte(LoadConfig().CoachifySecretKey)
-	token, err := jwt.Parse(decryptedToken, func(token *jwt.Token) (interface{}, error) {
-		return secretKey, nil
-	})
+	token, err := ParseSignedToken(decryptedToken, secretKey)
 	if err != nil {
 
 		return err
@@ -122,54 +118,14 @@ func LogTokenClaims(tokenString string, logger *log.Logger) error {
 		return fmt.Errorf("unable to parse token claims")
 	}
 
-	// Extract common claims
+	// Log only the user ID: email, role and other claims are PII and stay out of logs.
 	userId, _ := claims["id"]
-	email, _ := claims["email"]
-	role, _ := claims["role"]
-	tokenType, _ := claims["token_type"]
-	// Get expiration time
-	exp, ok := claims["exp"].(float64)
-	if !ok {
+	if _, ok := claims["exp"].(float64); !ok {
 
 		return fmt.Errorf("exp claim is not present or invalid")
 	}
-	expirationTime := time.Unix(int64(exp), 0)
 
-	// Get issued at time if present
-	var issuedAt time.Time
-	if iat, ok := claims["iat"].(float64); ok {
-		issuedAt = time.Unix(int64(iat), 0)
-	}
-
-	// Convert claims values to appropriate zap field types
-	userIdStr := fmt.Sprintf("%v", userId)
-	emailStr := fmt.Sprintf("%v", email)
-	roleStr := fmt.Sprintf("%v", role)
-	tokenTypeStr := fmt.Sprintf("%v", tokenType)
-	isExpired := time.Now().After(expirationTime)
-
-	// Log the important claims using zap.Field objects
-	Logger.Info("Token claims",
-		zap.String("userId", userIdStr),
-		zap.String("email", emailStr),
-		zap.String("role", roleStr),
-		zap.String("tokenType", tokenTypeStr),
-		zap.Time("expiresAt", expirationTime),
-		zap.Time("issuedAt", issuedAt),
-		zap.Bool("isExpired", isExpired))
-
-	// Create a map of all claims for more detailed logging
-	allClaimsFields := []zap.Field{}
-	for key, value := range claims {
-		// Skip already logged fields
-		if key != "user_id" && key != "email" && key != "role" && key != "token_type" && key != "exp" && key != "iat" {
-			allClaimsFields = append(allClaimsFields, zap.Any(key, value))
-		}
-	}
-
-	if len(allClaimsFields) > 0 {
-		Logger.Info("Additional token claims", allClaimsFields...)
-	}
+	Logger.Info("Token claims", zap.String("userId", fmt.Sprintf("%v", userId)))
 
 	return nil
 }
@@ -184,9 +140,7 @@ func GetTokenClaims(tokenString string) (map[string]interface{}, error) {
 
 	// Parse the decrypted token
 	secretKey := []byte(LoadConfig().CoachifySecretKey)
-	token, err := jwt.Parse(decryptedToken, func(token *jwt.Token) (interface{}, error) {
-		return secretKey, nil
-	})
+	token, err := ParseSignedToken(decryptedToken, secretKey)
 	if err != nil {
 		return nil, err
 	}
@@ -203,4 +157,40 @@ func GetTokenClaims(tokenString string) (map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// ParseSignedToken parses and verifies a JWT issued by CreateToken. It accepts only
+// HS256 and requires an exp claim, so other HMAC variants and non-expiring tokens fail.
+func ParseSignedToken(tokenString string, key []byte) (*jwt.Token, error) {
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if t.Method != jwt.SigningMethodHS256 || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return key, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("unable to parse token claims")
+	}
+	if _, ok := claims["exp"].(float64); !ok {
+		return nil, fmt.Errorf("exp claim is not present or invalid")
+	}
+	return token, nil
+}
+
+// LogDownstreamBody logs a truncated downstream response body at debug level only.
+func LogDownstreamBody(target string, status int, body []byte) {
+	const maxLen = 200
+	s := string(body)
+	if len(s) > maxLen {
+		s = s[:maxLen] + "...(truncated)"
+	}
+	zap.L().Debug("downstream error response",
+		zap.String("target", target),
+		zap.Int("status", status),
+		zap.String("body", s),
+	)
 }

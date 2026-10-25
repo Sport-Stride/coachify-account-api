@@ -6,6 +6,8 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
+	"io"
 	"math/big"
 
 	"net/http"
@@ -26,6 +28,9 @@ func Encrypt(plaintext string, key []byte) (string, error) {
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
 	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
@@ -50,7 +55,7 @@ func Decrypt(ciphertext string, key []byte) (string, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return "", err
+		return "", errors.New("ciphertext too short")
 	}
 
 	// Split the nonce and ciphertext
