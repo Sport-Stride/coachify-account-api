@@ -18,6 +18,7 @@ type IdentifierClient struct {
 	baseURL            string
 	identifierEndpoint string
 	breaker            *utils.CircuitBreaker
+	apiKey             string
 	target             string
 }
 
@@ -31,6 +32,7 @@ func NewIdentifierClient(cfg utils.IdentifierAPIConfig) (*IdentifierClient, erro
 		identifierEndpoint: "%s/identifier/%s",
 		breaker:            utils.NewCircuitBreaker("identifiers-api"),
 		target:             "identifiers-api",
+		apiKey:             cfg.APIKey,
 	}, nil
 }
 
@@ -83,5 +85,8 @@ func (c *IdentifierClient) do(ctx context.Context, method, url string, body []by
 	}
 	// Add necessary headers here
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
 	return req, nil
 }

@@ -21,6 +21,7 @@ type NotificationClient struct {
 	baseURL              string
 	notificationEndpoint string
 	breaker              *utils.CircuitBreaker
+	apiKey               string
 	target               string
 }
 
@@ -34,6 +35,7 @@ func NewNotificationClient(cfg utils.NotificationAPIConfig) (*NotificationClient
 		notificationEndpoint: "/emails",
 		breaker:              utils.NewCircuitBreaker("notification-api"),
 		target:               "notification-api",
+		apiKey:               cfg.APIKey,
 	}, nil
 }
 
@@ -230,6 +232,9 @@ func (c *NotificationClient) do(ctx context.Context, method, url string, body []
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
 	return req, nil
 }
 

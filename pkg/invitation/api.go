@@ -20,6 +20,7 @@ type InvitationClient struct {
 	checkEmailEndpoint   string
 	acceptInviteEndpoint string
 	breaker              *utils.CircuitBreaker
+	apiKey               string
 	target               string
 }
 
@@ -62,6 +63,7 @@ func NewInvitationClient(cfg utils.InvitationAPIConfig) (*InvitationClient, erro
 		acceptInviteEndpoint: "%s/api/invitations/accept",
 		breaker:              utils.NewCircuitBreaker("invitation-api"),
 		target:               "invitation-api",
+		apiKey:               cfg.APIKey,
 	}, nil
 }
 
@@ -229,5 +231,8 @@ func (c *InvitationClient) do(ctx context.Context, method, url string, body []by
 	}
 	// Add necessary headers
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
 	return req, nil
 }
