@@ -495,6 +495,24 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 }
 
 func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
+	takeover, newStatus, planErr := oauthLinkPlan(user)
+	if planErr != nil {
+		return nil, planErr
+	}
+	if takeover {
+		// The account may have been pre-registered by someone who does not own this mailbox:
+		// wipe the password, codes and sessions before linking the verified identity.
+		if err := s.userRepository.ResetUnverifiedForOAuth(ctx, user.UserEmail, newStatus); err != nil {
+			return nil, err
+		}
+		user.UserPassword = ""
+		user.UserConfirmCode = nil
+		user.UserResetPasswordCode = nil
+		user.UserRefreshToken = nil
+		user.Token = nil
+		user.UserVerificationStatus = true
+		user.UserStatus = newStatus
+	}
 	// Use the refactored token validation
 	tokenData, err := s.ValidateAndRefreshTokens(user)
 	if err != nil {
@@ -580,22 +598,14 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 			}
 		}
 		if userToConfirm.UserStatus == db.ToConfirm {
-			locked := userToConfirm.UserConfirmCode != nil &&
-				core.RegenBlocked(userToConfirm.UserConfirmCode.LockedUntil, time.Now())
-			if !locked {
-				confirmCode := &db.UserConfirmCode{
-					Code:           s.activationManager.GenerateCode(),
-					ExpirationDate: time.Now().Add(core.ConfirmCodeTTL),
+			issued, err := s.issueConfirmCode(ctx, req.Email, userToConfirm.UserConfirmCode)
+			if err != nil {
+				return nil, &models.ApiError{
+					Code:  http.StatusInternalServerError,
+					Error: err.Error,
 				}
-				userToConfirm.UserConfirmCode = confirmCode
-				userToConfirm.UserUpdatedAt = time.Now()
-				err := s.userRepository.UpdateConfirmationCode(ctx, userToConfirm)
-				if err != nil {
-					return nil, &models.ApiError{
-						Code:  http.StatusInternalServerError,
-						Error: err.Error,
-					}
-				}
+			}
+			if issued {
 				// Get the full user for email sending
 				userFull, err := s.userRepository.GetByEmail(ctx, req.Email)
 				if err == nil {
@@ -829,23 +839,17 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 
 	// Check if the confirmation code is expired or missing
 	if u.UserConfirmCode == nil || u.UserConfirmCode.ExpirationDate.Before(time.Now()) {
-		if u.UserConfirmCode != nil && core.RegenBlocked(u.UserConfirmCode.LockedUntil, time.Now()) {
-			return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
-		}
-		confirmCode := &db.UserConfirmCode{
-			Code:           s.activationManager.GenerateCode(),
-			ExpirationDate: time.Now().Add(core.ConfirmCodeTTL),
-		}
-
-		u.UserConfirmCode = confirmCode
-		u.UserUpdatedAt = time.Now()
-		err := s.userRepository.UpdateConfirmationCode(ctx, u)
+		invalid := &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
+		issued, err := s.issueConfirmCode(ctx, u.UserEmail, u.UserConfirmCode)
 		if err != nil {
 			zap.L().Error("confirm: failed to update confirmation code",
 				zap.String("component", "auth"),
 				zap.Any("error", err),
 			)
 			return err
+		}
+		if !issued {
+			return invalid
 		}
 
 		// Get the user from the database using email
@@ -918,6 +922,11 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	}
 
 	u.UserVerificationStatus = true
+	if u.UserConfirmCode != nil {
+		// Successful confirmation: the guess budget resets.
+		u.UserConfirmCode.Attempts = 0
+		u.UserConfirmCode.LockedUntil = time.Time{}
+	}
 	err = s.userRepository.UpdateConfirmationCode(ctx, u)
 	if err != nil {
 		zap.L().Error("confirm: failed to finalize verification",
@@ -956,18 +965,12 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 	if isAdminProvisionedRole(u.UserRole) {
 		return &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
 	}
-	if u.UserConfirmCode != nil && core.RegenBlocked(u.UserConfirmCode.LockedUntil, time.Now()) {
-		return nil // locked out after repeated wrong codes: no new code, same response as success
-	}
-	confirmCode := &db.UserConfirmCode{
-		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(core.ConfirmCodeTTL),
-	}
-
-	u.UserConfirmCode = confirmCode
-	err = s.userRepository.UpdateConfirmationCode(ctx, u)
+	issued, err := s.issueConfirmCode(ctx, email, u.UserConfirmCode)
 	if err != nil {
 		return err
+	}
+	if !issued {
+		return nil // locked, cooling down or over the hourly cap: no new code, same response as success
 	}
 
 	// Get the user from the database using email
@@ -993,18 +996,14 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 
 		return err
 	}
-	if core.RegenBlocked(user.UserResetPasswordCode.LockedUntil, time.Now()) {
-		return nil // locked out after repeated wrong codes: no new code, same response as success
-	}
-
-	user.UserResetPasswordCode = db.UserResetPasswordCode{
-		Code:           s.activationManager.GenerateCode(),
-		ExpirationDate: time.Now().Add(core.ResetCodeTTL),
-	}
-	err = s.userRepository.UpdateResetPasswordCode(ctx, request.Email, &user.UserResetPasswordCode)
+	code, err := s.issueResetCode(ctx, request.Email, user.UserResetPasswordCode)
 	if err != nil {
 		return err
 	}
+	if code == "" {
+		return nil // locked, cooling down or over the hourly cap: no new code, same response as success
+	}
+	user.UserResetPasswordCode.Code = code
 
 	// Get the user from the database using email
 
@@ -1484,49 +1483,33 @@ func checkRefreshToken(user *api.RefreshToken, given string) *models.ApiError {
 	return inactiveAccountError(db.UserStatus(user.UserStatus))
 }
 
-// checkResetCode counts one try against the reset code and rejects wrong, expired or locked codes
-// with a single uniform error. The attempt is counted before comparing so parallel guesses cannot
-// skip the cap; the fifth wrong try invalidates the code and blocks issuing a new one for a while.
+// checkResetCode counts one wrong try against the reset code and rejects wrong, expired or locked
+// codes with a single uniform error. The try is counted before comparing so parallel guesses cannot
+// skip the cap; a right code clears the budget instead of consuming it, so verify followed by confirm
+// of the same code costs a legit user nothing. The fifth wrong try invalidates the code and blocks
+// issuing a new one for a while.
 func (s AuthServiceImpl) checkResetCode(ctx context.Context, email, given string) *models.ApiError {
-	invalid := &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidResetPasswordCode}
-	stored, apiErr := s.userRepository.ConsumeResetAttempt(ctx, email)
-	if apiErr != nil {
-		return apiErr
+	res, err := core.VerifyCode(s.resetOps(ctx, email), given, time.Now())
+	if err != nil {
+		return internalErr()
 	}
-	if stored == nil {
-		return invalid
+	if res != core.CodeOK {
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidResetPasswordCode}
 	}
-	if core.CheckCode(stored.Code, stored.ExpirationDate, stored.Attempts, given, time.Now()) == core.CodeOK {
-		return nil
-	}
-	if stored.Code != "" && core.ShouldLock(stored.Attempts) {
-		if lockErr := s.userRepository.LockResetCode(ctx, email, time.Now().Add(core.CodeLockout)); lockErr != nil {
-			return lockErr
-		}
-	}
-	return invalid
+	return nil
 }
 
 // checkConfirmCode is checkResetCode for the signup confirmation code.
 func (s AuthServiceImpl) checkConfirmCode(ctx context.Context, email, given string) *models.ApiError {
-	invalid := &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
-	stored, apiErr := s.userRepository.ConsumeConfirmAttempt(ctx, email)
-	if apiErr != nil {
-		return apiErr
+	res, err := core.VerifyCode(s.confirmOps(ctx, email), given, time.Now())
+	if err != nil {
+		return internalErr()
 	}
-	if stored == nil {
-		return invalid
+	if res != core.CodeOK {
+		zap.L().Warn("confirm: code mismatch", zap.String("component", "auth"))
+		return &models.ApiError{Code: http.StatusUnauthorized, Error: models.ErrInvalidConfirmationCode}
 	}
-	if core.CheckCode(stored.Code, stored.ExpirationDate, stored.Attempts, given, time.Now()) == core.CodeOK {
-		return nil
-	}
-	zap.L().Warn("confirm: code mismatch", zap.String("component", "auth"))
-	if stored.Code != "" && core.ShouldLock(stored.Attempts) {
-		if lockErr := s.userRepository.LockConfirmCode(ctx, email, time.Now().Add(core.CodeLockout)); lockErr != nil {
-			return lockErr
-		}
-	}
-	return invalid
+	return nil
 }
 
 // genericSignupResponse answers a signup for an already-registered, unconfirmed email. It is
@@ -1554,7 +1537,7 @@ func applyVerifiedClaims(req *db.GoogleLoginRequest, claims *oauth2.TokenClaims)
 	if !claims.EmailVerified {
 		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrEmailNotVerified}
 	}
-	req.Profile.Email = claims.Email
+	req.Profile.Email = normalizeClaimEmail(claims.Email)
 	req.Profile.Sub = claims.Subject
 	req.Profile.EmailVerified = true
 	req.Profile.GivenName = claims.GivenName

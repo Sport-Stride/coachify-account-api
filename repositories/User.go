@@ -584,17 +584,20 @@ func (r *UserRepository) GetByEmailCheck(ctx context.Context, email string) (*db
 
 	// Define the projection to retrieve only the required fields
 	projection := bson.M{
-		"token":           1,
-		"externalid":      1,
-		"refresh_token":   1,
-		"firstname":       1,
-		"lastname":        1,
-		"role":            1,
-		"status":          1,
-		"email":           1,
-		"providers":       1,
-		"profile_picture": 1,
-		"metadata":        1,
+		"token":               1,
+		"externalid":          1,
+		"refresh_token":       1,
+		"firstname":           1,
+		"lastname":            1,
+		"role":                1,
+		"status":              1,
+		"email":               1,
+		"providers":           1,
+		"profile_picture":     1,
+		"metadata":            1,
+		"confirm_code":        1,
+		"reset_password_code": 1,
+		"verification_status": 1,
 	}
 
 	err := r.collection.FindOne(ctx, bson.M{"email": email}, options.FindOne().SetProjection(projection)).Decode(&user)
@@ -1750,6 +1753,10 @@ func (r *UserRepository) ConsumeConfirmAttempt(ctx context.Context, email string
 }
 
 // lockCode invalidates the code at field and blocks issuing a new one until lockedUntil.
+// DoS tradeoff: anyone who knows an email can burn its 5-guess budget and lock the owner out of
+// that code flow for core.CodeLockout (15 min). Accepted because the alternative (no lock) lets
+// an attacker brute-force the 6-digit code. The lock is temporary, a right code still works while
+// not locked, and the budget is never refilled by resending (see core.PlanIssue).
 func (r *UserRepository) lockCode(ctx context.Context, email, field string, lockedUntil time.Time) *models.ApiError {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

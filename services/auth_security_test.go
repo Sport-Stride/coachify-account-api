@@ -89,3 +89,9 @@ func TestAuthorizeUpdateMasks_DropsEmailAndVerification(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Equal(t, []string{"firstname"}, allowed)
 }
+
+func TestApplyVerifiedClaims_NormalizesEmail(t *testing.T) {
+	req := &db.GoogleLoginRequest{}
+	require.Nil(t, applyVerifiedClaims(req, &oauth2.TokenClaims{Email: "  Me@Example.COM ", Subject: "s", EmailVerified: true}))
+	assert.Equal(t, "me@example.com", req.Profile.Email)
+}
