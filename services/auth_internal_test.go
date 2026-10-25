@@ -36,6 +36,7 @@ func TestMain(m *testing.M) {
 // fakeProvider is an oauth2.Provider whose ValidateToken result is scripted.
 type fakeProvider struct {
 	validateErr *models.ApiError
+	claims      *oauth2.TokenClaims
 	gotToken    string
 	loginURL    string
 }
@@ -50,12 +51,12 @@ func (f *fakeProvider) GetUserInfo(context.Context, *xoauth2.Token) (*db.OAuthUs
 func (f *fakeProvider) RefreshToken(context.Context, string) (*db.OAuthProviderDetails, *models.ApiError) {
 	return nil, nil
 }
-func (f *fakeProvider) ValidateToken(_ context.Context, idToken string) (bool, *models.ApiError) {
+func (f *fakeProvider) ValidateToken(_ context.Context, idToken string) (*oauth2.TokenClaims, *models.ApiError) {
 	f.gotToken = idToken
 	if f.validateErr != nil {
-		return false, f.validateErr
+		return nil, f.validateErr
 	}
-	return true, nil
+	return f.claims, nil
 }
 
 func newAuthSvcWithProviders(p map[oauth2.ProviderType]oauth2.Provider) *AuthServiceImpl {

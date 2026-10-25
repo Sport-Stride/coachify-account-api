@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 // GenerateRegistrationLink generates or retrieves the coach's public registration link.
@@ -80,7 +79,6 @@ func RegisterViaLink(authService services.AuthService, regLinkService services.R
 		}
 
 		resp, apiErr := authService.RegisterViaLink(c.Request.Context(), token, &req)
-		zap.S().Infof("RegisterViaLink response: %+v, apiErr: %+v", resp, apiErr)
 		if apiErr != nil {
 			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
 			return

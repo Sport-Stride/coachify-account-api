@@ -1686,3 +1686,90 @@ func (r *UserRepository) ClearTaxRegistration(ctx context.Context, externalID st
 	}
 	return nil
 }
+
+// GetStatusByExternalID returns only the account status; used by the auth middleware re-check.
+func (r *UserRepository) GetStatusByExternalID(ctx context.Context, externalID string) (db.UserStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var result struct {
+		UserStatus db.UserStatus `bson:"status"`
+	}
+	err := r.collection.FindOne(ctx, bson.M{"externalid": externalID},
+		options.FindOne().SetProjection(bson.M{"status": 1})).Decode(&result)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", models.ErrUserNotFound
+		}
+		return "", models.ErrFailedToFetchUserStatus
+	}
+	return result.UserStatus, nil
+}
+
+// consumeAttempt atomically counts one verification try on the code stored at field and returns
+// the code as it is after the increment. It returns (nil, nil) when the user has no such code.
+func (r *UserRepository) consumeAttempt(ctx context.Context, email, field string, out interface{}) (bool, *models.ApiError) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"email": email, field: bson.M{"$ne": nil}}
+	update := bson.M{"$inc": bson.M{field + ".attempts": 1}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(bson.M{field: 1})
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(out)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
+		}
+		return false, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	return true, nil
+}
+
+// ConsumeResetAttempt counts one reset-code try and returns the stored code after the increment.
+func (r *UserRepository) ConsumeResetAttempt(ctx context.Context, email string) (*db.UserResetPasswordCode, *models.ApiError) {
+	var doc struct {
+		Code *db.UserResetPasswordCode `bson:"reset_password_code"`
+	}
+	found, apiErr := r.consumeAttempt(ctx, email, "reset_password_code", &doc)
+	if apiErr != nil || !found {
+		return nil, apiErr
+	}
+	return doc.Code, nil
+}
+
+// ConsumeConfirmAttempt counts one confirmation-code try and returns the stored code after the increment.
+func (r *UserRepository) ConsumeConfirmAttempt(ctx context.Context, email string) (*db.UserConfirmCode, *models.ApiError) {
+	var doc struct {
+		Code *db.UserConfirmCode `bson:"confirm_code"`
+	}
+	found, apiErr := r.consumeAttempt(ctx, email, "confirm_code", &doc)
+	if apiErr != nil || !found {
+		return nil, apiErr
+	}
+	return doc.Code, nil
+}
+
+// lockCode invalidates the code at field and blocks issuing a new one until lockedUntil.
+func (r *UserRepository) lockCode(ctx context.Context, email, field string, lockedUntil time.Time) *models.ApiError {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	update := bson.M{"$set": bson.M{
+		field + ".code":        "",
+		field + ".lockeduntil": lockedUntil,
+	}}
+	if _, err := r.collection.UpdateOne(ctx, bson.M{"email": email, field: bson.M{"$ne": nil}}, update); err != nil {
+		return &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	return nil
+}
+
+// LockResetCode invalidates the reset code after too many failed tries.
+func (r *UserRepository) LockResetCode(ctx context.Context, email string, lockedUntil time.Time) *models.ApiError {
+	return r.lockCode(ctx, email, "reset_password_code", lockedUntil)
+}
+
+// LockConfirmCode invalidates the confirmation code after too many failed tries.
+func (r *UserRepository) LockConfirmCode(ctx context.Context, email string, lockedUntil time.Time) *models.ApiError {
+	return r.lockCode(ctx, email, "confirm_code", lockedUntil)
+}

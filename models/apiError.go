@@ -77,6 +77,8 @@ var (
 	ErrInvalidIDToken            = errors.New("invalid id token")
 	ErrTokenEncryptionFailed     = errors.New("token encryption failed")
 	ErrInvalidAudience           = errors.New("invalid audience")
+	ErrEmailNotVerified          = errors.New("provider email is not verified")
+	ErrProviderTokenUnsupported  = errors.New("sign-in with this provider is not supported")
 	ErrClientAlreadyLinked       = errors.New("client is already linked to another coach")
 	ErrRegistrationLinkNotFound  = errors.New("registration link not found")
 	ErrAlreadyClientOfCoach      = errors.New("you are already a client of this coach")

@@ -9,11 +9,15 @@ import (
 type UserConfirmCode struct {
 	Code           string    `json:"code"`
 	ExpirationDate time.Time `json:"expiration_date"`
+	Attempts       int       `json:"-"`
+	LockedUntil    time.Time `json:"-"`
 }
 
 type UserResetPasswordCode struct {
 	Code           string    `json:"code"`
 	ExpirationDate time.Time `json:"expiration_date"`
+	Attempts       int       `json:"-"`
+	LockedUntil    time.Time `json:"-"`
 }
 
 type User struct {

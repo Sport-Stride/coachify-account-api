@@ -86,7 +86,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 
 	// Protected routes: Endpoints that require a valid JWT token.
 	protected := r.Group("/")
-	protected.Use(AuthMiddleware())
+	protected.Use(AuthMiddlewareWithStatus(NewStatusGate(services.UserStatus, 30*time.Second)))
 	{
 		// Protected user endpoints.
 		userProtectedGroup := protected.Group("/user")
