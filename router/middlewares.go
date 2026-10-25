@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v4"
@@ -162,52 +160,6 @@ func AuthMiddleware() gin.HandlerFunc {
 
 // UserStatusLookup is the account status source for the middleware.
 type UserStatusLookup = services.UserStatusLookup
-
-// StatusGate rejects inactive accounts, caching each user's status for a short TTL so the
-// database is not hit on every request.
-type StatusGate struct {
-	lookup UserStatusLookup
-	ttl    time.Duration
-	mu     sync.Mutex
-	cache  map[string]statusEntry
-}
-
-type statusEntry struct {
-	status  db.UserStatus
-	expires time.Time
-}
-
-// NewStatusGate returns nil when lookup is nil, which disables the check.
-func NewStatusGate(lookup UserStatusLookup, ttl time.Duration) *StatusGate {
-	if lookup == nil {
-		return nil
-	}
-	return &StatusGate{lookup: lookup, ttl: ttl, cache: make(map[string]statusEntry)}
-}
-
-func (g *StatusGate) status(ctx context.Context, userID string) (db.UserStatus, error) {
-	now := time.Now()
-	g.mu.Lock()
-	if e, ok := g.cache[userID]; ok && now.Before(e.expires) {
-		g.mu.Unlock()
-		return e.status, nil
-	}
-	g.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	st, err := g.lookup.GetStatusByExternalID(ctx, userID)
-	if err != nil {
-		return "", err
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if len(g.cache) > 10000 { // bound memory: drop everything rather than track LRU
-		g.cache = make(map[string]statusEntry)
-	}
-	g.cache[userID] = statusEntry{status: st, expires: now.Add(g.ttl)}
-	return st, nil
-}
 
 // allow aborts the request and returns false when the account may not authenticate.
 func (g *StatusGate) allow(c *gin.Context) bool {
