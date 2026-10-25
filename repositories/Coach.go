@@ -347,3 +347,29 @@ func (r *CoachRepository) GetClientIDsByCoach(ctx context.Context, coachID strin
 	}
 	return ids, cursor.Err()
 }
+
+// LinkedClientIDs returns the subset of clientIDs linked to coachID (one indexed Find, client_id only).
+func (r *CoachRepository) LinkedClientIDs(ctx context.Context, coachID string, clientIDs []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"coach_id": coachID, "client_id": bson.M{"$in": clientIDs}}
+	opts := options.Find().SetProjection(bson.M{"client_id": 1, "_id": 0})
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var rows []struct {
+		ClientID string `bson:"client_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	linked := make([]string, 0, len(rows))
+	for _, row := range rows {
+		linked = append(linked, row.ClientID)
+	}
+	return linked, nil
+}

@@ -108,6 +108,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
 			coachProtectedGroup.GET("/clients/summary", handlers.ListCoachClientsSummary(services.CoachService))
 			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
+			coachProtectedGroup.POST("/clients/check", handlers.CheckClientLinks(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
 			coachProtectedGroup.POST("/registration-link", handlers.GenerateRegistrationLink(services.RegistrationLinkService))
 			coachProtectedGroup.GET("/team", handlers.GetMyHeadCoach(services.TeamService))
