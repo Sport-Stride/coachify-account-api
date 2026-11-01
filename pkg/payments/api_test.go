@@ -17,21 +17,20 @@ func newClient(t *testing.T, h http.HandlerFunc) *PaymentClient {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	c, err := NewPaymentClient(utils.PaymentAPIConfig{URL: srv.URL, PlanHexCoach: "plan-coach", PlanHexClient: "plan-client"})
+	c, err := NewPaymentClient(utils.PaymentAPIConfig{URL: srv.URL})
 	require.NoError(t, err)
 	return c
 }
 
-func TestSubscribeWithTrial_PlanByRole(t *testing.T) {
-	for role, plan := range map[string]string{"coach": "plan-coach", "client": "plan-client", "nutritionist": "plan-client"} {
+func TestSubscribeWithTrial_PostsToDefaultEndpoint(t *testing.T) {
+	for _, role := range []string{"coach", "client", "nutritionist"} {
 		c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, http.MethodPost, r.Method)
-			assert.Equal(t, "/subscriptions", r.URL.Path)
+			assert.Equal(t, "/subscriptions/default", r.URL.Path)
 			assert.Equal(t, "Bearer rt", r.Header.Get("Authorization"))
 			var b map[string]interface{}
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&b))
-			assert.Equal(t, plan, b["plan_id"])
-			assert.EqualValues(t, 30, b["trial_days"])
+			assert.Empty(t, b, "plan is resolved server-side; body is empty")
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"success":true}`))
 		})

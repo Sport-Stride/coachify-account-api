@@ -21,34 +21,16 @@ func NewPaymentClient(cfg utils.PaymentAPIConfig) (*PaymentClient, error) {
 			Timeout: 10 * time.Second,
 		},
 		baseURL:            cfg.URL,
-		subscribeWithTrial: "/subscriptions",
-		planHexCoach:       cfg.PlanHexCoach,
-		planHexClient:      cfg.PlanHexClient,
-		breaker:            utils.NewCircuitBreaker("payments-api"),
+		subscribeWithTrial: "/subscriptions/default",
+		breaker:           utils.NewCircuitBreaker("payments-api"),
 		target:             "payments-api",
 	}, nil
 }
 
-// SubscribeWithTrial subscribes the authenticated user to a plan with a trial period.
+// SubscribeWithTrial subscribes the authenticated user to their default plan; payments-api
+// resolves the plan from the caller's role (admin/coach-configured default).
 func (c *PaymentClient) SubscribeWithTrial(ctx context.Context, role, UserRefreshToken string) (*PaymentResponse, error) {
-	// hard-coded plan id and trial days per your request
-	var planHex string
-	if role == "coach" {
-		planHex = c.planHexCoach
-	} else {
-		planHex = c.planHexClient
-	}
-	const trialDays = 30
-
-	payload := map[string]interface{}{
-		"plan_id":    planHex,
-		"trial_days": trialDays,
-	}
-
-	bodyBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
-	}
+	bodyBytes := []byte("{}")
 
 	url := fmt.Sprintf("%s%s", c.baseURL, c.subscribeWithTrial)
 	zap.L().Info("calling payments-api",

@@ -75,9 +75,7 @@ type InvitationAPIConfig struct {
 	APIKey string
 }
 type PaymentAPIConfig struct {
-	URL           string
-	PlanHexCoach  string
-	PlanHexClient string
+	URL string
 }
 type ChatAPIConfig struct {
 	URL string
@@ -116,9 +114,7 @@ func LoadConfig() *AppConfig {
 				APIKey: internalKey,
 			},
 			PaymentAPI: PaymentAPIConfig{
-				URL:           getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
-				PlanHexCoach:  getStringWithDefault("PLAN_HEX_COACH", "68a312e60fed38a0afe2cd57"),
-				PlanHexClient: getStringWithDefault("PLAN_HEX_CLIENT", "68b1c82ff8a8e4136caa57bd"),
+				URL: getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
 			},
 			ConfirmationCodeTemplatePending: getStringWithDefault("CONFIRMATION_CODE_TEMPLATE_PENDING", "confirmation_code_pending"),
 			ResendConfirmationTemplate:      getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),

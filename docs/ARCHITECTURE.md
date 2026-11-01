@@ -580,8 +580,6 @@ Decode into struct with CoachID field
 | `INVITATION_API_URL` | (heroku URL) | Invitation service |
 | `PAYMENT_API_URL` | http://localhost:8088 | Payments service |
 | `CHAT_API_URL` | http://localhost:8088 | Chat service |
-| `PLAN_HEX_COACH` | (hex ID) | Default coach plan ID |
-| `PLAN_HEX_CLIENT` | (hex ID) | Default client plan ID |
 | `COACHIFY_ENCRYPTION_KEY` | (32-char key) | AES-GCM token encryption |
 | `COACHIFY_SECRET_KEY` | (hex key) | HMAC JWT signing |
 | `GOOGLE_APP_ID` / `GOOGLE_APP_SECRET` | — | Google OAuth2 credentials |

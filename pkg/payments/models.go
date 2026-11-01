@@ -12,8 +12,6 @@ type PaymentClient struct {
 	httpClient         *http.Client
 	baseURL            string
 	subscribeWithTrial string
-	planHexCoach       string
-	planHexClient      string
 	breaker            *utils.CircuitBreaker
 	target             string
 }
