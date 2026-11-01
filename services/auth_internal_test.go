@@ -65,7 +65,7 @@ func newAuthSvcWithProviders(p map[oauth2.ProviderType]oauth2.Provider) *AuthSer
 
 func sealedToken(t *testing.T, exp time.Time, secret string) string {
 	t.Helper()
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"exp": exp.Unix(), "id": "u1"}).SignedString([]byte(secret))
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"exp": exp.Unix(), "id": "u1", "role": "coach"}).SignedString([]byte(secret))
 	require.NoError(t, err)
 	enc, err := utils.Encrypt(signed, []byte(svcTestEncKey))
 	require.NoError(t, err)
@@ -128,6 +128,17 @@ func TestValidateAndRefreshTokens(t *testing.T) {
 		require.Nil(t, apiErr)
 		assert.False(t, td.IsNewAccess)
 		assert.Empty(t, td.RefreshToken)
+	})
+
+	t.Run("valid access with stale role claim is reissued", func(t *testing.T) {
+		u := tokenUser()
+		u.UserRole = "client"
+		at, rt := sealedToken(t, future, svcTestSecret), sealedToken(t, future.Add(time.Hour), svcTestSecret)
+		u.Token, u.UserRefreshToken = &at, &rt
+		td, apiErr := s.ValidateAndRefreshTokens(u)
+		require.Nil(t, apiErr)
+		assert.True(t, td.IsNewAccess)
+		assert.NotEqual(t, at, td.AccessToken)
 	})
 
 	t.Run("expired access with valid refresh issues new access only", func(t *testing.T) {

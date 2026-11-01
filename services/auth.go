@@ -129,10 +129,13 @@ func (s *AuthServiceImpl) ValidateAndRefreshTokens(user *db.User) (*TokenData, *
 	if user.Token != nil {
 		expired, err := utils.IsTokenExpired(*user.Token)
 		if err == nil && !expired {
-			result.AccessToken = *user.Token
-			accessTokenExpired = false
 			claims, _ := utils.GetTokenClaims(*user.Token)
-			if claims != nil {
+			// A token minted before the role was set (or before a role change) must not be reused.
+			if claimRole, _ := claims["role"].(string); claims != nil && claimRole == user.UserRole {
+				result.AccessToken = *user.Token
+				accessTokenExpired = false
+			}
+			if claims != nil && !accessTokenExpired {
 				utils.Logger.Info("Valid token for user",
 					zap.String("userId", fmt.Sprintf("%v", user.ID)),
 					zap.String("userId in token", fmt.Sprintf("%v", claims["id"])),
@@ -650,6 +653,12 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
+	// The role must be resolved before minting tokens, otherwise the stored token carries an empty role claim.
+	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
+	if Rolerr != nil {
+		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+	}
+	dbUser.UserRole = role
 	refreshTokenData := mapping.ToRefreshToken(dbUser)
 	token, err := utils.CreateToken(utils.CreateTokenParams{
 		User: refreshTokenData,
@@ -674,17 +683,11 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
-	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
 
 	if role == "client" {
 		s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
 	}
 
-	if Rolerr != nil {
-		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
-	}
-
-	dbUser.UserRole = role
 	inserted, err := s.userRepository.CreateUser(ctx, dbUser)
 	if err != nil {
 
