@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,7 +31,25 @@ func respondApiError(c *gin.Context, apiErr *models.ApiError) {
 	if apiErr.Error != nil {
 		msg = apiErr.Error.Error()
 	}
-	c.JSON(apiErr.Code, gin.H{"error": msg})
+	body := gin.H{"error": msg}
+	// Entitlement denials add a stable machine-readable code (and details); the "error" key is unchanged.
+	var ee *models.EntitlementError
+	if errors.As(apiErr.Error, &ee) {
+		body["code"] = ee.Code
+		if ee.Feature != "" {
+			body["feature"] = ee.Feature
+		}
+		if ee.Limit != "" {
+			body["limit"] = ee.Limit
+		}
+		if ee.Used != nil {
+			body["used"] = *ee.Used
+		}
+		if ee.Max != nil {
+			body["max"] = *ee.Max
+		}
+	}
+	c.JSON(apiErr.Code, body)
 }
 
 // adminOnly aborts with 403 unless the caller's token role is admin.

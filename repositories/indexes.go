@@ -313,6 +313,43 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 					SetName("idx_coaches_created"),
 			},
 		},
+
+		EntitlementGrantsColl: {
+			{
+				Keys:    bson.D{{Key: "subject_id", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("idx_ent_grants_subject_unique"),
+			},
+			{
+				Keys:    bson.D{{Key: "coach_id", Value: 1}},
+				Options: options.Index().SetName("idx_ent_grants_coach"),
+			},
+		},
+		EntitlementDefaultsColl: {
+			{
+				Keys:    bson.D{{Key: "plan_id", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("idx_ent_defaults_plan_unique"),
+			},
+		},
+		EntitlementUsageColl: {
+			{
+				Keys:    bson.D{{Key: "subject_id", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("idx_ent_usage_subject_unique"),
+			},
+		},
+		EntitlementAuditColl: {
+			{
+				Keys:    bson.D{{Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("idx_ent_audit_created"),
+			},
+			{
+				Keys:    bson.D{{Key: "target_id", Value: 1}, {Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("idx_ent_audit_target_created"),
+			},
+			{
+				Keys:    bson.D{{Key: "actor_id", Value: 1}, {Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("idx_ent_audit_actor_created"),
+			},
+		},
 	}
 	
 	// Create indexes for each collection
@@ -419,6 +456,10 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_coach_clients_coach_created",
 			"idx_coach_clients_unique",
 		},
+		EntitlementGrantsColl:   {"idx_ent_grants_subject_unique", "idx_ent_grants_coach"},
+		EntitlementDefaultsColl: {"idx_ent_defaults_plan_unique"},
+		EntitlementUsageColl:    {"idx_ent_usage_subject_unique"},
+		EntitlementAuditColl:    {"idx_ent_audit_created", "idx_ent_audit_target_created", "idx_ent_audit_actor_created"},
 	}
 	
 	var missingIndexes []string

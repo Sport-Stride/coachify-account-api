@@ -100,3 +100,30 @@ func NewApiError(code int, err error) *ApiError {
 		Error: err,
 	}
 }
+
+// Entitlement error codes returned in the `code` field of the error body.
+const (
+	CodeFeatureDisabled       = "FEATURE_DISABLED"
+	CodeClientFeatureDisabled = "CLIENT_FEATURE_DISABLED"
+	CodeQuotaExceeded         = "QUOTA_EXCEEDED"
+	CodeGrantExceedsCoach     = "GRANT_EXCEEDS_COACH"
+	CodeEntitlementsDown      = "ENTITLEMENTS_UNAVAILABLE"
+)
+
+// EntitlementError is carried in ApiError.Error so handlers can add a stable `code` (and the
+// feature/limit details) to the JSON error body without changing the ApiError shape.
+type EntitlementError struct {
+	Code    string
+	Message string
+	Feature string
+	Limit   string
+	Used    *int64
+	Max     *int64
+}
+
+func (e *EntitlementError) Error() string { return e.Message }
+
+// NewEntitlementApiError wraps an EntitlementError in an ApiError with the given HTTP status.
+func NewEntitlementApiError(status int, e *EntitlementError) *ApiError {
+	return &ApiError{Code: status, Error: e}
+}

@@ -144,6 +144,7 @@ var (
 	fullAuth *mocks.AuthService
 	fullAdm  *mocks.AdminService
 	fullCoach *mocks.CoachService
+	fullEnt   *mocks.EntitlementService
 )
 
 // fullRouter builds the real production router (InitializeRouter) once; ginprometheus
@@ -151,12 +152,14 @@ var (
 func fullRouter() *gin.Engine {
 	fullOnce.Do(func() {
 		fullAuth, fullAdm, fullCoach = &mocks.AuthService{}, &mocks.AdminService{}, &mocks.CoachService{}
+		fullEnt = &mocks.EntitlementService{}
 		fullSvcs = &services.Services{
 			AuthService:             fullAuth,
 			CoachService:            fullCoach,
 			AdminService:            fullAdm,
 			TeamService:             &mocks.TeamService{},
 			RegistrationLinkService: &mocks.RegistrationLinkService{},
+			EntitlementService:      fullEnt,
 		}
 		fullEng = router.InitializeRouter(fullSvcs)
 	})
@@ -195,6 +198,17 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 		{"DELETE", "/admin/head-coaches/c1"},
 		{"GET", "/admin/head-coaches/c1/coaches"},
 		{"GET", "/admin/team-audit"},
+		{"GET", "/entitlements/me"},
+		{"GET", "/coach/clients/access"},
+		{"GET", "/coach/clients/k1/access"},
+		{"PUT", "/coach/clients/k1/access"},
+		{"GET", "/admin/coaches/access"},
+		{"GET", "/admin/coaches/c1/access"},
+		{"PUT", "/admin/coaches/c1/access"},
+		{"GET", "/admin/entitlements/features"},
+		{"GET", "/admin/entitlements/plan-defaults"},
+		{"PUT", "/admin/entitlements/plan-defaults/_coach"},
+		{"GET", "/admin/entitlements/audit"},
 		{"GET", "/admin/matricule-fiscale"},
 		{"POST", "/admin/matricule-fiscale/u1/approve"},
 		{"POST", "/admin/matricule-fiscale/u1/reject"},
@@ -246,4 +260,18 @@ func TestUserListAdminOnlyAndNoCreateRoute(t *testing.T) {
 	tok := "Bearer " + makeToken(t, testSecret, validClaims("u1", "client"))
 	assert.Equal(t, http.StatusForbidden, serve(r, "GET", "/user", tok, `{"page":1,"size":10}`).Code)
 	assert.Equal(t, http.StatusNotFound, serve(r, "POST", "/user/", "", `{"email":"a@b.co","role":"admin"}`).Code)
+}
+
+// The /internal group sits outside the JWT group: no token needed; with INTERNAL_API_KEY_REQUIRED
+// unset (rollout mode) a missing key still reaches the handler.
+func TestInternalEntitlementRoutesAreOutsideJWT(t *testing.T) {
+	r := fullRouter()
+	fullEnt.On("Effective", mock.Anything, "u1").Return(&services.Effective{UserID: "u1", Features: map[string]services.FeatureState{}}, nil)
+	w := serve(r, "GET", "/internal/entitlements/u1", "", "")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "\"user_id\":\"u1\"")
+	// a bad body reaches the handler for every internal POST, never the JWT 401
+	for _, p := range []string{"/internal/entitlements/resolve", "/internal/entitlements/u1/consume", "/internal/entitlements/u1/release", "/internal/entitlements/u1/check-quota"} {
+		assert.Equal(t, http.StatusBadRequest, serve(r, "POST", p, "", "{").Code, p)
+	}
 }

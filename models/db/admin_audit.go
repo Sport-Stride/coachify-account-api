@@ -10,6 +10,7 @@ import (
 type AdminAuditEntry struct {
 	ID         primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
 	ActorID    string                 `bson:"actor_id" json:"actor_id"`
+	ActorRole  string                 `bson:"actor_role,omitempty" json:"actor_role,omitempty"`
 	Action     string                 `bson:"action" json:"action"`
 	TargetType string                 `bson:"target_type" json:"target_type"`
 	TargetID   string                 `bson:"target_id" json:"target_id"`

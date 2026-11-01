@@ -29,7 +29,7 @@ func GenerateRegistrationLink(service services.RegistrationLinkService) gin.Hand
 
 		link, apiErr := service.GetOrCreateLink(c.Request.Context(), coachID)
 		if apiErr != nil {
-			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			respondApiError(c, apiErr)
 			return
 		}
 
@@ -52,7 +52,7 @@ func ValidateRegistrationLink(service services.RegistrationLinkService) gin.Hand
 
 		link, coachName, apiErr := service.ValidateToken(c.Request.Context(), token)
 		if apiErr != nil {
-			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			respondApiError(c, apiErr)
 			return
 		}
 
@@ -80,7 +80,7 @@ func RegisterViaLink(authService services.AuthService, regLinkService services.R
 
 		resp, apiErr := authService.RegisterViaLink(c.Request.Context(), token, &req)
 		if apiErr != nil {
-			c.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			respondApiError(c, apiErr)
 			return
 		}
 

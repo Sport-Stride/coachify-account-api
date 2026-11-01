@@ -22,8 +22,9 @@ func NewPaymentClient(cfg utils.PaymentAPIConfig) (*PaymentClient, error) {
 		},
 		baseURL:            cfg.URL,
 		subscribeWithTrial: "/subscriptions/default",
-		breaker:           utils.NewCircuitBreaker("payments-api"),
+		breaker:            utils.NewCircuitBreaker("payments-api"),
 		target:             "payments-api",
+		apiKey:             cfg.APIKey,
 	}, nil
 }
 
@@ -114,4 +115,46 @@ func (c *PaymentClient) GetBulkBillingInfo(ctx context.Context, adminToken strin
 	}
 
 	return &result, nil
+}
+
+// GetSubscriptionSummaries returns the active subscription summary of each user (service-to-service,
+// x-api-key). A 404, timeout or any failure returns an error; callers treat that as "no plan".
+func (c *PaymentClient) GetSubscriptionSummaries(ctx context.Context, userIDs []string) ([]SubscriptionSummaryEntry, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(subscriptionSummaryRequest{UserIDs: userIDs})
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/internal/subscriptions/summary", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
+
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return nil, fmt.Errorf("payments-api subscription summary failed: status=%d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var out subscriptionSummaryResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("error decoding subscription summary response: %w", err)
+	}
+	return out.Summaries, nil
 }

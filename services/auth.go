@@ -57,6 +57,11 @@ type AuthService interface {
 	RejectMatriculeFiscale(ctx context.Context, targetExternalID string, adminExternalID string) *models.ApiError
 }
 
+// registrationLinkLookup resolves a registration link token; *repositories.RegistrationLinkRepository satisfies it.
+type registrationLinkLookup interface {
+	GetByToken(ctx context.Context, token string) (*db.RegistrationLink, error)
+}
+
 type AuthServiceImpl struct {
 	userRepository       repositories.UserRepository
 	coachService         CoachService
@@ -68,9 +73,10 @@ type AuthServiceImpl struct {
 	notificationClient   *notification.NotificationClient
 	providers            map[oauth2.ProviderType]oauth2.Provider
 	payment              *payments.PaymentClient
-	registrationLinkRepo *repositories.RegistrationLinkRepository
+	registrationLinkRepo registrationLinkLookup
 	chatClient           *chat.ChatClient
 	teamRepo             *repositories.TeamRepository
+	entitlements         EntitlementGuard
 }
 
 func NewAuthService(
@@ -103,6 +109,12 @@ func NewAuthService(
 		chatClient:           chatClient,
 		teamRepo:             teamRepo,
 	}
+}
+
+// WithEntitlements sets the in-process entitlement check used by registration links; nil disables it.
+func (s *AuthServiceImpl) WithEntitlements(g EntitlementGuard) *AuthServiceImpl {
+	s.entitlements = g
+	return s
 }
 
 // Common methods
@@ -1287,6 +1299,13 @@ func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req 
 	}
 	if link == nil {
 		return nil, &models.ApiError{Code: http.StatusNotFound, Error: models.ErrRegistrationLinkNotFound}
+	}
+
+	// The coach's plan may disable invitations or cap the number of clients.
+	if s.entitlements != nil {
+		if apiErr := s.entitlements.CheckInvitations(ctx, link.CoachID); apiErr != nil {
+			return nil, apiErr
+		}
 	}
 
 	// Check if email already exists in the system

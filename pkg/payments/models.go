@@ -3,6 +3,7 @@ package payments
 import (
 	"coachify-account-api/utils"
 	"net/http"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -14,6 +15,7 @@ type PaymentClient struct {
 	subscribeWithTrial string
 	breaker            *utils.CircuitBreaker
 	target             string
+	apiKey             string
 }
 
 // PaymentResponse represents the response structure from the payments API
@@ -60,4 +62,21 @@ type BillingInfoEntry struct {
 type BulkBillingResponse struct {
 	Billings []BillingInfoEntry `json:"billings"`
 	Total    int                `json:"total"`
+}
+
+// SubscriptionSummaryEntry is one entry of POST /internal/subscriptions/summary.
+type SubscriptionSummaryEntry struct {
+	UserID           string     `json:"user_id"`
+	Status           string     `json:"status"`
+	PlanID           string     `json:"plan_id"`
+	PlanName         string     `json:"plan_name"`
+	CurrentPeriodEnd *time.Time `json:"current_period_end,omitempty"`
+}
+
+type subscriptionSummaryRequest struct {
+	UserIDs []string `json:"user_ids"`
+}
+
+type subscriptionSummaryResponse struct {
+	Summaries []SubscriptionSummaryEntry `json:"summaries"`
 }

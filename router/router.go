@@ -107,6 +107,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 
 			coachProtectedGroup.GET("/clients", handlers.ListCoachClients(services.CoachService))
 			coachProtectedGroup.GET("/clients/summary", handlers.ListCoachClientsSummary(services.CoachService))
+			coachProtectedGroup.GET("/clients/access", handlers.ListClientAccess(services.EntitlementService))
+			coachProtectedGroup.GET("/clients/:client_id/access", handlers.GetClientAccess(services.EntitlementService))
+			coachProtectedGroup.PUT("/clients/:client_id/access", handlers.UpdateClientAccess(services.EntitlementService))
 			coachProtectedGroup.GET("/client", handlers.GetCoachIDByClientID(services.CoachService))
 			coachProtectedGroup.POST("/clients/check", handlers.CheckClientLinks(services.CoachService))
 			coachProtectedGroup.DELETE("/client/:client_id", handlers.DissociateCoachClient(services.CoachService))
@@ -116,6 +119,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.POST("/gym-invitations/:id/accept", handlers.AcceptGymInvitation(services.GymService))
 			coachProtectedGroup.POST("/gym-invitations/:id/decline", handlers.DeclineGymInvitation(services.GymService))
 		}
+
+		// Own effective feature access: any authenticated role.
+		protected.GET("/entitlements/me", handlers.GetMyEntitlements(services.EntitlementService))
 
 		// Analytics scope: any authenticated role, the service authorizes from the database.
 		analyticsGroup := protected.Group("/analytics")
@@ -154,6 +160,14 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		adminGroup := protected.Group("/admin")
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
+			// Entitlements: static routes before the :id ones.
+			adminGroup.GET("/coaches/access", handlers.ListCoachAccess(services.EntitlementService))
+			adminGroup.GET("/coaches/:id/access", handlers.GetCoachAccess(services.EntitlementService))
+			adminGroup.PUT("/coaches/:id/access", handlers.UpdateCoachAccess(services.EntitlementService))
+			adminGroup.GET("/entitlements/features", handlers.ListEntitlementFeatures(services.EntitlementService))
+			adminGroup.GET("/entitlements/plan-defaults", handlers.ListPlanDefaults(services.EntitlementService))
+			adminGroup.PUT("/entitlements/plan-defaults/:plan_id", handlers.UpdatePlanDefault(services.EntitlementService))
+			adminGroup.GET("/entitlements/audit", handlers.ListEntitlementAudit(services.EntitlementService))
 			adminGroup.GET("/users", handlers.ListAdminUsers(services.AdminService))
 			adminGroup.GET("/users/:id", handlers.GetAdminUser(services.AdminService))
 			adminGroup.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(services.AdminService))
@@ -182,6 +196,17 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			adminGroup.POST("/matricule-fiscale/:userId/approve", handlers.ApproveMatriculeFiscale(services.AuthService))
 			adminGroup.POST("/matricule-fiscale/:userId/reject", handlers.RejectMatriculeFiscale(services.AuthService))
 		}
+	}
+
+	// Service-to-service entitlement endpoints: x-api-key instead of a JWT.
+	internal := r.Group("/internal")
+	internal.Use(InternalAPIKeyMiddleware())
+	{
+		internal.GET("/entitlements/:user_id", handlers.GetInternalEntitlements(services.EntitlementService))
+		internal.POST("/entitlements/resolve", handlers.ResolveInternalEntitlements(services.EntitlementService))
+		internal.POST("/entitlements/:user_id/consume", handlers.ConsumeInternalUsage(services.EntitlementService))
+		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
+		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
 	}
 
 	// fallback

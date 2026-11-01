@@ -36,6 +36,7 @@ type AppConfig struct {
 	Gym                             GymConfig
 	Analytics                       AnalyticsConfig
 	InternalAPIKey                  string
+	InternalAPIKeyRequired          bool
 }
 
 // AnalyticsConfig holds the analytics scope limits.
@@ -75,7 +76,8 @@ type InvitationAPIConfig struct {
 	APIKey string
 }
 type PaymentAPIConfig struct {
-	URL string
+	URL    string
+	APIKey string
 }
 type ChatAPIConfig struct {
 	URL string
@@ -114,7 +116,8 @@ func LoadConfig() *AppConfig {
 				APIKey: internalKey,
 			},
 			PaymentAPI: PaymentAPIConfig{
-				URL: getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
+				URL:    getStringWithDefault("PAYMENT_API_URL", "https://api.coachify.tn/payments"),
+				APIKey: getStringWithDefault("PAYMENT_API_KEY", internalKey),
 			},
 			ConfirmationCodeTemplatePending: getStringWithDefault("CONFIRMATION_CODE_TEMPLATE_PENDING", "confirmation_code_pending"),
 			ResendConfirmationTemplate:      getStringWithDefault("RESEND_CONFIRMATION_TEMPLATE", "resend_confirmation"),
@@ -142,11 +145,12 @@ func LoadConfig() *AppConfig {
 				Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 				Endpoint:     google.Endpoint,
 			},
-			GoogleEncryptionKey:   getStringWithDefault("GOOGLE_ENCRYPTION_KEY", ""),
-			CoachifyEncryptionKey: getStringWithDefault("COACHIFY_ENCRYPTION_KEY", ""),
-			CoachifySecretKey:     getStringWithDefault("COACHIFY_SECRET_KEY", ""),
-			WelcomeTemplate:       getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
-			InternalAPIKey:        internalKey,
+			GoogleEncryptionKey:    getStringWithDefault("GOOGLE_ENCRYPTION_KEY", ""),
+			CoachifyEncryptionKey:  getStringWithDefault("COACHIFY_ENCRYPTION_KEY", ""),
+			CoachifySecretKey:      getStringWithDefault("COACHIFY_SECRET_KEY", ""),
+			WelcomeTemplate:        getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
+			InternalAPIKey:         internalKey,
+			InternalAPIKeyRequired: viper.GetBool("INTERNAL_API_KEY_REQUIRED"),
 		}
 
 		cfg.Gym = GymConfig{

@@ -27,6 +27,7 @@ type Services struct {
 	AnalyticsScopeService   AnalyticsScopeService
 	RegistrationLinkService RegistrationLinkService
 	UserStatus              UserStatusLookup
+	EntitlementService      EntitlementService
 }
 
 func InitServices(config utils.AppConfig,
@@ -45,6 +46,8 @@ func InitServices(config utils.AppConfig,
 	teamRepo *repositories.TeamRepository,
 	adminAuditRepo *repositories.AdminAuditRepository,
 	gymRepo *repositories.GymRepository,
+	entitlementRepo *repositories.EntitlementRepository,
+	entitlementAuditRepo *repositories.AdminAuditRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -68,10 +71,17 @@ func InitServices(config utils.AppConfig,
 		chatClient,
 		teamRepo,
 	)
+	// Plans come from payments-api; a nil client (tests) means every user resolves without a plan.
+	var planSource EntitlementPlanSource
+	if payment != nil {
+		planSource = payment
+	}
+	entitlementService := NewEntitlementService(entitlementRepo, userRepo, coachService, planSource, entitlementAuditRepo)
+	authService.WithEntitlements(entitlementService)
 	registrationLinkService := NewRegistrationLinkService(
 		registrationLinkRepo,
 		userRepo,
-	)
+	).WithEntitlements(entitlementService)
 
 	return &Services{
 		AuthService:             authService,
@@ -82,6 +92,7 @@ func InitServices(config utils.AppConfig,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,
+		EntitlementService:      entitlementService,
 	}
 }
 

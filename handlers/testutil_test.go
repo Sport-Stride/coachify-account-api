@@ -18,6 +18,7 @@ type apiSvcs struct {
 	coach *mocks.CoachService
 	admin *mocks.AdminService
 	reg   *mocks.RegistrationLinkService
+	ent   *mocks.EntitlementService
 }
 
 func newSvcs() *apiSvcs {
@@ -26,6 +27,7 @@ func newSvcs() *apiSvcs {
 		coach: &mocks.CoachService{},
 		admin: &mocks.AdminService{},
 		reg:   &mocks.RegistrationLinkService{},
+		ent:   &mocks.EntitlementService{},
 	}
 }
 
@@ -61,6 +63,13 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 	rl.GET("/:token", handlers.ValidateRegistrationLink(s.reg))
 	rl.POST("/:token/register", handlers.RegisterViaLink(s.auth, s.reg))
 
+	in := r.Group("/internal")
+	in.GET("/entitlements/:user_id", handlers.GetInternalEntitlements(s.ent))
+	in.POST("/entitlements/resolve", handlers.ResolveInternalEntitlements(s.ent))
+	in.POST("/entitlements/:user_id/consume", handlers.ConsumeInternalUsage(s.ent))
+	in.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(s.ent))
+	in.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(s.ent))
+
 	p := r.Group("/")
 	p.Use(func(c *gin.Context) {
 		if userID != "" {
@@ -83,9 +92,20 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 	pc.POST("/clients/check", handlers.CheckClientLinks(s.coach))
 	pc.DELETE("/client/:client_id", handlers.DissociateCoachClient(s.coach))
 	pc.POST("/registration-link", handlers.GenerateRegistrationLink(s.reg))
+	pc.GET("/clients/access", handlers.ListClientAccess(s.ent))
+	pc.GET("/clients/:client_id/access", handlers.GetClientAccess(s.ent))
+	pc.PUT("/clients/:client_id/access", handlers.UpdateClientAccess(s.ent))
+	p.GET("/entitlements/me", handlers.GetMyEntitlements(s.ent))
 
 	pa := p.Group("/admin")
 	pa.GET("/coaches", handlers.ListAdminCoaches(s.admin))
+	pa.GET("/coaches/access", handlers.ListCoachAccess(s.ent))
+	pa.GET("/coaches/:id/access", handlers.GetCoachAccess(s.ent))
+	pa.PUT("/coaches/:id/access", handlers.UpdateCoachAccess(s.ent))
+	pa.GET("/entitlements/features", handlers.ListEntitlementFeatures(s.ent))
+	pa.GET("/entitlements/plan-defaults", handlers.ListPlanDefaults(s.ent))
+	pa.PUT("/entitlements/plan-defaults/:plan_id", handlers.UpdatePlanDefault(s.ent))
+	pa.GET("/entitlements/audit", handlers.ListEntitlementAudit(s.ent))
 	pa.GET("/users", handlers.ListAdminUsers(s.admin))
 	pa.GET("/users/:id", handlers.GetAdminUser(s.admin))
 	pa.PATCH("/users/:id/status", handlers.ChangeAdminUserStatus(s.admin))

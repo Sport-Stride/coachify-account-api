@@ -19,6 +19,8 @@ type RegistrationLinkService interface {
 type RegistrationLinkServiceImpl struct {
 	linkRepo *repositories.RegistrationLinkRepository
 	userRepo *repositories.UserRepository
+	// entitlements checks the coach's invitation feature and client quota; nil disables it.
+	entitlements EntitlementGuard
 }
 
 func NewRegistrationLinkService(
@@ -31,8 +33,19 @@ func NewRegistrationLinkService(
 	}
 }
 
+// WithEntitlements sets the in-process entitlement check; nil disables it.
+func (s *RegistrationLinkServiceImpl) WithEntitlements(g EntitlementGuard) *RegistrationLinkServiceImpl {
+	s.entitlements = g
+	return s
+}
+
 // GetOrCreateLink returns the existing registration link for a coach or creates a new one.
 func (s *RegistrationLinkServiceImpl) GetOrCreateLink(ctx context.Context, coachID string) (*db.RegistrationLink, *models.ApiError) {
+	if s.entitlements != nil {
+		if apiErr := s.entitlements.CheckInvitations(ctx, coachID); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 	existing, err := s.linkRepo.GetByCoachID(ctx, coachID)
 	if err != nil {
 		utils.Logger.Error("failed to get registration link by coach ID", zap.Error(err))

@@ -908,3 +908,69 @@ docker run -p 8080:8080 -e MONGODB_URI=mongodb://mongo:27017 coachify-account-ap
 | Configure external APIs | [utils/config.go](utils/config.go) + [app/app.go](app/app.go) |
 | Debug auth issues | [router/middlewares.go](router/middlewares.go) AuthMiddleware |
 >>>>>>> 1ac64bd0b63f018e0d5544c7fd1b6f50b50d4748
+
+---
+
+## 12. ENTITLEMENTS (FEATURE ACCESS)
+
+Admins manage per-coach feature access, coaches manage per-client access (never above their own). Account-api owns the resolution; other services call the internal endpoints and enforce (403 + stable code). No grants means registry defaults: every feature on, every limit unlimited.
+
+### Registry (code: [services/entitlement_registry.go](services/entitlement_registry.go))
+| key | applies to | limits |
+|---|---|---|
+| workouts, nutrition, chat | coach, client | - |
+| invitations | coach | max_clients |
+| file_manager | coach, client | max_uploads, max_bytes |
+
+Adding a feature = one registry entry + one `RequireFeature("key")` call in the consuming service. A nil limit is unlimited. admin and gym_owner are always fully enabled; features not applying to a role report `enabled:false, source:"n/a"`.
+
+### Resolution
+Per feature, `enabled` and each limit merge independently, last layer wins.
+- Coach: registry default, plan default `_coach`, plan default `<payments plan id>`, coach grant (admin).
+- Client: registry default, `_client`, `<plan id>`, client grant (coach), then capped by the coach's effective value (`enabled = client && coach`, `limit = min`, `source:"coach_cap"` when the cap changed the value). A client grant whose `coach_id` is not the client's current coach is ignored.
+- Plan comes from payments `POST /internal/subscriptions/summary` (cached 5 min). Payments down, 404 or no subscription means no plan: only the `_coach`/`_client` layer applies.
+- Resolved result cached 30s per user in-process; any write purges it.
+- `source`: `default | plan | override | coach_cap | n/a`.
+
+### Collections (db `users`)
+`entitlement_grants` (unique `subject_id`, index `coach_id`), `entitlement_plan_defaults` (unique `plan_id`), `entitlement_usage` (unique `subject_id`, counters per feature), `entitlement_audit` (`AdminAuditEntry` with `actor_role`; actions `entitlement.set`, `plan_default.set`). Indexes are in `repositories/indexes.go` and `VerifyIndexes`.
+
+### Public endpoints (JWT)
+| Method | Path | Role |
+|---|---|---|
+| GET | `/entitlements/me` | any |
+| GET | `/admin/entitlements/features` | admin |
+| GET | `/admin/coaches/access` (`page,size,q,status,feature,disabled`) | admin |
+| GET / PUT | `/admin/coaches/:id/access` (`{features:{k:{enabled?:bool\|null,limits?:{l:int\|null}}},reason?,version?}`) | admin |
+| GET | `/admin/entitlements/plan-defaults` | admin |
+| PUT | `/admin/entitlements/plan-defaults/:plan_id` (`plan_id` = payments hex, `_coach` or `_client`) | admin |
+| GET | `/admin/entitlements/audit` (`target_id,actor_id,page,size`) | admin |
+| GET | `/coach/clients/access` (`page,size,q`, admin adds `coach_id`) | coach, nutritionist, admin |
+| GET / PUT | `/coach/clients/:client_id/access` | coach, nutritionist, admin (403 if not linked) |
+
+`null` clears an override; unknown feature or limit is 400; `version` mismatch is 409; `enabled:true` or a limit above the coach's own is 403 `GRANT_EXCEEDS_COACH`. List endpoints return `{rows,total,page,size}`; client lists also return `grantable` (the coach's effective values).
+
+### Internal endpoints (`x-api-key` = `INTERNAL_API_KEY`, no JWT)
+| Method | Path | Result |
+|---|---|---|
+| GET | `/internal/entitlements/:user_id` | Effective with usage |
+| POST | `/internal/entitlements/resolve` `{user_ids:[<=100]}` | `{entitlements:{id:Effective}}` (unknown ids omitted) |
+| POST | `/internal/entitlements/:user_id/consume` `{feature,deltas:{uploads?,bytes?}}` | 200 `{usage}`, 403 `QUOTA_EXCEEDED` or `FEATURE_DISABLED` (atomic, one conditional update) |
+| POST | `/internal/entitlements/:user_id/release` same body | 200, counters floored at 0 |
+| POST | `/internal/entitlements/:user_id/check-quota` `{feature:"invitations",limit:"max_clients",pending:n}` | 200 `{allowed,used,limit}` or 403 `QUOTA_EXCEEDED` (`used` = linked clients + pending) |
+
+Registration links also check the coach in-process: `GetOrCreateLink` and `RegisterViaLink` return 403 `FEATURE_DISABLED` / `QUOTA_EXCEEDED` (an entitlement lookup failure never blocks them).
+
+### Error `code` field
+Additive: existing clients read only `error`.
+```json
+{"error":"quota exceeded: max_bytes","code":"QUOTA_EXCEEDED","feature":"file_manager","limit":"max_bytes","used":90,"max":100}
+```
+Codes: `FEATURE_DISABLED`, `CLIENT_FEATURE_DISABLED` (set by consumers), `QUOTA_EXCEEDED`, `GRANT_EXCEEDS_COACH` (403), `ENTITLEMENTS_UNAVAILABLE` (503). Implemented as `models.EntitlementError` inside `ApiError.Error`; `handlers.respondApiError` adds the fields.
+
+### Environment variables
+| Variable | Default | Purpose |
+|---|---|---|
+| `INTERNAL_API_KEY` | (empty) | Shared secret for `/internal/*` (also sent to identifier, invitation, notification) |
+| `INTERNAL_API_KEY_REQUIRED` | `false` | `false`: a missing or wrong key is logged (`internal_key_missing`) and allowed; `true`: 401 |
+| `PAYMENT_API_KEY` | `INTERNAL_API_KEY` | `x-api-key` sent to payments `/internal/subscriptions/summary` (payments must run with the same key) |
