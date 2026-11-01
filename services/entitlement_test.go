@@ -2,10 +2,12 @@ package services_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,6 +116,14 @@ func (f *fakeEntStore) ConsumeUsage(_ context.Context, id, feature string, delta
 			u.Counters[feature][c] = 0
 		}
 		f.usage[id] = u
+	}
+	if u.Counters[feature] == nil {
+		u.Counters[feature] = map[string]int64{}
+	}
+	for c := range deltas {
+		if _, ok := u.Counters[feature][c]; !ok {
+			u.Counters[feature][c] = 0
+		}
 	}
 	for c, max := range maxes {
 		if u.Counters[feature][c] > max-deltas[c] {
@@ -892,4 +902,174 @@ func TestPlanCacheAndFailureNotCached(t *testing.T) {
 	_, _ = e.svc.SetCoachAccess(ctx, "adm", "c1", api.UpdateAccessRequest{Features: map[string]api.FeaturePatch{"chat": enabledPatch(true)}})
 	_ = eff(t, e, "c1")
 	assert.Equal(t, calls, e.plans.calls, "plans are cached for 5 minutes")
+}
+
+// ---- parent master switch ----
+
+func TestParentMasterSwitch(t *testing.T) {
+	children := map[string][]string{
+		"workouts":  {"exercises", "workout_templates", "programs", "tasks"},
+		"nutrition": {"recipes", "ingredients", "meal_plans", "recipe_books", "meal_programs"},
+	}
+	t.Run("parent off disables every child with source parent", func(t *testing.T) {
+		for parent, kids := range children {
+			e := newEntEnv()
+			e.store.grants["c1"] = &db.EntitlementGrant{SubjectID: "c1", Features: map[string]db.FeatureGrant{parent: {Enabled: bptr(false)}}}
+			got := eff(t, e, "c1")
+			assert.Equal(t, services.SourceOverride, got.Features[parent].Source)
+			for _, k := range kids {
+				assert.False(t, got.Features[k].Enabled, k)
+				assert.Equal(t, services.SourceParent, got.Features[k].Source, k)
+			}
+		}
+	})
+
+	t.Run("parent on, child off: only the child is off", func(t *testing.T) {
+		e := newEntEnv()
+		e.store.grants["c1"] = &db.EntitlementGrant{SubjectID: "c1", Features: map[string]db.FeatureGrant{"recipes": {Enabled: bptr(false)}}}
+		got := eff(t, e, "c1")
+		assert.False(t, got.Features["recipes"].Enabled)
+		assert.Equal(t, services.SourceOverride, got.Features["recipes"].Source)
+		assert.True(t, got.Features["nutrition"].Enabled)
+		assert.True(t, got.Features["meal_plans"].Enabled)
+	})
+
+	t.Run("child enabled override cannot beat a disabled parent", func(t *testing.T) {
+		e := newEntEnv()
+		e.store.defaults["_coach"] = db.PlanDefault{PlanID: "_coach", Features: map[string]db.FeatureGrant{"workouts": {Enabled: bptr(false)}}}
+		e.store.grants["c1"] = &db.EntitlementGrant{SubjectID: "c1", Features: map[string]db.FeatureGrant{"programs": {Enabled: bptr(true)}}}
+		got := eff(t, e, "c1")
+		assert.False(t, got.Features["programs"].Enabled)
+		assert.Equal(t, services.SourceParent, got.Features["programs"].Source)
+	})
+
+	t.Run("client: parent rule before coach cap", func(t *testing.T) {
+		e := newEntEnv()
+		e.store.grants["k1"] = &db.EntitlementGrant{SubjectID: "k1", CoachID: "c1", Features: map[string]db.FeatureGrant{"nutrition": {Enabled: bptr(false)}}}
+		got := eff(t, e, "k1")
+		assert.False(t, got.Features["recipes"].Enabled)
+		assert.Equal(t, services.SourceParent, got.Features["recipes"].Source)
+
+		e = newEntEnv()
+		e.store.grants["c1"] = &db.EntitlementGrant{SubjectID: "c1", Features: map[string]db.FeatureGrant{"workouts": {Enabled: bptr(false)}}}
+		got = eff(t, e, "k1")
+		assert.False(t, got.Features["tasks"].Enabled)
+		assert.Equal(t, services.SourceCoachCap, got.Features["tasks"].Source, "coach child is off, client child is on: cap applies")
+		assert.True(t, got.Features["recipes"].Enabled)
+	})
+
+	t.Run("registry lists parents before children and accepts child keys in patches", func(t *testing.T) {
+		pos := map[string]int{}
+		for i, d := range services.Features() {
+			pos[d.Key] = i
+			if d.Parent != "" {
+				assert.Contains(t, pos, d.Parent, "parent listed before %s", d.Key)
+			}
+		}
+		assert.Contains(t, pos, "meal_programs")
+		e := newEntEnv()
+		_, apiErr := e.svc.SetCoachAccess(context.Background(), "adm", "c1", api.UpdateAccessRequest{Features: map[string]api.FeaturePatch{"workout_templates": enabledPatch(false)}})
+		require.Nil(t, apiErr)
+	})
+}
+
+// ---- chat monthly messages ----
+
+func TestChatMonthlyMessages(t *testing.T) {
+	ctx := context.Background()
+	limited := func(max int64) *entEnv {
+		e := newEntEnv()
+		e.store.grants["c1"] = &db.EntitlementGrant{SubjectID: "c1", Features: map[string]db.FeatureGrant{
+			"chat": {Limits: map[string]int64{"max_messages_month": max}},
+		}}
+		return e
+	}
+	send := func(e *entEnv, n int64) (map[string]int64, *models.ApiError) {
+		return e.svc.Consume(ctx, "c1", api.UsageDeltaRequest{Feature: "chat", Deltas: map[string]int64{"messages": n}})
+	}
+
+	t.Run("under, at and over the limit", func(t *testing.T) {
+		e := limited(3)
+		u, apiErr := send(e, 2)
+		require.Nil(t, apiErr)
+		assert.Equal(t, map[string]int64{"messages": 2}, u)
+		_, apiErr = send(e, 1)
+		require.Nil(t, apiErr)
+		_, apiErr = send(e, 1)
+		ee := entErr(t, apiErr)
+		assert.Equal(t, http.StatusForbidden, apiErr.Code)
+		assert.Equal(t, models.CodeQuotaExceeded, ee.Code)
+		assert.Equal(t, "chat", ee.Feature)
+		assert.Equal(t, "max_messages_month", ee.Limit)
+		require.NotNil(t, ee.Used)
+		assert.Equal(t, int64(3), *ee.Used)
+		assert.Equal(t, int64(3), *ee.Max)
+	})
+
+	t.Run("unlimited by default", func(t *testing.T) {
+		e := newEntEnv()
+		_, apiErr := send(e, 1000)
+		require.Nil(t, apiErr)
+	})
+
+	t.Run("release floors at zero and unknown counter is 400", func(t *testing.T) {
+		e := limited(5)
+		_, apiErr := send(e, 2)
+		require.Nil(t, apiErr)
+		require.Nil(t, e.svc.Release(ctx, "c1", api.UsageDeltaRequest{Feature: "chat", Deltas: map[string]int64{"messages": 99}}))
+		u, apiErr := send(e, 1)
+		require.Nil(t, apiErr)
+		assert.Equal(t, int64(1), u["messages"])
+		_, apiErr = e.svc.Consume(ctx, "c1", api.UsageDeltaRequest{Feature: "chat", Deltas: map[string]int64{"bytes": 1}})
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+	})
+
+	t.Run("effective usage exposes messages_month and month, other usage unchanged", func(t *testing.T) {
+		e := limited(10)
+		_, apiErr := send(e, 4)
+		require.Nil(t, apiErr)
+		got := eff(t, e, "c1")
+		chat := got.Features["chat"]
+		assert.Equal(t, map[string]int64{"messages_month": 4}, chat.Usage)
+		assert.Equal(t, time.Now().UTC().Format("2006-01"), chat.Month)
+		raw, err := json.Marshal(chat)
+		require.NoError(t, err)
+		var m map[string]interface{}
+		require.NoError(t, json.Unmarshal(raw, &m))
+		usage := m["usage"].(map[string]interface{})
+		assert.Equal(t, float64(4), usage["messages_month"])
+		assert.Equal(t, chat.Month, usage["month"])
+		fm, _ := json.Marshal(got.Features["file_manager"])
+		assert.NotContains(t, string(fm), "month")
+	})
+
+	t.Run("a previous month's count does not apply", func(t *testing.T) {
+		e := limited(3)
+		prev := time.Now().UTC().AddDate(0, -1, -time.Now().UTC().Day()+1)
+		e.store.usage["c1"] = &db.EntitlementUsage{SubjectID: "c1", Counters: map[string]map[string]int64{
+			"chat": {services.CounterKey("messages", prev): 3},
+		}}
+		u, apiErr := send(e, 3)
+		require.Nil(t, apiErr)
+		assert.Equal(t, int64(3), u["messages"])
+		assert.Equal(t, int64(0), eff(t, e, "k1").Features["chat"].Usage["messages_month"], "other users unaffected")
+	})
+}
+
+func TestCounterKeyMonthRollover(t *testing.T) {
+	for name, tc := range map[string]struct {
+		counter string
+		at      time.Time
+		want    string
+	}{
+		"monthly counter":       {"messages", time.Date(2026, 11, 30, 23, 59, 59, 0, time.UTC), "messages_202611"},
+		"rolls over on the 1st": {"messages", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), "messages_202612"},
+		"uses UTC":              {"messages", time.Date(2026, 11, 30, 23, 0, 0, 0, time.FixedZone("x", -2*3600)), "messages_202612"},
+		"year rollover":         {"messages", time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), "messages_202701"},
+		"lifetime counter":      {"bytes", time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), "bytes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, services.CounterKey(tc.counter, tc.at))
+		})
+	}
 }

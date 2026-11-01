@@ -43,7 +43,7 @@ func TestInternalEntitlementsEndpointDefaultsForUserWithNoGrants(t *testing.T) {
 	assert.Equal(t, "coach", body.Role)
 	assert.Nil(t, body.Plan)
 	assert.Equal(t, 60, body.TTLSeconds)
-	require.Len(t, body.Features, 5)
+	require.Len(t, body.Features, 14)
 	for key, f := range body.Features {
 		assert.True(t, f.Enabled, key)
 		assert.Equal(t, "default", f.Source, key)

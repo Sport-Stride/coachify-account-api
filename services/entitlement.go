@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,6 +47,25 @@ type FeatureState struct {
 	Source  string            `json:"source"`
 	Limits  map[string]*int64 `json:"limits"`
 	Usage   map[string]int64  `json:"usage,omitempty"`
+	// Month ("YYYY-MM") is the period of the monthly counters in Usage; it is emitted as usage.month.
+	Month string `json:"-"`
+}
+
+// MarshalJSON keeps the usage object additive: monthly counters add a "month" string beside the numbers.
+func (s FeatureState) MarshalJSON() ([]byte, error) {
+	type plain FeatureState
+	if s.Month == "" || s.Usage == nil {
+		return json.Marshal(plain(s))
+	}
+	usage := make(map[string]interface{}, len(s.Usage)+1)
+	for k, v := range s.Usage {
+		usage[k] = v
+	}
+	usage["month"] = s.Month
+	return json.Marshal(struct {
+		plain
+		Usage map[string]interface{} `json:"usage"`
+	}{plain(s), usage})
 }
 
 // Effective is the resolved feature access of one user.
@@ -348,12 +368,30 @@ func computeLayered(role string, in resolveInput) map[string]FeatureState {
 		if in.grant != nil {
 			applyLayer(&st, def, in.grant.Features[key], SourceOverride)
 		}
-		if role == "client" && in.coach != nil {
+		out[key] = st
+	}
+	// A child is enabled only while its parent is; applied before the coach cap.
+	for key, def := range featureRegistry {
+		st, ok := out[key]
+		if !ok || def.Parent == "" || st.Source == SourceNotApplic {
+			continue
+		}
+		if ps, ok := out[def.Parent]; ok && ps.Source != SourceNotApplic && st.Enabled && !ps.Enabled {
+			st.Enabled = false
+			st.Source = SourceParent
+			out[key] = st
+		}
+	}
+	if role == "client" && in.coach != nil {
+		for key, st := range out {
+			if st.Source == SourceNotApplic {
+				continue
+			}
 			if cs, ok := in.coach.Features[key]; ok {
 				capByCoach(&st, cs)
+				out[key] = st
 			}
 		}
-		out[key] = st
 	}
 	return out
 }
@@ -497,7 +535,7 @@ func (s *entitlementServiceImpl) withUsage(ctx context.Context, eff *Effective) 
 		zap.L().Warn("entitlement usage lookup failed", zap.String("component", "entitlement"), zap.Error(err))
 		return &out
 	}
-	attachCounterUsage(out.Features, usage[eff.UserID])
+	attachCounterUsage(out.Features, usage[eff.UserID], s.now())
 	if entitlementRole(eff.Role) == "coach" {
 		if n, cerr := s.store.CountClients(ctx, eff.UserID); cerr == nil {
 			attachClientUsage(out.Features, int(n))
@@ -507,7 +545,8 @@ func (s *entitlementServiceImpl) withUsage(ctx context.Context, eff *Effective) 
 }
 
 // attachCounterUsage adds the usage counters of every feature that has some (zero when none recorded).
-func attachCounterUsage(features map[string]FeatureState, u *db.EntitlementUsage) {
+// Monthly counters are read at the key of the current UTC month and reported as "<counter>_month".
+func attachCounterUsage(features map[string]FeatureState, u *db.EntitlementUsage, now time.Time) {
 	for key, def := range featureRegistry {
 		st, ok := features[key]
 		if !ok || st.Source == SourceNotApplic {
@@ -519,10 +558,15 @@ func attachCounterUsage(features map[string]FeatureState, u *db.EntitlementUsage
 		}
 		usage := make(map[string]int64, len(counters))
 		for _, c := range counters {
+			name := c
+			if monthlyCounters[c] {
+				name = c + "_month"
+				st.Month = now.UTC().Format("2006-01")
+			}
 			if u != nil {
-				usage[c] = u.Counters[key][c]
+				usage[name] = u.Counters[key][CounterKey(c, now)]
 			} else {
-				usage[c] = 0
+				usage[name] = 0
 			}
 		}
 		st.Usage = usage
@@ -640,6 +684,7 @@ func (s *entitlementServiceImpl) Consume(ctx context.Context, userID string, req
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	now := s.now()
 	eff, apiErr := s.resolve(ctx, userID)
 	if apiErr != nil {
 		return nil, apiErr
@@ -654,18 +699,31 @@ func (s *entitlementServiceImpl) Consume(ctx context.Context, userID string, req
 			maxes[counter] = *lv
 		}
 	}
-	usage, ok, err := s.store.ConsumeUsage(ctx, userID, req.Feature, deltas, maxes)
+	usage, ok, err := s.store.ConsumeUsage(ctx, userID, req.Feature, storageKeys(deltas, now), storageKeys(maxes, now))
 	if err != nil {
 		return nil, entitlementUnavailable(err)
 	}
 	if !ok {
-		return nil, s.quotaDenial(ctx, userID, req.Feature, deltas, maxes)
+		return nil, s.quotaDenial(ctx, userID, req.Feature, deltas, maxes, now)
 	}
-	return usage.Counters[req.Feature], nil
+	out := make(map[string]int64, len(deltas))
+	for counter := range deltas {
+		out[counter] = usage.Counters[req.Feature][CounterKey(counter, now)]
+	}
+	return out, nil
+}
+
+// storageKeys renames counter-keyed values to their storage keys (monthly counters carry the month).
+func storageKeys(in map[string]int64, now time.Time) map[string]int64 {
+	out := make(map[string]int64, len(in))
+	for counter, v := range in {
+		out[CounterKey(counter, now)] = v
+	}
+	return out
 }
 
 // quotaDenial names the first counter that the denied consume would have pushed over its maximum.
-func (s *entitlementServiceImpl) quotaDenial(ctx context.Context, userID, feature string, deltas, maxes map[string]int64) *models.ApiError {
+func (s *entitlementServiceImpl) quotaDenial(ctx context.Context, userID, feature string, deltas, maxes map[string]int64, now time.Time) *models.ApiError {
 	usage, err := s.store.GetUsage(ctx, []string{userID})
 	if err != nil {
 		return entitlementUnavailable(err)
@@ -678,7 +736,7 @@ func (s *entitlementServiceImpl) quotaDenial(ctx context.Context, userID, featur
 	for _, c := range counters {
 		var used int64
 		if u := usage[userID]; u != nil {
-			used = u.Counters[feature][c]
+			used = u.Counters[feature][CounterKey(c, now)]
 		}
 		if used+deltas[c] > maxes[c] {
 			return quotaExceeded(feature, counterLimits[c], used, maxes[c])
@@ -693,7 +751,7 @@ func (s *entitlementServiceImpl) Release(ctx context.Context, userID string, req
 	if apiErr != nil {
 		return apiErr
 	}
-	if err := s.store.ReleaseUsage(ctx, userID, req.Feature, deltas); err != nil {
+	if err := s.store.ReleaseUsage(ctx, userID, req.Feature, storageKeys(deltas, s.now())); err != nil {
 		return entitlementUnavailable(err)
 	}
 	return nil
@@ -1046,7 +1104,7 @@ func lastLogin(t time.Time) *time.Time {
 
 func (s *entitlementServiceImpl) coachRow(r db.CoachAccessRow, plan *PlanInfo, defaults map[string]db.PlanDefault) CoachAccessRow {
 	features := computeFeatures(resolveInput{role: entitlementRole(r.Role), planID: planID(plan), defaults: defaults, grant: r.Grant})
-	attachCounterUsage(features, r.Usage)
+	attachCounterUsage(features, r.Usage, s.now())
 	attachClientUsage(features, r.ClientCount)
 	return CoachAccessRow{
 		ExternalID: r.ExternalID, Firstname: r.Firstname, Lastname: r.Lastname, Email: r.Email, Role: r.Role,

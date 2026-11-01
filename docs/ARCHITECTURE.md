@@ -918,9 +918,14 @@ Admins manage per-coach feature access, coaches manage per-client access (never 
 ### Registry (code: [services/entitlement_registry.go](services/entitlement_registry.go))
 | key | applies to | limits |
 |---|---|---|
-| workouts, nutrition, chat | coach, client | - |
+| workouts, nutrition | coach, client | - (master switches) |
+| exercises, workout_templates, programs, tasks | coach, client | - (children of `workouts`) |
+| recipes, ingredients, meal_plans, recipe_books, meal_programs | coach, client | - (children of `nutrition`) |
+| chat | coach, client | max_messages_month |
 | invitations | coach | max_clients |
 | file_manager | coach, client | max_uploads, max_bytes |
+
+`FeatureDef.Parent` (json `parent`, omitted when empty) links a child to its master: after normal resolution a child is `enabled = child && parent`, with `source:"parent"` when the parent switched it off; for clients this runs before the coach cap. The registry endpoint lists parents before their children. `max_messages_month` is bound to the `messages` counter, stored in `entitlement_usage.counters.chat` under key `messages_<YYYYMM>` (UTC) so it resets monthly by key. Effective usage for chat is `{"messages_month": n, "month": "YYYY-MM"}`; consume/release accept `{feature:"chat",deltas:{messages:n}}`.
 
 Adding a feature = one registry entry + one `RequireFeature("key")` call in the consuming service. A nil limit is unlimited. admin and gym_owner are always fully enabled; features not applying to a role report `enabled:false, source:"n/a"`.
 
@@ -930,7 +935,7 @@ Per feature, `enabled` and each limit merge independently, last layer wins.
 - Client: registry default, `_client`, `<plan id>`, client grant (coach), then capped by the coach's effective value (`enabled = client && coach`, `limit = min`, `source:"coach_cap"` when the cap changed the value). A client grant whose `coach_id` is not the client's current coach is ignored.
 - Plan comes from payments `POST /internal/subscriptions/summary` (cached 5 min). Payments down, 404 or no subscription means no plan: only the `_coach`/`_client` layer applies.
 - Resolved result cached 30s per user in-process; any write purges it.
-- `source`: `default | plan | override | coach_cap | n/a`.
+- `source`: `default | plan | override | coach_cap | parent | n/a`.
 
 ### Collections (db `users`)
 `entitlement_grants` (unique `subject_id`, index `coach_id`), `entitlement_plan_defaults` (unique `plan_id`), `entitlement_usage` (unique `subject_id`, counters per feature), `entitlement_audit` (`AdminAuditEntry` with `actor_role`; actions `entitlement.set`, `plan_default.set`). Indexes are in `repositories/indexes.go` and `VerifyIndexes`.

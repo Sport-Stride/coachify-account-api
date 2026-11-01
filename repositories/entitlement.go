@@ -148,6 +148,16 @@ func (r *EntitlementRepository) ConsumeUsage(ctx context.Context, subjectID, fea
 	if err != nil && !mongo.IsDuplicateKeyError(err) {
 		return nil, false, err
 	}
+	// An existing document may lack these counters (another feature, or a new month key): zero them
+	// so the conditional update below can match.
+	zero := bson.M{}
+	for counter := range deltas {
+		path := "counters." + feature + "." + counter
+		zero[path] = bson.M{"$ifNull": bson.A{"$" + path, int64(0)}}
+	}
+	if _, err := r.usage.UpdateOne(ctx, bson.M{"subject_id": subjectID}, mongo.Pipeline{{{Key: "$set", Value: zero}}}); err != nil {
+		return nil, false, err
+	}
 
 	filter := bson.M{"subject_id": subjectID}
 	for counter, max := range maxes {
