@@ -387,6 +387,23 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	// No user exists, create a new one using the OAuth user info
 	return s.createNewOAuthUser(ctx, oauth)
 }
+// subscribeDefaultPlanAsync subscribes a new user to their default plan in the background, detached
+// from the request context so it survives the response. Failures are logged only.
+func (s *AuthServiceImpl) subscribeDefaultPlanAsync(ctx context.Context, role, refreshToken string) {
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		bg, cancel := context.WithTimeout(bg, 15*time.Second)
+		defer cancel()
+		if _, err := s.payment.SubscribeWithTrial(bg, role, refreshToken); err != nil {
+			zap.L().Error("default plan subscription failed",
+				zap.String("component", "auth"),
+				zap.String("role", role),
+				zap.Error(err),
+			)
+		}
+	}()
+}
+
 func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.GoogleLoginRequest) (*api.OAuthResponse, *models.ApiError) {
 	if oauthUser.InvitedEmail != "" && !strings.EqualFold(oauthUser.Profile.Email, oauthUser.InvitedEmail) {
 		zap.L().Warn("oauth email mismatch",
@@ -430,12 +447,17 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 			if coachUserErr == nil && coachUser != nil && coachUser.Token != nil {
 				coachToken = *coachUser.Token
 			}
-			if convErr := s.chatClient.CreateConversation(ctx, coachId, newUser.ExternalID, coachToken); convErr != nil {
-				zap.L().Warn("createNewOAuthUser: failed to create coach-client conversation",
-					zap.String("component", "auth"),
-					zap.Any("error", convErr),
-				)
-			}
+			bg, extID := context.WithoutCancel(ctx), newUser.ExternalID
+			go func() {
+				bg, cancel := context.WithTimeout(bg, 15*time.Second)
+				defer cancel()
+				if convErr := s.chatClient.CreateConversation(bg, coachId, extID, coachToken); convErr != nil {
+					zap.L().Warn("createNewOAuthUser: failed to create coach-client conversation",
+						zap.String("component", "auth"),
+						zap.Any("error", convErr),
+					)
+				}
+			}()
 		}
 	} else {
 		var Rolerr error
@@ -459,15 +481,8 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	}
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
-	zap.L().Debug("subscribing new user to trial", zap.String("component", "auth"), zap.String("role", newUser.UserRole))
-	_, er := s.payment.SubscribeWithTrial(ctx, newUser.UserRole, refreshToken)
-	if er != nil {
-		zap.L().Error("trial subscription failed",
-			zap.String("component", "auth"),
-			zap.Any("error", er),
-		)
-
-	}
+	// Off the request path: a slow payments-api must not hang Google sign-in.
+	s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
 	if newUser.UserRole == "coach" {
 		newUser.UserStatus = db.ComReg1
 	} else {
@@ -893,7 +908,12 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 	if apiErr := s.checkConfirmCode(ctx, u.UserEmail, req.ConfirmCode); apiErr != nil {
 		return apiErr
 	}
-	s.payment.SubscribeWithTrial(ctx, u.UserRole, u.UserRefreshToken)
+	if _, subErr := s.payment.SubscribeWithTrial(ctx, u.UserRole, u.UserRefreshToken); subErr != nil {
+		zap.L().Error("confirm: default plan subscription failed",
+			zap.String("component", "auth"),
+			zap.Error(subErr),
+		)
+	}
 	if u.UserRole == "coach" {
 		u.UserStatus = db.ComReg1
 	} else {
