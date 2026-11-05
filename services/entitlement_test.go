@@ -967,6 +967,7 @@ func TestParentMasterSwitch(t *testing.T) {
 			}
 		}
 		assert.Contains(t, pos, "meal_programs")
+		assert.Contains(t, pos, "ai_assistant")
 		e := newEntEnv()
 		_, apiErr := e.svc.SetCoachAccess(context.Background(), "adm", "c1", api.UpdateAccessRequest{Features: map[string]api.FeaturePatch{"workout_templates": enabledPatch(false)}})
 		require.Nil(t, apiErr)

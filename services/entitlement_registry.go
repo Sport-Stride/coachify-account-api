@@ -22,6 +22,7 @@ const (
 	FeatureChat        = "chat"
 	FeatureInvitations = "invitations"
 	FeatureFileManager = "file_manager"
+	FeatureAIAssistant = "ai_assistant"
 
 	// Children of the workouts master switch.
 	FeatureExercises        = "exercises"
@@ -70,6 +71,7 @@ var featureRegistry = map[string]FeatureDef{
 	FeatureChat:        {Key: FeatureChat, AppliesTo: coachAndClient, DefaultEnabled: true, Limits: []string{LimitMaxMessagesMonth}},
 	FeatureInvitations: {Key: FeatureInvitations, AppliesTo: []string{"coach"}, DefaultEnabled: true, Limits: []string{LimitMaxClients}},
 	FeatureFileManager: {Key: FeatureFileManager, AppliesTo: coachAndClient, DefaultEnabled: true, Limits: []string{LimitMaxUploads, LimitMaxBytes}},
+	FeatureAIAssistant: {Key: FeatureAIAssistant, AppliesTo: coachAndClient, DefaultEnabled: true, Limits: []string{}},
 
 	FeatureExercises:        child(FeatureExercises, FeatureWorkouts),
 	FeatureWorkoutTemplates: child(FeatureWorkoutTemplates, FeatureWorkouts),
