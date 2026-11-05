@@ -124,6 +124,7 @@ type AdminGymHeadCoachRow struct {
 // GymCoachRow is a team coach of one of the gym's head coaches.
 type GymCoachRow struct {
 	TeamCoachRow  `bson:",inline"`
+	IsHeadCoach   bool   `bson:"is_head_coach" json:"is_head_coach"`
 	HeadCoachID   string `bson:"head_coach_id" json:"head_coach_id"`
 	HeadCoachName string `bson:"head_coach_name" json:"head_coach_name"`
 }

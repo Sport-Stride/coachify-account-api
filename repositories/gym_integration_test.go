@@ -191,6 +191,35 @@ func TestGymPendingForEmail(t *testing.T) {
 	assert.Empty(t, views, "archived gym")
 }
 
+func TestGymHeadCoachCountsAsCoach(t *testing.T) {
+	f := setupGym(t)
+	ctx := context.Background()
+	gid := f.gym.ID.Hex()
+	_, err := f.database.Collection("coach_clients").InsertOne(ctx,
+		bson.M{"coach_id": hA, "client_id": "cl8", "created_at": f.ago(day(1))})
+	require.NoError(t, err)
+
+	rows, _, err := f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{HeadCoachID: hA, Q: "alice"})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, hA, rows[0].ExternalID)
+	assert.True(t, rows[0].IsHeadCoach)
+	assert.Equal(t, 1, rows[0].ClientCount, "the head coach's own client")
+	assert.Equal(t, 1, rows[0].NewClients30d)
+	assert.False(t, rows[0].JoinedTeamAt.IsZero())
+
+	clients, total, err := f.gyms.ListClients(ctx, gid, db.GymClientQuery{CoachID: hA})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, "cl8", clients[0].ExternalID)
+
+	heads, _, err := f.gyms.ListHeadCoachRows(ctx, gid, "alice", 1, 20)
+	require.NoError(t, err)
+	require.Len(t, heads, 1)
+	assert.Equal(t, 7, heads[0].ClientCount, "team clients plus own")
+	assert.Equal(t, 3, heads[0].TeamSize)
+}
+
 func TestGymAggregations(t *testing.T) {
 	f := setupGym(t)
 	ctx := context.Background()
@@ -200,8 +229,8 @@ func TestGymAggregations(t *testing.T) {
 		o, err := f.gyms.Overview(ctx, gid)
 		require.NoError(t, err)
 		assert.Equal(t, 2, o.HeadCoaches)
-		assert.Equal(t, 4, o.Coaches, "c1 c2 c3 c4; the orphan membership has no user")
-		assert.Equal(t, 3, o.ActiveCoaches)
+		assert.Equal(t, 6, o.Coaches, "hA hB c1 c2 c3 c4; the orphan membership has no user")
+		assert.Equal(t, 4, o.ActiveCoaches)
 		assert.Equal(t, 2, o.InactiveCoaches14d)
 		assert.Equal(t, 7, o.TotalClients)
 		assert.Equal(t, 4, o.ActiveClients)
@@ -217,8 +246,8 @@ func TestGymAggregations(t *testing.T) {
 	t.Run("coaches", func(t *testing.T) {
 		rows, total, err := f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{})
 		require.NoError(t, err)
-		assert.Equal(t, 4, total)
-		require.Len(t, rows, 4)
+		assert.Equal(t, 6, total)
+		require.Len(t, rows, 6)
 		for _, r := range rows {
 			assert.NotEmpty(t, r.HeadCoachID)
 			assert.NotEmpty(t, r.HeadCoachName)
@@ -226,10 +255,13 @@ func TestGymAggregations(t *testing.T) {
 
 		rows, total, err = f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{HeadCoachID: hB})
 		require.NoError(t, err)
-		assert.Equal(t, 1, total)
-		assert.Equal(t, c4, rows[0].ExternalID)
-		assert.Equal(t, "Bob Boss", rows[0].HeadCoachName)
-		assert.Equal(t, 1, rows[0].ClientCount)
+		assert.Equal(t, 2, total, "the head coach and c4")
+		assert.Equal(t, hB, rows[0].ExternalID, "Bob before Frank")
+		assert.True(t, rows[0].IsHeadCoach)
+		assert.Equal(t, c4, rows[1].ExternalID)
+		assert.False(t, rows[1].IsHeadCoach)
+		assert.Equal(t, "Bob Boss", rows[1].HeadCoachName)
+		assert.Equal(t, 1, rows[1].ClientCount)
 
 		rows, _, err = f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{Sort: "clients", Size: 1})
 		require.NoError(t, err)

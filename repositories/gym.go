@@ -446,16 +446,28 @@ func (r *GymRepository) RemoveAllByGym(ctx context.Context, gymID, reason string
 
 // ---------- Gym reads ----------
 
-// gymCoachStages lists one row per coach of the teams of the gym's head coaches (optionally one head coach).
+// teamCoachStages expands each gym head coach row into one row per coach of their team, the head coach included
+// (a head coach trains clients too but has no team_members row for their own team). Output field "m" holds coach_id and assigned_at.
+func teamCoachStages() []bson.D {
+	return []bson.D{
+		{{Key: "$lookup", Value: bd("from", teamMembersCollection, "localField", "head_coach_id", "foreignField", "head_coach_id", "as", "m")}},
+		{{Key: "$set", Value: bd("m", bd("$concatArrays", bson.A{
+			bd("$filter", bd("input", "$m", "as", "x", "cond", bd("$ne", bson.A{"$$x.coach_id", "$head_coach_id"}))),
+			bson.A{bd("coach_id", "$head_coach_id", "assigned_at", "$added_at")},
+		}))}},
+		{{Key: "$unwind", Value: "$m"}},
+	}
+}
+
+// gymCoachStages lists one row per coach of the teams of the gym's head coaches, the head coaches included (optionally one head coach).
 func (r *GymRepository) gymCoachStages(gymID, headID string) []bson.D {
 	match := bd("gym_id", gymID)
 	if headID != "" {
 		match = append(match, bson.E{Key: "head_coach_id", Value: headID})
 	}
-	return []bson.D{
-		{{Key: "$match", Value: match}},
-		{{Key: "$lookup", Value: bd("from", teamMembersCollection, "localField", "head_coach_id", "foreignField", "head_coach_id", "as", "m")}},
-		{{Key: "$unwind", Value: "$m"}},
+	stages := []bson.D{{{Key: "$match", Value: match}}}
+	stages = append(stages, teamCoachStages()...)
+	return append(stages, []bson.D{
 		{{Key: "$lookup", Value: bd(
 			"from", r.team.usersName,
 			"let", bd("cid", "$m.coach_id"),
@@ -487,10 +499,11 @@ func (r *GymRepository) gymCoachStages(gymID, headID string) []bson.D {
 			"last_login", "$u.last_login",
 			"created_at", "$u.created_at",
 			"joined_team_at", "$m.assigned_at",
+			"is_head_coach", bd("$eq", bson.A{"$m.coach_id", "$head_coach_id"}),
 			"head_coach_id", 1,
 			"head_coach_name", fullName("$h.firstname", "$h.lastname"),
 		)}},
-	}
+	}...)
 }
 
 // ListCoaches returns one page of the gym's team coaches with client stats, in a single aggregation.
@@ -649,11 +662,23 @@ func (r *GymRepository) ListHeadCoachRows(ctx context.Context, gymID, q string, 
 			},
 			"as", "t",
 		)),
+		bd("$lookup", bd(
+			"from", r.team.clientsName,
+			"let", bd("hid", "$externalid"),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$eq", bson.A{"$coach_id", "$$hid"}))),
+				bd("$count", "n"),
+			},
+			"as", "own",
+		)),
 		bd("$addFields", bd(
 			"team_size", bd("$ifNull", bson.A{bd("$first", "$t.team_size"), 0}),
-			"client_count", bd("$ifNull", bson.A{bd("$first", "$t.client_count"), 0}),
+			"client_count", bd("$add", bson.A{
+				bd("$ifNull", bson.A{bd("$first", "$t.client_count"), 0}),
+				bd("$ifNull", bson.A{bd("$first", "$own.n"), 0}),
+			}),
 		)),
-		bd("$project", bd("t", 0)),
+		bd("$project", bd("t", 0, "own", 0)),
 	}
 	pipeline = append(pipeline, facetPage(data))
 	return runPaged[db.GymHeadCoachRow](ctx, r.heads, pipeline)
@@ -669,11 +694,7 @@ func (r *GymRepository) ListClients(ctx context.Context, gymID string, q db.GymC
 	if q.HeadCoachID != "" {
 		match = append(match, bson.E{Key: "head_coach_id", Value: q.HeadCoachID})
 	}
-	pipeline := []bson.D{
-		{{Key: "$match", Value: match}},
-		{{Key: "$lookup", Value: bd("from", teamMembersCollection, "localField", "head_coach_id", "foreignField", "head_coach_id", "as", "m")}},
-		{{Key: "$unwind", Value: "$m"}},
-	}
+	pipeline := append([]bson.D{{{Key: "$match", Value: match}}}, teamCoachStages()...)
 	if q.CoachID != "" {
 		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bd("m.coach_id", q.CoachID)}})
 	}
