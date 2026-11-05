@@ -279,6 +279,17 @@ func TestHeadCoachAccess(t *testing.T) {
 	})
 }
 
+func TestMyCoachIDsIncludesHead(t *testing.T) {
+	ctx := context.Background()
+	svc, u, ts := newTeamSvc()
+	givenUser(u, coachUser("h1", true, db.Active))
+	ts.On("IDsByHead", mock.Anything, "h1").Return([]string{"c1", "c2"}, nil)
+
+	ids, apiErr := svc.MyCoachIDs(ctx, "h1")
+	require.Nil(t, apiErr)
+	assert.ElementsMatch(t, []string{"c1", "c2", "h1"}, ids)
+}
+
 func TestHeadCoachOutsideTeam(t *testing.T) {
 	ctx := context.Background()
 

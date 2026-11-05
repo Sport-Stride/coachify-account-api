@@ -546,7 +546,13 @@ func (s *teamServiceImpl) MyCoachIDs(ctx context.Context, callerID string) ([]st
 	if err != nil {
 		return nil, s.internal("MyCoachIDs", err)
 	}
-	return ids, nil
+	// the head coach trains clients and holds a plan too, but has no team_members row for their own team
+	for _, id := range ids {
+		if id == callerID {
+			return ids, nil
+		}
+	}
+	return append(ids, callerID), nil
 }
 
 // ---------- Any coach ----------
