@@ -156,6 +156,20 @@ func (c *NotificationClient) SendResetPasswordEmail(ctx context.Context, dbUser 
 	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
 }
 
+// SendGymOwnerWelcomeEmail sends the activation code to an admin-created gym owner
+func (c *NotificationClient) SendGymOwnerWelcomeEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
+	if dbUser.UserEmail == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().GymOwnerWelcomeTemplate
+	dynamicData := map[string]string{
+		"message":  "Your activation code: " + dbUser.UserResetPasswordCode.Code,
+		"subject":  "Welcome to Coachify - activate your gym owner account",
+		"username": dbUser.UserFirstname + " " + dbUser.UserLastname,
+	}
+	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
+}
+
 // SendConfirmResetPasswordEmail sends a confirmation of password reset
 func (c *NotificationClient) SendConfirmResetPasswordEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
 	if dbUser.UserEmail == "" {

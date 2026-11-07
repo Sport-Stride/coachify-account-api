@@ -58,6 +58,8 @@ type AdminAuditStore interface {
 type AccountEmailSender interface {
 	ResendConfirmEmail(ctx context.Context, email string) *models.ApiError
 	InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
+	// InitGymOwnerWelcome issues a set-password code and emails it with the gym owner welcome template.
+	InitGymOwnerWelcome(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
 	// CreateGymOwnerAccount inserts an Active, verified gym_owner with an unusable password and returns its external id.
 	CreateGymOwnerAccount(ctx context.Context, firstname, lastname, email string) (string, *models.ApiError)
 }
@@ -203,8 +205,8 @@ func (s *adminServiceImpl) CreateGymOwner(ctx context.Context, actorID, firstnam
 		After:    map[string]interface{}{"role": db.RoleGymOwner, "status": string(db.Active)},
 	})
 
-	if apiErr := s.mailer.InitResetPassword(ctx, &api.ResetPasswordRequest{Email: email}); apiErr != nil {
-		return nil, s.mailerError("admin gym owner set-password email failed", apiErr)
+	if apiErr := s.mailer.InitGymOwnerWelcome(ctx, &api.ResetPasswordRequest{Email: email}); apiErr != nil {
+		return nil, s.mailerError("admin gym owner welcome email failed", apiErr)
 	}
 
 	return &db.AdminUserRow{

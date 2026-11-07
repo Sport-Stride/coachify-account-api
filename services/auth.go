@@ -1025,6 +1025,15 @@ func (s AuthServiceImpl) ResendConfirmEmail(ctx context.Context, email string) *
 }
 
 func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError {
+	return s.initResetPassword(ctx, request, s.notificationClient.SendResetPasswordEmail)
+}
+
+// InitGymOwnerWelcome is InitResetPassword with the gym owner welcome email.
+func (s AuthServiceImpl) InitGymOwnerWelcome(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError {
+	return s.initResetPassword(ctx, request, s.notificationClient.SendGymOwnerWelcomeEmail)
+}
+
+func (s AuthServiceImpl) initResetPassword(ctx context.Context, request *api.ResetPasswordRequest, send func(context.Context, *api.ResetPasswordResponse) error) *models.ApiError {
 	user, err := s.userRepository.GetByEmailToResetPassword(ctx, request.Email)
 
 	if err != nil {
@@ -1043,7 +1052,7 @@ func (s AuthServiceImpl) InitResetPassword(ctx context.Context, request *api.Res
 	// Get the user from the database using email
 
 	// Send reset password email using notification client
-	if err := s.notificationClient.SendResetPasswordEmail(ctx, user); err != nil {
+	if err := send(ctx, user); err != nil {
 		zap.L().Warn("failed to send reset password email",
 			zap.String("component", "auth"),
 			zap.Error(err),

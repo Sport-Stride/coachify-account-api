@@ -76,6 +76,7 @@ func (f *fakeAudit) Insert(_ context.Context, e *db.AdminAuditEntry) error {
 type fakeMailer struct {
 	confirmEmails []string
 	resetEmails   []string
+	welcomeEmails []string
 	err           *models.ApiError
 	createdOwners []string
 	createErr     *models.ApiError
@@ -91,6 +92,11 @@ func (f *fakeMailer) CreateGymOwnerAccount(_ context.Context, _, _, email string
 
 func (f *fakeMailer) ResendConfirmEmail(_ context.Context, email string) *models.ApiError {
 	f.confirmEmails = append(f.confirmEmails, email)
+	return f.err
+}
+
+func (f *fakeMailer) InitGymOwnerWelcome(_ context.Context, r *api.ResetPasswordRequest) *models.ApiError {
+	f.welcomeEmails = append(f.welcomeEmails, r.Email)
 	return f.err
 }
 
@@ -256,7 +262,7 @@ func TestAdminCreateGymOwner(t *testing.T) {
 			assert.Equal(t, tc.wantCode, apiErr.Code)
 			assert.EqualError(t, apiErr.Error, tc.wantMsg)
 			assert.Empty(t, mailer.createdOwners)
-			assert.Empty(t, mailer.resetEmails)
+			assert.Empty(t, mailer.welcomeEmails)
 			assert.Empty(t, audit.entries)
 		})
 	}
@@ -268,7 +274,7 @@ func TestAdminCreateGymOwner(t *testing.T) {
 		assert.Nil(t, row)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusConflict, apiErr.Code)
-		assert.Empty(t, mailer.resetEmails)
+		assert.Empty(t, mailer.welcomeEmails)
 		assert.Empty(t, audit.entries)
 	})
 
@@ -292,7 +298,7 @@ func TestAdminCreateGymOwner(t *testing.T) {
 		assert.Equal(t, "ada@gym.io", row.Email)
 		assert.Equal(t, "Ada", row.Firstname)
 		assert.Equal(t, []string{"ada@gym.io"}, mailer.createdOwners)
-		assert.Equal(t, []string{"ada@gym.io"}, mailer.resetEmails)
+		assert.Equal(t, []string{"ada@gym.io"}, mailer.welcomeEmails)
 		require.Len(t, audit.entries, 1)
 		e := audit.entries[0]
 		assert.Equal(t, "gym_owner.created", e.Action)
