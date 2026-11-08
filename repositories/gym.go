@@ -898,7 +898,7 @@ func (r *GymRepository) ListPendingForEmail(ctx context.Context, email string, n
 	defer cancel()
 
 	pipeline := []bson.D{
-		{{Key: "$match", Value: bd("email", email, "status", db.GymInvitePending, "expires_at", bd("$gt", now))}},
+		{{Key: "$match", Value: bd("email", bd("$eq", email, "$gt", ""), "status", db.GymInvitePending, "expires_at", bd("$gt", now))}},
 		{{Key: "$sort", Value: bd("created_at", -1)}},
 		{{Key: "$limit", Value: int64(100)}},
 		// gym_id is stored as a string; convert once so the join hits the _id index (a computed $expr match cannot).

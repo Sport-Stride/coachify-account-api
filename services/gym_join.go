@@ -129,12 +129,16 @@ func (s *gymServiceImpl) acceptByToken(ctx context.Context, u *db.User, token st
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	now := time.Now()
+	// A used, revoked or expired token looks like an unknown one.
+	if apiErr := s.pendingInvitation(ctx, inv, now); apiErr != nil {
+		if apiErr.Code == http.StatusConflict {
+			return nil, teamErr(http.StatusNotFound, errInviteNotFound)
+		}
+		return nil, apiErr
+	}
 	if inv.Email != "" && inv.Email != strings.ToLower(strings.TrimSpace(u.UserEmail)) {
 		return nil, teamErr(http.StatusForbidden, models.ErrInviteEmailMismatch)
-	}
-	now := time.Now()
-	if apiErr := s.pendingInvitation(ctx, inv, now); apiErr != nil {
-		return nil, apiErr
 	}
 	return s.joinGym(ctx, u, inv, now)
 }

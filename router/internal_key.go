@@ -35,7 +35,7 @@ func internalAPIKeyMiddleware(settings func() (key string, required bool)) gin.H
 		}
 		if !required {
 			zap.L().Warn("internal_key_missing",
-				zap.String("path", c.Request.URL.Path),
+				zap.String("path", loggedPath(c)),
 				zap.String("ip", c.ClientIP()),
 			)
 			c.Next()

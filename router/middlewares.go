@@ -62,7 +62,7 @@ func requestLogger() gin.HandlerFunc {
 		c.Next()
 		zap.L().Debug("request",
 			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
+			zap.String("path", loggedPath(c)),
 			zap.Int("status", c.Writer.Status()),
 			zap.Duration("latency", time.Since(start)),
 		)
@@ -76,6 +76,7 @@ func Ginzap(logger utils.LogWrapperObj, timeFormat string, utc bool, alwaysLog b
 		path := c.Request.URL.Path
 		query := c.Request.URL.RawQuery
 		c.Next()
+		path = loggedPath(c)
 
 		end := time.Now()
 		latency := end.Sub(start)
@@ -120,9 +121,13 @@ func RecoveryWithZap(logger utils.LogWrapperObj, stack bool) gin.HandlerFunc {
 					}
 				}
 
-				httpRequest, _ := httputil.DumpRequest(redactedRequest(c.Request), false)
+				redacted := redactedRequest(c.Request)
+				if p := loggedPath(c); p != c.Request.URL.Path {
+					redacted.URL.Path, redacted.URL.RawPath, redacted.RequestURI = p, "", ""
+				}
+				httpRequest, _ := httputil.DumpRequest(redacted, false)
 				if brokenPipe {
-					logger.Error(c.Request.URL.Path,
+					logger.Error(loggedPath(c),
 						zap.Any("error", err),
 						zap.String("request", string(httpRequest)),
 					)
@@ -263,4 +268,13 @@ func redactedRequest(r *http.Request) *http.Request {
 		}
 	}
 	return clone
+}
+
+// loggedPath is the path to write to logs: routes with a ":token" segment (join, invite and
+// registration links) log their route template, because the raw path carries a credential.
+func loggedPath(c *gin.Context) string {
+	if full := c.FullPath(); strings.Contains(full, ":token") {
+		return full
+	}
+	return c.Request.URL.Path
 }

@@ -139,6 +139,9 @@ func (f *fakeGymStore) ListGymHeadCoachesAdmin(_ context.Context, gymID string) 
 	return out, nil
 }
 func (f *fakeGymStore) AddHeadCoach(_ context.Context, h *db.GymHeadCoach, reason string) error {
+	if err := f.fail("AddHeadCoach"); err != nil {
+		return err
+	}
 	if _, ok := f.heads[h.HeadCoachID]; ok {
 		return repositories.ErrHeadCoachInGym
 	}

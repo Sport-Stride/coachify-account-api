@@ -124,7 +124,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/gym-invitations", handlers.ListMyGymInvitations(services.GymService))
 			coachProtectedGroup.POST("/gym-invitations/:id/accept", handlers.AcceptGymInvitation(services.GymService))
 			coachProtectedGroup.POST("/gym-invitations/:id/decline", handlers.DeclineGymInvitation(services.GymService))
-			coachProtectedGroup.POST("/gym-join/:token/accept", handlers.AcceptGymJoin(services.GymService))
+			coachProtectedGroup.POST("/gym-join/:token/accept", RateLimit(30, time.Minute, userOrIPKey), handlers.AcceptGymJoin(services.GymService))
 		}
 
 		// Own effective feature access: any authenticated role.

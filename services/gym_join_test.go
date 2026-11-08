@@ -234,7 +234,7 @@ func TestAcceptByToken(t *testing.T) {
 		givenUser(u, gymUser("c2", "coach", db.Active, "two@x.tn", false))
 		_, apiErr = svc.AcceptByToken(ctx, "c2", raw)
 		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusConflict, apiErr.Code)
+		assert.Equal(t, http.StatusNotFound, apiErr.Code)
 	})
 
 	t.Run("email-bound link accepts the matching email", func(t *testing.T) {
@@ -271,12 +271,12 @@ func TestAcceptByToken(t *testing.T) {
 
 		_, apiErr = svc.AcceptByToken(ctx, "c1", expired)
 		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusConflict, apiErr.Code)
+		assert.Equal(t, http.StatusNotFound, apiErr.Code)
 		assert.Equal(t, db.GymInviteExpired, expInv.Status)
 
 		_, apiErr = svc.AcceptByToken(ctx, "c1", revoked)
 		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusConflict, apiErr.Code)
+		assert.Equal(t, http.StatusNotFound, apiErr.Code)
 	})
 
 	t.Run("already in a gym is 409 and the link stays usable", func(t *testing.T) {
@@ -329,4 +329,37 @@ func TestJoinOnSignup(t *testing.T) {
 			assert.Equal(t, http.StatusForbidden, apiErr.Code, id)
 		}
 	})
+}
+
+func TestOpenLinksNotReachableByID(t *testing.T) {
+	ctx := context.Background()
+	svc, u, g := newJoinSvc(nil)
+	gym := g.addGym("owner1", db.GymStatusActive)
+	_, inv := addTokenInvite(g, gym, "", db.GymInvitePending, time.Now().Add(time.Hour))
+	givenUser(u, gymUser("c1", "coach", db.Active, "", false))
+
+	_, apiErr := svc.AcceptInvitation(ctx, "c1", inv.ID.Hex())
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Code)
+	assert.Equal(t, db.GymInvitePending, inv.Status)
+
+	views, apiErr := svc.ListMyInvitations(ctx, "c1")
+	require.Nil(t, apiErr)
+	assert.Empty(t, views)
+}
+
+func TestAcceptRevertsClaimOnFailure(t *testing.T) {
+	ctx := context.Background()
+	svc, u, g := newJoinSvc(nil)
+	gym := g.addGym("owner1", db.GymStatusActive)
+	raw, inv := addTokenInvite(g, gym, "", db.GymInvitePending, time.Now().Add(time.Hour))
+	givenUser(u, gymUser("c1", "coach", db.Active, "c@x.tn", false))
+	u.On("SetHeadCoach", mock.Anything, "c1", true, "owner1").Return(nil)
+	u.On("SetHeadCoach", mock.Anything, "c1", false, "owner1").Return(nil)
+	g.failOn = "AddHeadCoach"
+
+	_, apiErr := svc.AcceptByToken(ctx, "c1", raw)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
+	assert.Equal(t, db.GymInvitePending, inv.Status, "claim must be released so the link stays usable")
 }

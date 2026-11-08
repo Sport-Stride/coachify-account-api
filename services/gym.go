@@ -584,6 +584,9 @@ func (s *gymServiceImpl) ListMyInvitations(ctx context.Context, callerID string)
 		return nil, apiErr
 	}
 	email := strings.ToLower(strings.TrimSpace(u.UserEmail))
+	if email == "" {
+		return []db.GymInvitationView{}, nil
+	}
 	// No ExpireDue write here: the list already excludes expired rows, Accept re-checks expiry,
 	// and the gym-side list/invite paths flip the stored status. A write per page load stalls on journal fsync.
 	views, err := s.gyms.ListPendingForEmail(ctx, email, time.Now())
@@ -602,7 +605,8 @@ func (s *gymServiceImpl) ownInvitation(ctx context.Context, u *db.User, invitati
 	if err != nil {
 		return nil, s.internal("ownInvitation", err)
 	}
-	if inv == nil || inv.Email != strings.ToLower(strings.TrimSpace(u.UserEmail)) {
+	// Open join links (empty email) are token-only and never reachable by id.
+	if inv == nil || inv.Email == "" || inv.Email != strings.ToLower(strings.TrimSpace(u.UserEmail)) {
 		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 	}
 	return inv, nil
@@ -665,9 +669,22 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	}
 	gid := g.ID.Hex()
 
+	// Claim the invitation first so two concurrent redemptions of one single-use link cannot both join.
+	claimed, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInvitePending, db.GymInviteAccepted, callerID, now)
+	if err != nil {
+		return nil, s.internal("Accept.claim", err)
+	}
+	if !claimed {
+		return nil, teamErr(http.StatusConflict, errInviteNotPending)
+	}
+
 	// Becoming a head coach reuses the promote path: the flag is set with the gym owner as promoter.
 	setFlag := !u.IsHeadCoach
+	// rollbackFlag undoes the claim and, when it was set here, the head coach flag.
 	rollbackFlag := func() {
+		if _, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInviteAccepted, db.GymInvitePending, "", now); err != nil {
+			s.internal("Accept.revertClaim", err)
+		}
 		if !setFlag {
 			return
 		}
@@ -677,6 +694,7 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	}
 	if setFlag {
 		if err := s.users.SetHeadCoach(ctx, callerID, true, g.OwnerID); err != nil {
+			rollbackFlag()
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 			}
@@ -704,19 +722,6 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 			return nil, teamErr(http.StatusConflict, errAlreadyInGym)
 		}
 		return nil, s.internal("Accept.add", err)
-	}
-
-	ok, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInvitePending, db.GymInviteAccepted, callerID, now)
-	if err != nil || !ok {
-		// Undo: the invitation was revoked or declined meanwhile, or the write failed.
-		if _, _, rErr := s.gyms.ReleaseHead(ctx, callerID, db.PeriodReasonGymRemove); rErr != nil {
-			s.internal("Accept.undoMembership", rErr)
-		}
-		rollbackFlag()
-		if err != nil {
-			return nil, s.internal("Accept.transition", err)
-		}
-		return nil, teamErr(http.StatusConflict, errInviteNotPending)
 	}
 
 	entries := make([]*db.TeamAuditEntry, 0, 2)

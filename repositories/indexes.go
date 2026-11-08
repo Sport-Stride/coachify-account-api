@@ -427,7 +427,7 @@ func dropLegacyIndexes(ctx context.Context, db *mongo.Database) {
 			_, err := db.Collection(collectionName).Indexes().DropOne(dropCtx, name)
 			cancel()
 			var cmdErr mongo.CommandError
-			if err != nil && !(errors.As(err, &cmdErr) && cmdErr.Code == 27) { // 27 = IndexNotFound
+			if err != nil && !(errors.As(err, &cmdErr) && (cmdErr.Code == 27 || cmdErr.Code == 26)) { // 27 = IndexNotFound, 26 = NamespaceNotFound
 				zap.L().Warn("failed to drop legacy index",
 					zap.String("component", "repository"),
 					zap.String("collection", collectionName),

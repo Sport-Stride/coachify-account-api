@@ -640,13 +640,13 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 		return s.registerInvitedGymOwner(ctx, req)
 	}
 	// A gym join link makes this a head coach signup; an email-bound link must match the signup email.
-	joinEmail := ""
+	joinEmail, joining := "", false
 	if req.GymJoinToken != "" {
 		var apiErr *models.ApiError
 		if joinEmail, apiErr = s.checkGymJoin(ctx, req.GymJoinToken, req.Email); apiErr != nil {
 			return nil, apiErr
 		}
-		req.Role = "coach"
+		req.Role, joining = "coach", true
 	}
 
 	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
@@ -723,7 +723,7 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
 	// The role must be resolved before minting tokens, otherwise the stored token carries an empty role claim.
 	role, coachId := "coach", ""
-	if req.GymJoinToken == "" {
+	if !joining {
 		var Rolerr error
 		role, coachId, Rolerr = s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
 		if Rolerr != nil {

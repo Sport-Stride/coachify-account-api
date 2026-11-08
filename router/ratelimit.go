@@ -83,5 +83,13 @@ func newRateLimit(perKey int, window time.Duration, key func(*gin.Context) strin
 	}
 }
 
+// userOrIPKey keys the limiter by the authenticated user, falling back to the client IP.
+func userOrIPKey(c *gin.Context) string {
+	if id := c.GetString("userID"); id != "" {
+		return "u:" + id
+	}
+	return c.ClientIP()
+}
+
 // clientIPKey keys the limiter by client IP.
 func clientIPKey(c *gin.Context) string { return c.ClientIP() }
