@@ -13,6 +13,8 @@ on:
       - 'handlers/**'
       - 'models/**'
       - 'core/**'
+      - 'pkg/**'
+      - 'utils/**'
       - 'services/**'
       - 'repositories/**'
       - 'router/**'
