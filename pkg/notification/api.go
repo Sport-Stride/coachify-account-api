@@ -76,7 +76,7 @@ func (c *NotificationClient) SendMail(ctx context.Context, dbUser *db.User) erro
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -229,7 +229,7 @@ func (c *NotificationClient) sendEmail(ctx context.Context, to, template string,
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
