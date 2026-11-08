@@ -175,11 +175,12 @@ func (c *NotificationClient) SendGymOwnerInviteEmail(ctx context.Context, email,
 	if email == "" {
 		return fmt.Errorf("no email recipient provided")
 	}
-	template := utils.LoadConfig().GymOwnerWelcomeTemplate
+	template := utils.LoadConfig().GymOwnerInviteTemplate
 	dynamicData := map[string]string{
 		"message":  "You have been invited to join Coachify as a gym owner. Create your account here: " + link,
 		"subject":  "You are invited to Coachify as a gym owner",
 		"username": name,
+		"link":     link,
 	}
 	return c.sendEmail(ctx, email, template, dynamicData)
 }
