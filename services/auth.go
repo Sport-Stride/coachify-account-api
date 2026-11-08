@@ -403,6 +403,11 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 		return s.createInvitedGymOwnerOAuth(ctx, oauth)
 	}
 	if user != nil {
+		// A client registration link is not usable by an account of another role: refuse it
+		// instead of signing the person in as if the link had worked.
+		if oauth.RegistrationToken != "" && oauth.GymJoinToken == "" && user.UserRole != "client" {
+			return nil, &models.ApiError{Code: http.StatusConflict, Error: models.ErrRegistrationLinkRole}
+		}
 		// Existing user: link provider details or log them in
 		return s.linkExistingUser(ctx, user, oauth)
 	}

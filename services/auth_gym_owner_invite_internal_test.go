@@ -137,6 +137,25 @@ func TestRegisterInvitedGymOwner(t *testing.T) {
 	})
 }
 
+func TestHandleOAuthLoginRegistrationLinkRole(t *testing.T) {
+	ctx := context.Background()
+	providers := map[oauth2.ProviderType]oauth2.Provider{"google": &fakeProvider{claims: &oauth2.TokenClaims{
+		Email: "o@b.co", EmailVerified: true, Subject: "sub-1", GivenName: "Gia", FamilyName: "Owner",
+	}}}
+	req := db.GoogleLoginRequest{Account: db.GoogleAccount{IdToken: "idt"}, Role: "client", RegistrationToken: "reg"}
+
+	for _, role := range []string{db.RoleGymOwner, "coach"} {
+		t.Run(role+" account is refused", func(t *testing.T) {
+			users := &stubOwnerUsers{existing: &db.User{ExternalID: "u9", UserEmail: "o@b.co", UserRole: role, UserStatus: db.Active}}
+			_, apiErr := newInvitedAuth(users, &stubRedeemer{}, providers).HandleOAuthLogin(ctx, "google", req)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusConflict, apiErr.Code)
+			assert.ErrorIs(t, apiErr.Error, models.ErrRegistrationLinkRole)
+			assert.Empty(t, users.created)
+		})
+	}
+}
+
 func TestHandleOAuthLoginInvitedGymOwner(t *testing.T) {
 	ctx := context.Background()
 	providers := func(email string) map[oauth2.ProviderType]oauth2.Provider {
