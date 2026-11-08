@@ -62,6 +62,7 @@ type GymInvitation struct {
 	InviterID   string             `bson:"inviter_id"`
 	Email       string             `bson:"email"` // lowercased
 	InviteeID   string             `bson:"invitee_id,omitempty"`
+	TokenHash   string             `bson:"token_hash,omitempty"` // sha256 of the join link token; the raw token is never stored
 	Status      string             `bson:"status"`
 	ExpiresAt   time.Time          `bson:"expires_at"` // enforced by the service, no TTL index
 	CreatedAt   time.Time          `bson:"created_at"`

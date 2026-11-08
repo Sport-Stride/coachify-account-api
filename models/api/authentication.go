@@ -82,6 +82,8 @@ type CreateUserRequest struct {
 	Status      UserStatus `json:"status" `
 	// GymOwnerInviteToken is the raw token of an admin-issued gym owner invite.
 	GymOwnerInviteToken string `json:"gym_owner_invite_token,omitempty"`
+	// GymJoinToken is the raw token of a gym join link for head coaches.
+	GymJoinToken string `json:"gym_join_token,omitempty"`
 	jwt.StandardClaims
 }
 

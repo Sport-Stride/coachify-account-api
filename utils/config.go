@@ -25,6 +25,7 @@ type AppConfig struct {
 	ResetPasswordTemplate           string
 	GymOwnerWelcomeTemplate         string
 	GymOwnerInviteTemplate          string
+	GymJoinInviteTemplate           string
 	ConfirmResetPasswordTemplate    string
 	ChatAPI                         ChatAPIConfig
 	FacebookOAuth                   *oauth2.Config
@@ -128,6 +129,7 @@ func LoadConfig() *AppConfig {
 			ResetPasswordTemplate:           getStringWithDefault("RESET_PASSWORD_TEMPLATE", "reset_password"),
 			GymOwnerWelcomeTemplate:         getStringWithDefault("GYM_OWNER_WELCOME_TEMPLATE", "gym_owner_welcome"),
 			GymOwnerInviteTemplate:          getStringWithDefault("GYM_OWNER_INVITE_TEMPLATE", "gym_owner_invite"),
+			GymJoinInviteTemplate:           getStringWithDefault("GYM_JOIN_INVITE_TEMPLATE", "gym_join_invite"),
 			ConfirmResetPasswordTemplate:    getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
 			NotificationAPI: NotificationAPIConfig{
 				URL:    getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),

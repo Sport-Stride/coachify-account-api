@@ -190,7 +190,7 @@ func (f *fakeGymStore) ListClients(context.Context, string, db.GymClientQuery) (
 }
 func (f *fakeGymStore) InsertInvitation(_ context.Context, inv *db.GymInvitation) error {
 	for _, e := range f.invites {
-		if e.GymID == inv.GymID && e.Email == inv.Email && e.Status == db.GymInvitePending {
+		if inv.Email != "" && e.GymID == inv.GymID && e.Email == inv.Email && e.Status == db.GymInvitePending {
 			return repositories.ErrInvitationPending
 		}
 	}
@@ -218,6 +218,17 @@ func (f *fakeGymStore) ExpireDue(_ context.Context, gymID, email string, now tim
 }
 func (f *fakeGymStore) GetInvitation(_ context.Context, id string) (*db.GymInvitation, error) {
 	return f.invites[id], nil
+}
+func (f *fakeGymStore) GetInvitationByTokenHash(_ context.Context, hash string) (*db.GymInvitation, error) {
+	if err := f.fail("GetInvitationByTokenHash"); err != nil {
+		return nil, err
+	}
+	for _, i := range f.invites {
+		if i.TokenHash != "" && i.TokenHash == hash {
+			return i, nil
+		}
+	}
+	return nil, nil
 }
 func (f *fakeGymStore) TransitionInvitation(_ context.Context, id, from, to, invitee string, _ time.Time) (bool, error) {
 	i := f.invites[id]

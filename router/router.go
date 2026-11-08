@@ -70,6 +70,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	// Public gym owner invite lookup (no auth required)
 	r.GET("/gym-owner-invites/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupGymOwnerInvite(services.GymOwnerInviteService))
 
+	// Public gym join link lookup (no auth required)
+	r.GET("/gym-join/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupGymJoin(services.GymService))
+
 	// Public registration link routes (no auth required)
 	regLinkGroup := r.Group("/coach/registration-link")
 	regLinkGroup.GET("/:token", handlers.ValidateRegistrationLink(services.RegistrationLinkService))
@@ -121,6 +124,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			coachProtectedGroup.GET("/gym-invitations", handlers.ListMyGymInvitations(services.GymService))
 			coachProtectedGroup.POST("/gym-invitations/:id/accept", handlers.AcceptGymInvitation(services.GymService))
 			coachProtectedGroup.POST("/gym-invitations/:id/decline", handlers.DeclineGymInvitation(services.GymService))
+			coachProtectedGroup.POST("/gym-join/:token/accept", handlers.AcceptGymJoin(services.GymService))
 		}
 
 		// Own effective feature access: any authenticated role.
@@ -157,6 +161,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			gymOwnerGroup.GET("/gyms/:gym_id/clients", handlers.ListGymClients(services.GymService))
 			gymOwnerGroup.POST("/gyms/:gym_id/invitations", handlers.InviteGymHeadCoach(services.GymService))
 			gymOwnerGroup.GET("/gyms/:gym_id/invitations", handlers.ListGymInvitations(services.GymService))
+			gymOwnerGroup.POST("/gyms/:gym_id/join-links", handlers.CreateGymJoinLink(services.GymService))
 			gymOwnerGroup.DELETE("/gyms/:gym_id/invitations/:id", handlers.RevokeGymInvitation(services.GymService))
 		}
 

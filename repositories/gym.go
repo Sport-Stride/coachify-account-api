@@ -817,6 +817,23 @@ func (r *GymRepository) GetInvitation(ctx context.Context, id string) (*db.GymIn
 	return &inv, nil
 }
 
+// GetInvitationByTokenHash returns the invitation behind a join link token hash, or nil when there is none.
+func (r *GymRepository) GetInvitationByTokenHash(ctx context.Context, hash string) (*db.GymInvitation, error) {
+	if hash == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	var inv db.GymInvitation
+	if err := r.invites.FindOne(ctx, bson.M{"token_hash": hash}).Decode(&inv); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &inv, nil
+}
+
 // TransitionInvitation moves an invitation from one status to another atomically; false when it was not in `from`.
 func (r *GymRepository) TransitionInvitation(ctx context.Context, id, from, to, inviteeID string, at time.Time) (bool, error) {
 	oid, ok := gymOID(id)

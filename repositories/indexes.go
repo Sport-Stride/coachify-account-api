@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -231,8 +232,15 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 					Keys: bson.D{{Key: "gym_id", Value: 1}, {Key: "email", Value: 1}},
 					Options: options.Index().
 						SetUnique(true).
-						SetPartialFilterExpression(bson.M{"status": "pending"}).
-						SetName("idx_gym_invites_pending_unique"),
+						SetPartialFilterExpression(bson.M{"status": "pending", "email": bson.M{"$gt": ""}}).
+						SetName("idx_gym_invites_pending_email_unique"),
+				},
+				{
+					Keys: bson.D{{Key: "token_hash", Value: 1}},
+					Options: options.Index().
+						SetUnique(true).
+						SetPartialFilterExpression(bson.M{"token_hash": bson.M{"$exists": true}}).
+						SetName("idx_gym_invites_token_unique"),
 				},
 				{
 					Keys:    bson.D{{Key: "email", Value: 1}, {Key: "status", Value: 1}},
@@ -373,6 +381,8 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 		},
 	}
 	
+	dropLegacyIndexes(ctx, db)
+
 	// Create indexes for each collection
 	var successCount, failCount int
 	for collectionName, indexModels := range indexes {
@@ -402,6 +412,31 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 		zap.Duration("duration", duration),
 	)
 	return nil
+}
+
+// legacyIndexes are replaced by differently named indexes on the same keys, which MongoDB refuses to create next to them.
+var legacyIndexes = map[string][]string{
+	"gym_invitations": {"idx_gym_invites_pending_unique"}, // replaced by idx_gym_invites_pending_email_unique (open join links have no email)
+}
+
+// dropLegacyIndexes removes superseded indexes; a missing index is fine, other failures are logged.
+func dropLegacyIndexes(ctx context.Context, db *mongo.Database) {
+	for collectionName, names := range legacyIndexes {
+		for _, name := range names {
+			dropCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			_, err := db.Collection(collectionName).Indexes().DropOne(dropCtx, name)
+			cancel()
+			var cmdErr mongo.CommandError
+			if err != nil && !(errors.As(err, &cmdErr) && cmdErr.Code == 27) { // 27 = IndexNotFound
+				zap.L().Warn("failed to drop legacy index",
+					zap.String("component", "repository"),
+					zap.String("collection", collectionName),
+					zap.String("index", name),
+					zap.Error(err),
+				)
+			}
+		}
+	}
 }
 
 func createIndexesForCollection(ctx context.Context, db *mongo.Database, collectionName string, indexModels []mongo.IndexModel) error {
@@ -469,7 +504,8 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_heads_gym_added",
 		},
 		"gym_invitations": {
-			"idx_gym_invites_pending_unique",
+			"idx_gym_invites_pending_email_unique",
+			"idx_gym_invites_token_unique",
 			"idx_gym_invites_email_status",
 			"idx_gym_invites_gym_status_created",
 		},

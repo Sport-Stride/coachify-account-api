@@ -14,6 +14,7 @@ import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/db"
 	"coachify-account-api/repositories"
+	"coachify-account-api/utils"
 )
 
 const (
@@ -79,6 +80,7 @@ type GymStore interface {
 	RevokePendingByGym(ctx context.Context, gymID string, at time.Time) error
 	ListInvitations(ctx context.Context, gymID, status string, page, size int) ([]db.GymInvitation, int, error)
 	ListPendingForEmail(ctx context.Context, email string, now time.Time) ([]db.GymInvitationView, error)
+	GetInvitationByTokenHash(ctx context.Context, hash string) (*db.GymInvitation, error)
 
 	IsTeamMember(ctx context.Context, coachID string) (bool, error)
 	InsertAudit(ctx context.Context, e *db.TeamAuditEntry) error
@@ -97,6 +99,28 @@ var (
 type GymSettings struct {
 	InviteTTL     time.Duration
 	InvitesPerDay int
+	// ClientURL is the base URL of the client app, used to build join links.
+	ClientURL string
+	// Mailer sends the join link email; nil disables the email (the invitation is still created).
+	Mailer GymJoinMailer
+}
+
+// GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
+type GymJoinMailer interface {
+	SendGymJoinInviteEmail(ctx context.Context, email, gymName, link string) error
+}
+
+// JoinLinkResult is the answer of a join link creation; the raw link is returned only here.
+type JoinLinkResult struct {
+	InvitationID string    `json:"invitation_id"`
+	Link         string    `json:"link"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+// JoinLookup is what the public join page may learn about a join link.
+type JoinLookup struct {
+	GymName string `json:"gym_name"`
+	Email   string `json:"email"`
 }
 
 // GymOwnerMe is the answer of GET /gym-owner/me.
@@ -193,11 +217,18 @@ type GymService interface {
 	Invite(ctx context.Context, callerID, gymID, email string) (*GymInviteResult, *models.ApiError)
 	ListInvitations(ctx context.Context, callerID, gymID, status string, page, size int) ([]GymInvitationRow, int, *models.ApiError)
 	RevokeInvitation(ctx context.Context, callerID, gymID, invitationID string) *models.ApiError
+	CreateJoinLink(ctx context.Context, callerID, gymID string) (*JoinLinkResult, *models.ApiError)
 
 	// Coach self-service.
 	ListMyInvitations(ctx context.Context, callerID string) ([]db.GymInvitationView, *models.ApiError)
 	AcceptInvitation(ctx context.Context, callerID, invitationID string) (*GymJoined, *models.ApiError)
 	DeclineInvitation(ctx context.Context, callerID, invitationID string) *models.ApiError
+	AcceptByToken(ctx context.Context, callerID, token string) (*GymJoined, *models.ApiError)
+	// JoinOnSignup joins a coach that has just signed up (the account may not be Active yet); used by the signup flows only.
+	JoinOnSignup(ctx context.Context, callerID, token string) *models.ApiError
+
+	// Public join link lookup.
+	LookupJoin(ctx context.Context, token string) (*JoinLookup, *models.ApiError)
 
 	// Head coach operations.
 	MyGym(ctx context.Context, callerID string) (*MyGymInfo, *models.ApiError)
@@ -226,6 +257,7 @@ func NewGymService(users GymUserStore, gyms GymStore, set GymSettings) GymServic
 	if set.InvitesPerDay <= 0 {
 		set.InvitesPerDay = 20
 	}
+	set.ClientURL = strings.TrimRight(set.ClientURL, "/")
 	return &gymServiceImpl{users: users, gyms: gyms, set: set}
 }
 
@@ -441,7 +473,8 @@ func normalizeEmail(email string) (string, bool) {
 }
 
 // Invite creates a pending invitation. It never looks the email up, so the answer cannot reveal whether an account exists.
-// No email is sent: the invited coach sees the invitation in the app (GET /coach/gym-invitations).
+// A join link is emailed to the address whether or not an account exists; a mail failure is logged and the invitation kept.
+// An existing coach also sees the invitation in the app (GET /coach/gym-invitations).
 func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email string) (*GymInviteResult, *models.ApiError) {
 	g, apiErr := s.ownedGym(ctx, callerID, gymID)
 	if apiErr != nil {
@@ -469,8 +502,12 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 	if err := s.gyms.ExpireDue(ctx, gid, email, now); err != nil {
 		return nil, s.internal("Invite.expire", err)
 	}
+	raw, hash, err := utils.NewURLToken()
+	if err != nil {
+		return nil, s.internal("Invite.token", err)
+	}
 	inv := &db.GymInvitation{
-		GymID: gid, InviterID: callerID, Email: email, Status: db.GymInvitePending,
+		GymID: gid, InviterID: callerID, Email: email, TokenHash: hash, Status: db.GymInvitePending,
 		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now,
 	}
 	if err := s.gyms.InsertInvitation(ctx, inv); err != nil {
@@ -482,6 +519,7 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymInvite, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner, GymID: gid,
 	})
+	s.sendJoinLink(ctx, inv, g.Name, raw)
 	return &GymInviteResult{InvitationID: inv.ID.Hex(), Status: db.GymInvitePending}, nil
 }
 
@@ -597,7 +635,13 @@ func (s *gymServiceImpl) AcceptInvitation(ctx context.Context, callerID, invitat
 	if apiErr := s.pendingInvitation(ctx, inv, now); apiErr != nil {
 		return nil, apiErr
 	}
+	return s.joinGym(ctx, u, inv, now)
+}
 
+// joinGym makes the coach a head coach of the invitation's gym and consumes the invitation.
+// The caller has checked the coach role and that the invitation is pending and meant for this coach.
+func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInvitation, now time.Time) (*GymJoined, *models.ApiError) {
+	callerID := u.ExternalID
 	member, err := s.gyms.IsTeamMember(ctx, callerID)
 	if err != nil {
 		return nil, s.internal("Accept.isMember", err)

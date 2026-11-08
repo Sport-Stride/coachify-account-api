@@ -78,6 +78,7 @@ type AuthServiceImpl struct {
 	teamRepo             *repositories.TeamRepository
 	entitlements         EntitlementGuard
 	gymOwnerInvites      gymOwnerInviteRedeemer
+	gymJoins             gymJoinRedeemer
 	ownerUsers           invitedOwnerStore // nil: the user repository
 	ownerIDs             ownerIDGenerator  // nil: the identifier client
 }
@@ -388,6 +389,12 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 		zap.Bool("user_found", user != nil),
 	)
 	oauth.Profile.ProviderType = providerType
+	// A join link only matters for a new account; an existing user signs in normally and accepts the link in the app.
+	if oauth.GymJoinToken != "" && oauth.GymOwnerInviteToken == "" && user == nil {
+		if _, apiErr := s.checkGymJoin(ctx, oauth.GymJoinToken, oauth.Profile.Email); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 	if oauth.GymOwnerInviteToken != "" {
 		if user != nil {
 			// An invite never links to or changes an existing account.
@@ -446,7 +453,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	// If a registration link token is present, resolve the coach from it directly
 	// rather than checking the invitation service.
 	var role, coachId string
-	if oauthUser.RegistrationToken != "" {
+	if oauthUser.GymJoinToken != "" {
+		// A gym join link is for head coaches only: no client invitation lookup.
+		role = "coach"
+	} else if oauthUser.RegistrationToken != "" {
 		link, err := s.registrationLinkRepo.GetByToken(ctx, oauthUser.RegistrationToken)
 		if err != nil {
 			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
@@ -523,6 +533,9 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	_, err := s.userRepository.CreateUser(ctx, newUser)
 	if err != nil {
 		return nil, err
+	}
+	if oauthUser.GymJoinToken != "" && s.gymJoins != nil {
+		s.joinGymAfterSignup(ctx, newUser.ExternalID, oauthUser.GymJoinToken)
 	}
 	// Get the user from the database using email
 	user, err := s.userRepository.GetByEmail(ctx, newUser.UserEmail)
@@ -626,6 +639,15 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	if req.GymOwnerInviteToken != "" {
 		return s.registerInvitedGymOwner(ctx, req)
 	}
+	// A gym join link makes this a head coach signup; an email-bound link must match the signup email.
+	joinEmail := ""
+	if req.GymJoinToken != "" {
+		var apiErr *models.ApiError
+		if joinEmail, apiErr = s.checkGymJoin(ctx, req.GymJoinToken, req.Email); apiErr != nil {
+			return nil, apiErr
+		}
+		req.Role = "coach"
+	}
 
 	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
 
@@ -700,9 +722,13 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 
 	dbUser := mapping.CreateToDbUser(req, encrypted, id.Code, *confirmCode)
 	// The role must be resolved before minting tokens, otherwise the stored token carries an empty role claim.
-	role, coachId, Rolerr := s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
-	if Rolerr != nil {
-		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+	role, coachId := "coach", ""
+	if req.GymJoinToken == "" {
+		var Rolerr error
+		role, coachId, Rolerr = s.setUserRoleByInvitation(ctx, dbUser.UserEmail)
+		if Rolerr != nil {
+			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
+		}
 	}
 	dbUser.UserRole = role
 	refreshTokenData := mapping.ToRefreshToken(dbUser)
@@ -729,6 +755,12 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	dbUser.Token = &token
 	dbUser.UserRefreshToken = &refreshToken
 	dbUser.UserStatus = db.ToConfirm
+	// The email-bound link proves mailbox ownership: skip the confirmation code, like a confirmed coach.
+	mailboxProven := joinEmail != ""
+	if mailboxProven {
+		dbUser.UserStatus = db.ComReg1
+		dbUser.UserVerificationStatus = true
+	}
 
 	if role == "client" {
 		s.coachService.AddCoachClient(ctx, coachId, dbUser.ExternalID)
@@ -738,6 +770,12 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	if err != nil {
 
 		return nil, err
+	}
+
+	if mailboxProven {
+		s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
+		s.joinGymAfterSignup(ctx, dbUser.ExternalID, req.GymJoinToken)
+		return signupResponse(inserted), nil
 	}
 
 	// Send confirmation email

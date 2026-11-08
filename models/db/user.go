@@ -178,6 +178,8 @@ type GoogleLoginRequest struct {
 	RegistrationToken string        `json:"registration_token,omitempty"`
 	// GymOwnerInviteToken is the raw token of an admin-issued gym owner invite.
 	GymOwnerInviteToken string `json:"gym_owner_invite_token,omitempty"`
+	// GymJoinToken is the raw token of a gym join link for head coaches.
+	GymJoinToken string `json:"gym_join_token,omitempty"`
 }
 
 type GoogleAccount struct {

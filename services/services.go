@@ -89,6 +89,17 @@ func InitServices(config utils.AppConfig,
 		config.Gym.ClientAppURL,
 	)
 	authService.WithGymOwnerInvites(gymOwnerInviteService)
+	var gymJoinMailer GymJoinMailer
+	if notification != nil {
+		gymJoinMailer = notification
+	}
+	gymService := NewGymService(userRepo, gymRepo, GymSettings{
+		InviteTTL:     time.Duration(config.Gym.InviteTTLHours) * time.Hour,
+		InvitesPerDay: config.Gym.InvitesPerDay,
+		ClientURL:     config.Gym.ClientAppURL,
+		Mailer:        gymJoinMailer,
+	})
+	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
 		registrationLinkRepo,
 		userRepo,
@@ -99,7 +110,7 @@ func InitServices(config utils.AppConfig,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
 		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithReadCache(15*time.Second)),
-		GymService:              NewGymService(userRepo, gymRepo, GymSettings{InviteTTL: time.Duration(config.Gym.InviteTTLHours) * time.Hour, InvitesPerDay: config.Gym.InvitesPerDay}),
+		GymService:              gymService,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,
