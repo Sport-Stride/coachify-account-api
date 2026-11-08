@@ -103,6 +103,8 @@ type GymSettings struct {
 	ClientURL string
 	// Mailer sends the join link email; nil disables the email (the invitation is still created).
 	Mailer GymJoinMailer
+	// Chat opens owner-to-coach conversations when head coaches join; nil disables it.
+	Chat *GymChatProvisioner
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -724,6 +726,8 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		return nil, s.internal("Accept.add", err)
 	}
 
+	s.set.Chat.HeadJoined(ctx, g.OwnerID, callerID)
+
 	entries := make([]*db.TeamAuditEntry, 0, 2)
 	if setFlag {
 		entries = append(entries, &db.TeamAuditEntry{
@@ -937,6 +941,10 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 		}
 	}
 
+	if upd.OwnerID != nil && !archiveRequested {
+		s.set.Chat.GymOwnerChanged(ctx, gid)
+	}
+
 	if upd.OwnerID != nil {
 		s.audit(ctx, &db.TeamAuditEntry{
 			Action: db.TeamActionGymTransfer, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
@@ -1027,6 +1035,7 @@ func (s *gymServiceImpl) AdminAddHeadCoach(ctx context.Context, adminID, gymID, 
 		}
 		return s.internal("AdminAddHeadCoach.add", err)
 	}
+	s.set.Chat.HeadJoined(ctx, g.OwnerID, headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymAddHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		HeadCoachID: headID, GymID: gid,

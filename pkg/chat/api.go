@@ -16,6 +16,7 @@ import (
 type ChatClient struct {
 	httpClient                 *http.Client
 	baseURL                    string
+	apiKey                     string
 	createConversationEndpoint string
 	breaker                    *utils.CircuitBreaker
 	target                     string
@@ -33,6 +34,7 @@ func NewChatClient(cfg utils.ChatAPIConfig) (*ChatClient, error) {
 			Timeout: 10 * time.Second,
 		},
 		baseURL:                    cfg.URL,
+		apiKey:                     cfg.APIKey,
 		createConversationEndpoint: "%s/create-conversation",
 		breaker:                    utils.NewCircuitBreaker("chat-api"),
 		target:                     "chat-api",
@@ -76,4 +78,38 @@ func (c *ChatClient) CreateConversation(ctx context.Context, coachID, clientID, 
 		return models.NewApiError(http.StatusInternalServerError,
 			fmt.Errorf("%w: chat-api returned %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
 	}
+}
+
+// EnsureConversation get-or-creates the conversation between adminID (the admin side, e.g. a gym owner)
+// and peerID through chat-api's internal endpoint, authenticated by the shared internal API key.
+func (c *ChatClient) EnsureConversation(ctx context.Context, adminID, peerID string) *models.ApiError {
+	url := c.baseURL + "/internal/conversations"
+
+	body, err := json.Marshal(createConversationRequest{
+		AdminID:   adminID,
+		ClientIDs: []string{peerID},
+	})
+	if err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUnmarshalResponse)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToCreateRequest)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	if err != nil {
+		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToSendRequest)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return models.NewApiError(http.StatusInternalServerError,
+			fmt.Errorf("%w: chat-api returned %d", models.ErrUnexpectedStatusCode, resp.StatusCode))
+	}
+	return nil
 }

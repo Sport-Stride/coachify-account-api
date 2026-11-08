@@ -171,3 +171,11 @@ type GymInvitationView struct {
 	OwnerName string    `bson:"owner_name" json:"owner_name"`
 	ExpiresAt time.Time `bson:"expires_at" json:"expires_at"`
 }
+
+// GymChatPeers lists the people a gym owner is chat-connected to: the gym's head coaches and their team coaches.
+type GymChatPeers struct {
+	GymID    string   `bson:"gym_id"`
+	OwnerID  string   `bson:"owner_id"`
+	HeadIDs  []string `bson:"head_ids"`
+	CoachIDs []string `bson:"coach_ids"`
+}

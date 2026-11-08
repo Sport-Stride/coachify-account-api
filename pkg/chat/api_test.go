@@ -71,3 +71,37 @@ func TestCreateConversation_UnreachableAndBadURL(t *testing.T) {
 	require.NotNil(t, apiErr)
 	assert.ErrorIs(t, apiErr.Error, models.ErrFailedToCreateRequest)
 }
+
+func newClientWithKey(t *testing.T, key string, h http.HandlerFunc) *ChatClient {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c, err := NewChatClient(utils.ChatAPIConfig{URL: srv.URL, APIKey: key})
+	require.NoError(t, err)
+	return c
+}
+
+func TestEnsureConversation_Success(t *testing.T) {
+	c := newClientWithKey(t, "k-1", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/internal/conversations", r.URL.Path)
+		assert.Equal(t, "k-1", r.Header.Get("x-api-key"))
+		assert.Empty(t, r.Header.Get("Authorization"))
+		var body createConversationRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "owner-1", body.AdminID)
+		assert.Equal(t, []string{"peer-1"}, body.ClientIDs)
+		w.WriteHeader(http.StatusOK)
+	})
+	assert.Nil(t, c.EnsureConversation(context.Background(), "owner-1", "peer-1"))
+}
+
+func TestEnsureConversation_Errors(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusInternalServerError} {
+		c := newClientWithKey(t, "k", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) })
+		apiErr := c.EnsureConversation(context.Background(), "a", "b")
+		require.NotNil(t, apiErr, status)
+		assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
+		assert.ErrorIs(t, apiErr.Error, models.ErrUnexpectedStatusCode)
+	}
+}

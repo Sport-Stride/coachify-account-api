@@ -982,3 +982,81 @@ func (r *GymRepository) ListAudit(ctx context.Context, gymID string, page, size 
 	}
 	return entries, int(total), nil
 }
+
+// ---------- Chat peers ----------
+
+// OwnerOfHead returns the owner of the active gym a head coach belongs to, or "" when it has none.
+func (r *GymRepository) OwnerOfHead(ctx context.Context, headID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+
+	pipeline := []bson.D{
+		{{Key: "$match", Value: bd("head_coach_id", headID)}},
+		{{Key: "$limit", Value: int64(1)}},
+		// gym_id is stored as a string; convert once so the join hits the _id index.
+		{{Key: "$addFields", Value: bd("gid_oid", bd("$convert", bd("input", "$gym_id", "to", "objectId", "onError", nil, "onNull", nil)))}},
+		{{Key: "$lookup", Value: bd(
+			"from", gymsCollection,
+			"localField", "gid_oid",
+			"foreignField", "_id",
+			"pipeline", bson.A{
+				bd("$match", bd("status", db.GymStatusActive)),
+				bd("$project", bd("owner_id", 1)),
+			},
+			"as", "g",
+		)}},
+		{{Key: "$unwind", Value: "$g"}},
+		{{Key: "$project", Value: bd("_id", 0, "owner_id", "$g.owner_id")}},
+	}
+	cursor, err := r.heads.Aggregate(ctx, pipeline)
+	if err != nil {
+		return "", err
+	}
+	defer cursor.Close(ctx)
+	var out []struct {
+		OwnerID string `bson:"owner_id"`
+	}
+	if err := cursor.All(ctx, &out); err != nil {
+		return "", err
+	}
+	if len(out) == 0 {
+		return "", nil
+	}
+	return out[0].OwnerID, nil
+}
+
+// ListGymChatPeers returns, per active gym, its owner with its head coaches and their team coaches.
+// A non-empty gymID restricts the result to that gym.
+func (r *GymRepository) ListGymChatPeers(ctx context.Context, gymID string) ([]db.GymChatPeers, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+
+	match := bd("status", db.GymStatusActive)
+	if gymID != "" {
+		oid, err := primitive.ObjectIDFromHex(gymID)
+		if err != nil {
+			return []db.GymChatPeers{}, nil
+		}
+		match = append(match, bson.E{Key: "_id", Value: oid})
+	}
+	pipeline := []bson.D{
+		{{Key: "$match", Value: match}},
+		{{Key: "$addFields", Value: bd("gym_id", bd("$toString", "$_id"))}},
+		{{Key: "$lookup", Value: bd("from", gymHeadCoachesCollection, "localField", "gym_id", "foreignField", "gym_id", "as", "hc")}},
+		{{Key: "$addFields", Value: bd("head_ids", bd("$map", bd("input", "$hc", "as", "h", "in", "$$h.head_coach_id")))}},
+		// An array localField matches any of its elements.
+		{{Key: "$lookup", Value: bd("from", teamMembersCollection, "localField", "head_ids", "foreignField", "head_coach_id", "as", "tm")}},
+		{{Key: "$addFields", Value: bd("coach_ids", bd("$map", bd("input", "$tm", "as", "m", "in", "$$m.coach_id")))}},
+		{{Key: "$project", Value: bd("_id", 0, "gym_id", 1, "owner_id", 1, "head_ids", 1, "coach_ids", 1)}},
+	}
+	cursor, err := r.gyms.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	out := []db.GymChatPeers{}
+	if err := cursor.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

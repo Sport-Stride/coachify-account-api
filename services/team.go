@@ -96,6 +96,7 @@ type teamServiceImpl struct {
 	userRepo TeamUserStore
 	teamRepo TeamStore
 	gyms     GymMembershipReleaser
+	chat     *GymChatProvisioner
 	reads    *readCache
 }
 
@@ -105,6 +106,11 @@ type TeamOption func(*teamServiceImpl)
 // WithGymMembership makes Demote also remove the head coach from its gym.
 func WithGymMembership(g GymMembershipReleaser) TeamOption {
 	return func(s *teamServiceImpl) { s.gyms = g }
+}
+
+// WithGymChat opens an owner-to-coach chat when a coach is assigned to a head coach inside a gym.
+func WithGymChat(p *GymChatProvisioner) TeamOption {
+	return func(s *teamServiceImpl) { s.chat = p }
 }
 
 // WithReadCache caches the hot read endpoints (Me, MyHeadCoach) for ttl; mutations in this service purge it.
@@ -407,6 +413,10 @@ func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoac
 			return nil, apiErr
 		}
 		return nil, teamErr(http.StatusConflict, errTargetNotHead)
+	}
+
+	if prev == nil || prev.HeadCoachID != headCoachID {
+		s.chat.CoachAssigned(ctx, headCoachID, coachID)
 	}
 
 	switch {

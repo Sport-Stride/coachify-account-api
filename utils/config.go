@@ -85,7 +85,8 @@ type PaymentAPIConfig struct {
 	APIKey string
 }
 type ChatAPIConfig struct {
-	URL string
+	URL    string
+	APIKey string
 }
 
 var (
@@ -136,7 +137,8 @@ func LoadConfig() *AppConfig {
 				APIKey: internalKey,
 			},
 			ChatAPI: ChatAPIConfig{
-				URL: getStringWithDefault("CHAT_API_URL", "https://api.coachify.tn/chat"),
+				URL:    getStringWithDefault("CHAT_API_URL", "https://api.coachify.tn/chat"),
+				APIKey: internalKey,
 			},
 			FacebookOAuth: &oauth2.Config{
 				ClientID:     getStringWithDefault("FACEBOOK_APP_ID", "9450367418317323"),

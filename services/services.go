@@ -93,11 +93,17 @@ func InitServices(config utils.AppConfig,
 	if notification != nil {
 		gymJoinMailer = notification
 	}
+	// Owner chats need the chat client; a nil client (tests) disables them.
+	var gymChat *GymChatProvisioner
+	if chatClient != nil {
+		gymChat = NewGymChatProvisioner(NewGymChatStore(gymRepo, teamRepo), chatClient, nil)
+	}
 	gymService := NewGymService(userRepo, gymRepo, GymSettings{
 		InviteTTL:     time.Duration(config.Gym.InviteTTLHours) * time.Hour,
 		InvitesPerDay: config.Gym.InvitesPerDay,
 		ClientURL:     config.Gym.ClientAppURL,
 		Mailer:        gymJoinMailer,
+		Chat:          gymChat,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
@@ -109,7 +115,7 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
-		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithReadCache(15*time.Second)),
+		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithReadCache(15*time.Second)),
 		GymService:              gymService,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
