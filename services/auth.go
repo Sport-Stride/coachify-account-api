@@ -77,6 +77,9 @@ type AuthServiceImpl struct {
 	chatClient           *chat.ChatClient
 	teamRepo             *repositories.TeamRepository
 	entitlements         EntitlementGuard
+	gymOwnerInvites      gymOwnerInviteRedeemer
+	ownerUsers           invitedOwnerStore // nil: the user repository
+	ownerIDs             ownerIDGenerator  // nil: the identifier client
 }
 
 func NewAuthService(
@@ -114,6 +117,12 @@ func NewAuthService(
 // WithEntitlements sets the in-process entitlement check used by registration links; nil disables it.
 func (s *AuthServiceImpl) WithEntitlements(g EntitlementGuard) *AuthServiceImpl {
 	s.entitlements = g
+	return s
+}
+
+// WithGymOwnerInvites sets the invite redeemer used by invited gym owner signup; nil disables the invite paths.
+func (s *AuthServiceImpl) WithGymOwnerInvites(r gymOwnerInviteRedeemer) *AuthServiceImpl {
+	s.gymOwnerInvites = r
 	return s
 }
 
@@ -370,7 +379,7 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 	}
 
 	// Check if a user with this email already exists
-	user, err := s.userRepository.GetByEmailCheck(ctx, oauth.Profile.Email)
+	user, err := s.ownerStore().GetByEmailCheck(ctx, oauth.Profile.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -379,6 +388,13 @@ func (s *AuthServiceImpl) HandleOAuthLogin(ctx context.Context, providerType str
 		zap.Bool("user_found", user != nil),
 	)
 	oauth.Profile.ProviderType = providerType
+	if oauth.GymOwnerInviteToken != "" {
+		if user != nil {
+			// An invite never links to or changes an existing account.
+			return nil, inviteNotUsable()
+		}
+		return s.createInvitedGymOwnerOAuth(ctx, oauth)
+	}
 	if user != nil {
 		// Existing user: link provider details or log them in
 		return s.linkExistingUser(ctx, user, oauth)
@@ -607,6 +623,9 @@ func (s *AuthServiceImpl) linkExistingUser(ctx context.Context, user *db.User, o
 
 // Auth signin Service
 func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
+	if req.GymOwnerInviteToken != "" {
+		return s.registerInvitedGymOwner(ctx, req)
+	}
 
 	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
 
@@ -830,27 +849,32 @@ func (s *AuthServiceImpl) CreateGymOwnerAccount(ctx context.Context, firstname, 
 		return "", apiErr
 	}
 
-	id, apiErr := s.identifier.GenerateId(ctx, "user")
+	created, apiErr := s.insertGymOwner(ctx, firstname, lastname, email, hash)
 	if apiErr != nil {
 		return "", apiErr
 	}
+	return created.ExternalID, nil
+}
 
+// insertGymOwner generates an id and inserts an Active, verified gym_owner with the given password hash.
+func (s *AuthServiceImpl) insertGymOwner(ctx context.Context, firstname, lastname, email, passwordHash string) (*db.UserResponse, *models.ApiError) {
+	id, apiErr := s.ownerIDGen().GenerateId(ctx, "user")
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	now := time.Now()
-	if _, apiErr := s.userRepository.CreateUser(ctx, &db.User{
+	return s.ownerStore().CreateUser(ctx, &db.User{
 		ExternalID:             id.Code,
 		UserFirstname:          firstname,
 		UserLastname:           lastname,
 		UserEmail:              email,
-		UserPassword:           hash,
+		UserPassword:           passwordHash,
 		UserRole:               db.RoleGymOwner,
 		UserStatus:             db.Active,
 		UserVerificationStatus: true,
 		UserCreatedAt:          now,
 		UserUpdatedAt:          now,
-	}); apiErr != nil {
-		return "", apiErr
-	}
-	return id.Code, nil
+	})
 }
 
 func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserRequest) *models.ApiError {

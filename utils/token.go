@@ -3,6 +3,10 @@ package utils
 import (
 	"coachify-account-api/models"
 	"coachify-account-api/models/api"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -193,4 +197,20 @@ func LogDownstreamBody(target string, status int, body []byte) {
 		zap.Int("status", status),
 		zap.String("body", s),
 	)
+}
+
+// NewURLToken returns a random URL-safe token and its SHA-256 hex hash. Store only the hash.
+func NewURLToken() (raw, hash string, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", err
+	}
+	raw = base64.RawURLEncoding.EncodeToString(b)
+	return raw, HashToken(raw), nil
+}
+
+// HashToken returns the SHA-256 hex digest of a raw token.
+func HashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }

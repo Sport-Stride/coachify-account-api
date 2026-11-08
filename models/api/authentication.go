@@ -80,6 +80,8 @@ type CreateUserRequest struct {
 	Address     Address    `json:"address,omitempty"`
 	Gender      UserGender `json:"gender,omitempty"`
 	Status      UserStatus `json:"status" `
+	// GymOwnerInviteToken is the raw token of an admin-issued gym owner invite.
+	GymOwnerInviteToken string `json:"gym_owner_invite_token,omitempty"`
 	jwt.StandardClaims
 }
 

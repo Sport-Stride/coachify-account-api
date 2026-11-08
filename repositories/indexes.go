@@ -244,6 +244,27 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				},
 			},
 
+			// Gym owner invites: token hash lookup, one pending invite per email
+			"gym_owner_invites": {
+				{
+					Keys: bson.D{{Key: "token_hash", Value: 1}},
+					Options: options.Index().
+						SetUnique(true).
+						SetName("idx_gym_owner_invites_token_unique"),
+				},
+				{
+					Keys: bson.D{{Key: "email", Value: 1}},
+					Options: options.Index().
+						SetUnique(true).
+						SetPartialFilterExpression(bson.M{"status": "pending"}).
+						SetName("idx_gym_owner_invites_pending_email_unique"),
+				},
+				{
+					Keys:    bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: -1}},
+					Options: options.Index().SetName("idx_gym_owner_invites_status_created"),
+				},
+			},
+
 			// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
 		"coach_clients": {
 			// Primary index: coach_id + created_at (for most common queries)
@@ -451,6 +472,11 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_invites_pending_unique",
 			"idx_gym_invites_email_status",
 			"idx_gym_invites_gym_status_created",
+		},
+		"gym_owner_invites": {
+			"idx_gym_owner_invites_token_unique",
+			"idx_gym_owner_invites_pending_email_unique",
+			"idx_gym_owner_invites_status_created",
 		},
 		"coach_clients": {
 			"idx_coach_clients_coach_created",

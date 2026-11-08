@@ -28,6 +28,7 @@ type Services struct {
 	RegistrationLinkService RegistrationLinkService
 	UserStatus              UserStatusLookup
 	EntitlementService      EntitlementService
+	GymOwnerInviteService   GymOwnerInviteService
 }
 
 func InitServices(config utils.AppConfig,
@@ -48,6 +49,7 @@ func InitServices(config utils.AppConfig,
 	gymRepo *repositories.GymRepository,
 	entitlementRepo *repositories.EntitlementRepository,
 	entitlementAuditRepo *repositories.AdminAuditRepository,
+	gymOwnerInviteRepo *repositories.GymOwnerInviteRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -78,6 +80,15 @@ func InitServices(config utils.AppConfig,
 	}
 	entitlementService := NewEntitlementService(entitlementRepo, userRepo, coachService, planSource, entitlementAuditRepo)
 	authService.WithEntitlements(entitlementService)
+	gymOwnerInviteService := NewGymOwnerInviteService(
+		gymOwnerInviteRepo,
+		userRepo,
+		adminAuditRepo,
+		notification,
+		time.Duration(config.Gym.OwnerInviteTTLHours)*time.Hour,
+		config.Gym.ClientAppURL,
+	)
+	authService.WithGymOwnerInvites(gymOwnerInviteService)
 	registrationLinkService := NewRegistrationLinkService(
 		registrationLinkRepo,
 		userRepo,
@@ -93,6 +104,7 @@ func InitServices(config utils.AppConfig,
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,
 		EntitlementService:      entitlementService,
+		GymOwnerInviteService:   gymOwnerInviteService,
 	}
 }
 

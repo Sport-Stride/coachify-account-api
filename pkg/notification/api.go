@@ -170,6 +170,20 @@ func (c *NotificationClient) SendGymOwnerWelcomeEmail(ctx context.Context, dbUse
 	return c.sendEmail(ctx, dbUser.UserEmail, template, dynamicData)
 }
 
+// SendGymOwnerInviteEmail emails a gym owner signup link. The link is a credential: never log it.
+func (c *NotificationClient) SendGymOwnerInviteEmail(ctx context.Context, email, name, link string) error {
+	if email == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().GymOwnerWelcomeTemplate
+	dynamicData := map[string]string{
+		"message":  "You have been invited to join Coachify as a gym owner. Create your account here: " + link,
+		"subject":  "You are invited to Coachify as a gym owner",
+		"username": name,
+	}
+	return c.sendEmail(ctx, email, template, dynamicData)
+}
+
 // SendConfirmResetPasswordEmail sends a confirmation of password reset
 func (c *NotificationClient) SendConfirmResetPasswordEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
 	if dbUser.UserEmail == "" {

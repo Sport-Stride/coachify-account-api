@@ -83,6 +83,10 @@ var (
 	ErrRegistrationLinkNotFound  = errors.New("registration link not found")
 	ErrAlreadyClientOfCoach      = errors.New("you are already a client of this coach")
 	ErrUserExistsUseLogin        = errors.New("an account with this email already exists — please log in instead")
+	ErrInviteNotFound            = errors.New("invitation not found or expired")
+	ErrInviteEmailMismatch       = errors.New("this invitation was sent to a different email address")
+	ErrInviteNotUsable           = errors.New("invitation can no longer be used")
+	ErrOwnerInvitePending        = errors.New("a pending invitation already exists for this email")
 )
 
 // Error implements the error interface for ApiError.

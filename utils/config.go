@@ -47,8 +47,10 @@ type AnalyticsConfig struct {
 
 // GymConfig holds the optional gym invitation limits.
 type GymConfig struct {
-	InviteTTLHours int
-	InvitesPerDay  int
+	InviteTTLHours      int
+	InvitesPerDay       int
+	OwnerInviteTTLHours int
+	ClientAppURL        string
 }
 
 type BaseURLConfig struct {
@@ -156,8 +158,10 @@ func LoadConfig() *AppConfig {
 		}
 
 		cfg.Gym = GymConfig{
-			InviteTTLHours: getIntWithDefault("GYM_INVITE_TTL_HOURS", 168),
-			InvitesPerDay:  getIntWithDefault("GYM_INVITES_PER_DAY", 20),
+			InviteTTLHours:      getIntWithDefault("GYM_INVITE_TTL_HOURS", 168),
+			InvitesPerDay:       getIntWithDefault("GYM_INVITES_PER_DAY", 20),
+			OwnerInviteTTLHours: getIntWithDefault("GYM_OWNER_INVITE_TTL_HOURS", 168),
+			ClientAppURL:        getStringWithDefault("FRONTEND_URL", "http://localhost:3000"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

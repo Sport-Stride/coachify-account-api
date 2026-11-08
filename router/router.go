@@ -67,6 +67,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	userGroup := r.Group("/user")
 	userGroup.POST("/signup", handlers.Register(services.AuthService))
 
+	// Public gym owner invite lookup (no auth required)
+	r.GET("/gym-owner-invites/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupGymOwnerInvite(services.GymOwnerInviteService))
+
 	// Public registration link routes (no auth required)
 	regLinkGroup := r.Group("/coach/registration-link")
 	regLinkGroup.GET("/:token", handlers.ValidateRegistrationLink(services.RegistrationLinkService))
@@ -174,6 +177,10 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			adminGroup.POST("/users/:id/resend-confirmation", handlers.ResendAdminUserConfirmation(services.AdminService))
 			adminGroup.POST("/users/:id/password-reset", handlers.SendAdminUserPasswordReset(services.AdminService))
 			adminGroup.POST("/gym-owners", handlers.CreateAdminGymOwner(services.AdminService))
+			adminGroup.POST("/gym-owner-invites", handlers.CreateGymOwnerInvite(services.GymOwnerInviteService))
+			adminGroup.GET("/gym-owner-invites", handlers.ListGymOwnerInvites(services.GymOwnerInviteService))
+			adminGroup.DELETE("/gym-owner-invites/:id", handlers.RevokeGymOwnerInvite(services.GymOwnerInviteService))
+			adminGroup.POST("/gym-owner-invites/:id/resend", handlers.ResendGymOwnerInvite(services.GymOwnerInviteService))
 			adminGroup.GET("/audit", handlers.ListAdminAudit(services.AdminService))
 			adminGroup.GET("/stats/users", handlers.GetAdminUserStats(services.AdminService))
 			adminGroup.GET("/coaches/:id/clients", handlers.ListAdminCoachClients(services.AdminService))

@@ -176,6 +176,8 @@ type GoogleLoginRequest struct {
 	Role              string        `json:"role"`
 	InvitedEmail      string        `json:"invited_email,omitempty"`
 	RegistrationToken string        `json:"registration_token,omitempty"`
+	// GymOwnerInviteToken is the raw token of an admin-issued gym owner invite.
+	GymOwnerInviteToken string `json:"gym_owner_invite_token,omitempty"`
 }
 
 type GoogleAccount struct {
