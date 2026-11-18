@@ -180,7 +180,7 @@ func CheckClientLinks(coachService services.CoachService) gin.HandlerFunc {
 			return
 		}
 		role := c.GetString("userRole")
-		if !checkLinksRoles[role] {
+		if !checkLinksRoles[role] && !db.IsCoachingRole(role) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}

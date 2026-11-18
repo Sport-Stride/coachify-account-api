@@ -1495,7 +1495,7 @@ func (s *AuthServiceImpl) SubmitMatriculeFiscale(ctx context.Context, externalID
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 	if user.MatriculeFiscaleStatus == db.MatriculeFiscaleApproved {
@@ -1545,7 +1545,7 @@ func (s *AuthServiceImpl) ApproveMatriculeFiscale(ctx context.Context, targetExt
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 
@@ -1569,7 +1569,7 @@ func (s *AuthServiceImpl) RejectMatriculeFiscale(ctx context.Context, targetExte
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 

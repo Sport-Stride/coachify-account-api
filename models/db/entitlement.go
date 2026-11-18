@@ -12,6 +12,8 @@ const (
 const (
 	PlanDefaultCoach  = "_coach"
 	PlanDefaultClient = "_client"
+	// PlanDefaultGymOwner layers over PlanDefaultCoach for a gym_owner acting as coach; absent means "same as _coach".
+	PlanDefaultGymOwner = "_gym_owner"
 )
 
 // FeatureGrant is one feature entry of a grant or plan default. A nil Enabled and a missing limit mean inherit.

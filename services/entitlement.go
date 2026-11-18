@@ -269,6 +269,7 @@ type resolveInput struct {
 	defaults map[string]db.PlanDefault
 	grant    *db.EntitlementGrant
 	coach    *Effective
+	gymOwner bool // gym_owner acting as coach: PlanDefaultGymOwner layers on top of PlanDefaultCoach
 }
 
 func newFeatureState(def FeatureDef, enabled bool, source string) FeatureState {
@@ -360,6 +361,9 @@ func computeLayered(role string, in resolveInput) map[string]FeatureState {
 		}
 		st := newFeatureState(def, def.DefaultEnabled, SourceDefault)
 		if pd, ok := in.defaults[roleDefault]; ok {
+			applyLayer(&st, def, pd.Features[key], SourcePlan)
+		}
+		if pd, ok := in.defaults[db.PlanDefaultGymOwner]; ok && in.gymOwner && role == "coach" {
 			applyLayer(&st, def, pd.Features[key], SourcePlan)
 		}
 		if pd, ok := in.defaults[in.planID]; ok && in.planID != "" {
@@ -501,7 +505,7 @@ func (s *entitlementServiceImpl) loadEffective(ctx context.Context, userID strin
 		return nil, entitlementUnavailable(err)
 	}
 
-	in := resolveInput{role: role, planID: planID(eff.Plan), defaults: defaults, grant: grant}
+	in := resolveInput{role: role, planID: planID(eff.Plan), defaults: defaults, grant: grant, gymOwner: user.UserRole == db.RoleGymOwner}
 	if role == "client" {
 		coachID, err := s.links.GetCoachIDByClientID(ctx, userID)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
@@ -1033,6 +1037,11 @@ func validPlanID(id string) (role string, ok bool) {
 		return "coach", true
 	case db.PlanDefaultClient:
 		return "client", true
+	case db.PlanDefaultGymOwner:
+		if db.IsCoachingRole(db.RoleGymOwner) {
+			return "coach", true
+		}
+		return "", false
 	}
 	return "", primitive.IsValidObjectID(id)
 }
@@ -1103,7 +1112,7 @@ func lastLogin(t time.Time) *time.Time {
 }
 
 func (s *entitlementServiceImpl) coachRow(r db.CoachAccessRow, plan *PlanInfo, defaults map[string]db.PlanDefault) CoachAccessRow {
-	features := computeFeatures(resolveInput{role: entitlementRole(r.Role), planID: planID(plan), defaults: defaults, grant: r.Grant})
+	features := computeFeatures(resolveInput{role: entitlementRole(r.Role), planID: planID(plan), defaults: defaults, grant: r.Grant, gymOwner: r.Role == db.RoleGymOwner})
 	attachCounterUsage(features, r.Usage, s.now())
 	attachClientUsage(features, r.ClientCount)
 	return CoachAccessRow{
