@@ -273,6 +273,9 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				},
 			},
 
+			// Gym members: one active row per (gym, user); a head coach or coach belongs to one gym at a time
+			gymMembersCollection: gymMemberIndexes(),
+
 			// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
 		"coach_clients": {
 			// Primary index: coach_id + created_at (for most common queries)
@@ -513,6 +516,12 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_owner_invites_token_unique",
 			"idx_gym_owner_invites_pending_email_unique",
 			"idx_gym_owner_invites_status_created",
+		},
+		gymMembersCollection: {
+			"idx_gym_members_gym_user_unique",
+			"idx_gym_members_coach_unique",
+			"idx_gym_members_gym_role_status",
+			"idx_gym_members_supervisor",
 		},
 		"coach_clients": {
 			"idx_coach_clients_coach_created",

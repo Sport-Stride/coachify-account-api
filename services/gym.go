@@ -105,6 +105,10 @@ type GymSettings struct {
 	Mailer GymJoinMailer
 	// Chat opens owner-to-coach conversations when head coaches join; nil disables it.
 	Chat *GymChatProvisioner
+	// Members mirrors head coach joins and leaves into gym_members (dual-write); nil disables it.
+	Members GymMemberStore
+	// Team lists the coaches of a head coach, to mirror an existing team when a head coach joins a gym; nil skips it.
+	Team GymTeamLister
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -434,6 +438,7 @@ func (s *gymServiceImpl) RemoveHeadCoach(ctx context.Context, callerID, gymID, h
 	if !removed {
 		return teamErr(http.StatusNotFound, errHeadNotFound)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, g.ID.Hex(), headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymRemoveHead, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner,
 		HeadCoachID: headID, GymID: g.ID.Hex(),
@@ -726,6 +731,8 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		return nil, s.internal("Accept.add", err)
 	}
 
+	mirrorHeadJoined(ctx, s.set.Members, gid, callerID, inv.InviterID, db.GymMemberSourceInvite, now)
+	mirrorExistingTeam(ctx, s.set.Members, s.set.Team, gid, callerID, inv.InviterID, now)
 	s.set.Chat.HeadJoined(ctx, g.OwnerID, callerID)
 
 	entries := make([]*db.TeamAuditEntry, 0, 2)
@@ -817,6 +824,7 @@ func (s *gymServiceImpl) LeaveGym(ctx context.Context, callerID string) *models.
 	if !removed {
 		return teamErr(http.StatusNotFound, errNotInGym)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, gymID, callerID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymLeave, ActorID: callerID, ActorRole: db.TeamActorRoleHead,
 		HeadCoachID: callerID, GymID: gymID,
@@ -886,6 +894,7 @@ func (s *gymServiceImpl) AdminCreateGym(ctx context.Context, adminID, name, owne
 		Action: db.TeamActionGymCreate, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		GymID: g.ID.Hex(), OwnerID: ownerID,
 	})
+	mirrorOwnerSet(ctx, s.set.Members, g.ID.Hex(), ownerID, "", adminID, now)
 	return gymView(g), nil
 }
 
@@ -941,6 +950,22 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 		}
 	}
 
+	if upd.Status != nil || upd.OwnerID != nil {
+		finalStatus := g.Status
+		if upd.Status != nil {
+			finalStatus = *upd.Status
+		}
+		newOwner := g.OwnerID
+		if upd.OwnerID != nil {
+			newOwner = *upd.OwnerID
+		}
+		if finalStatus == db.GymStatusActive {
+			mirrorOwnerSet(ctx, s.set.Members, gid, newOwner, g.OwnerID, adminID, time.Now())
+		} else {
+			mirrorOwnerLeft(ctx, s.set.Members, gid, g.OwnerID)
+		}
+	}
+
 	if upd.OwnerID != nil && !archiveRequested {
 		s.set.Chat.GymOwnerChanged(ctx, gid)
 	}
@@ -968,6 +993,7 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 			})
 		}
 		for _, id := range released {
+			mirrorHeadLeft(ctx, s.set.Members, gid, id)
 			entries = append(entries, &db.TeamAuditEntry{
 				Action: db.TeamActionGymRemoveHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 				HeadCoachID: id, GymID: gid,
@@ -1035,6 +1061,8 @@ func (s *gymServiceImpl) AdminAddHeadCoach(ctx context.Context, adminID, gymID, 
 		}
 		return s.internal("AdminAddHeadCoach.add", err)
 	}
+	mirrorHeadJoined(ctx, s.set.Members, gid, headID, adminID, db.GymMemberSourceAdmin, time.Now())
+	mirrorExistingTeam(ctx, s.set.Members, s.set.Team, gid, headID, adminID, time.Now())
 	s.set.Chat.HeadJoined(ctx, g.OwnerID, headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymAddHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
@@ -1059,6 +1087,7 @@ func (s *gymServiceImpl) AdminRemoveHeadCoach(ctx context.Context, adminID, gymI
 	if !removed {
 		return teamErr(http.StatusNotFound, errHeadNotFound)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, gid, headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymRemoveHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		HeadCoachID: headID, GymID: gid,

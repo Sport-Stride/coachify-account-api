@@ -97,6 +97,7 @@ type teamServiceImpl struct {
 	teamRepo TeamStore
 	gyms     GymMembershipReleaser
 	chat     *GymChatProvisioner
+	members  GymMemberStore
 	reads    *readCache
 }
 
@@ -111,6 +112,11 @@ func WithGymMembership(g GymMembershipReleaser) TeamOption {
 // WithGymChat opens an owner-to-coach chat when a coach is assigned to a head coach inside a gym.
 func WithGymChat(p *GymChatProvisioner) TeamOption {
 	return func(s *teamServiceImpl) { s.chat = p }
+}
+
+// WithGymMembers mirrors team assignments into gym_members (dual-write); nil disables it.
+func WithGymMembers(m GymMemberStore) TeamOption {
+	return func(s *teamServiceImpl) { s.members = m }
 }
 
 // WithReadCache caches the hot read endpoints (Me, MyHeadCoach) for ttl; mutations in this service purge it.
@@ -310,6 +316,7 @@ func (s *teamServiceImpl) Demote(ctx context.Context, adminID, headCoachID strin
 		}
 		if removed {
 			gymID = gid
+			mirrorHeadLeft(ctx, s.members, gid, headCoachID)
 		}
 	}
 
@@ -415,6 +422,8 @@ func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoac
 		return nil, teamErr(http.StatusConflict, errTargetNotHead)
 	}
 
+	mirrorCoachAssigned(ctx, s.members, headCoachID, coachID, adminID, m.AssignedAt)
+
 	if prev == nil || prev.HeadCoachID != headCoachID {
 		s.chat.CoachAssigned(ctx, headCoachID, coachID)
 	}
@@ -450,6 +459,7 @@ func (s *teamServiceImpl) Unassign(ctx context.Context, adminID, coachID string)
 	if n == 0 {
 		return teamErr(http.StatusNotFound, errNoMembership)
 	}
+	mirrorCoachUnassigned(ctx, s.members, coachID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionUnassign, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		HeadCoachID: prev.HeadCoachID, CoachID: coachID,
@@ -541,6 +551,7 @@ func (s *teamServiceImpl) RemoveMyCoach(ctx context.Context, callerID, coachID s
 	if n == 0 {
 		return teamErr(http.StatusNotFound, errCoachNotFound)
 	}
+	mirrorCoachUnassigned(ctx, s.members, coachID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionUnassign, ActorID: callerID, ActorRole: db.TeamActorRoleHead,
 		HeadCoachID: callerID, CoachID: coachID,
