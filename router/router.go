@@ -165,6 +165,13 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			gymOwnerGroup.DELETE("/gyms/:gym_id/invitations/:id", handlers.RevokeGymInvitation(services.GymService))
 		}
 
+		// Gym capabilities: the caller's gym context (any role) and owner-only policies and member overrides.
+		protected.GET("/me/gym-context", handlers.GetMyGymContext(services.GymPolicy))
+		protected.GET("/gyms/:gym_id/policies/:role", handlers.GetGymRolePolicy(services.GymPolicy))
+		protected.PUT("/gyms/:gym_id/policies/:role", handlers.PutGymRolePolicy(services.GymPolicy))
+		protected.GET("/gyms/:gym_id/members/:user_id/grants", handlers.GetGymMemberGrants(services.GymPolicy))
+		protected.PUT("/gyms/:gym_id/members/:user_id/grants", handlers.PutGymMemberGrants(services.GymPolicy))
+
 		adminGroup := protected.Group("/admin")
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
@@ -219,6 +226,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/consume", handlers.ConsumeInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
+		internal.POST("/authz/check", handlers.CheckInternalAuthz(services.GymPolicy))
 	}
 
 	// fallback

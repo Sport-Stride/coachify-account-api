@@ -109,6 +109,10 @@ type GymSettings struct {
 	Members GymMemberStore
 	// Team lists the coaches of a head coach, to mirror an existing team when a head coach joins a gym; nil skips it.
 	Team GymTeamLister
+	// Authz with AuthzEnforce (GYM_AUTHZ_ENFORCE) moves the gym ownership and head coach checks onto the Authorizer;
+	// otherwise, or when Authz is nil, the legacy checks stay.
+	Authz        Authorizer
+	AuthzEnforce bool
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -317,11 +321,37 @@ func (s *gymServiceImpl) ownedGym(ctx context.Context, callerID, gymID string) (
 	if apiErr := s.requireOwner(ctx, callerID); apiErr != nil {
 		return nil, apiErr
 	}
+	if s.authzEnforced() {
+		return s.ownedGymAuthz(ctx, callerID, gymID)
+	}
 	g, err := s.gyms.GetOwnedGym(ctx, gymID, callerID)
 	if err != nil {
 		return nil, s.internal("ownedGym", err)
 	}
 	if g == nil {
+		return nil, teamErr(http.StatusNotFound, errGymNotFound)
+	}
+	return g, nil
+}
+
+func (s *gymServiceImpl) authzEnforced() bool {
+	return s.set.AuthzEnforce && s.set.Authz != nil
+}
+
+// ownedGymAuthz is ownedGym on the Authorizer: the owner link decides, a gym the caller is not the owner of is a 404.
+func (s *gymServiceImpl) ownedGymAuthz(ctx context.Context, callerID, gymID string) (*db.Gym, *models.ApiError) {
+	g, err := s.gyms.GetGym(ctx, gymID)
+	if err != nil {
+		return nil, s.internal("ownedGym", err)
+	}
+	if g == nil {
+		return nil, teamErr(http.StatusNotFound, errGymNotFound)
+	}
+	d, apiErr := s.set.Authz.Can(ctx, Actor{ID: callerID, Role: db.RoleGymOwner}, CapGymManage, Resource{Type: ResourceGym, ID: gymID, GymID: gymID})
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if !d.Allowed {
 		return nil, teamErr(http.StatusNotFound, errGymNotFound)
 	}
 	return g, nil
@@ -780,8 +810,23 @@ func (s *gymServiceImpl) DeclineInvitation(ctx context.Context, callerID, invita
 // ---------- Head coach ----------
 
 func (s *gymServiceImpl) requireHead(ctx context.Context, callerID string) *models.ApiError {
-	_, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, true)
-	return apiErr
+	if !s.authzEnforced() {
+		_, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, true)
+		return apiErr
+	}
+	// The gym membership decides; a head coach with no gym keeps the legacy flag (he has no gym power anyway).
+	u, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, false)
+	if apiErr != nil {
+		return apiErr
+	}
+	d, apiErr := s.set.Authz.Can(ctx, Actor{ID: callerID, Role: u.UserRole}, CapGymHead, Resource{Type: ResourceGym})
+	if apiErr != nil {
+		return apiErr
+	}
+	if d.Allowed || (d.Reason == ReasonNotMember && u.IsHeadCoach) {
+		return nil
+	}
+	return teamErr(http.StatusForbidden, errHeadAccess)
 }
 
 func (s *gymServiceImpl) MyGym(ctx context.Context, callerID string) (*MyGymInfo, *models.ApiError) {

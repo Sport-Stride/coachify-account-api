@@ -55,6 +55,9 @@ type GymConfig struct {
 	ClientAppURL        string
 	// MembersRead selects the gym membership read path: "legacy" (default) or "new" (gym_members).
 	MembersRead string
+	// AuthzEnforce (GYM_AUTHZ_ENFORCE, default off) routes gym owner and head coach checks through the Authorizer.
+	// Off: legacy checks stay and the internal authz endpoint reports instead of denying.
+	AuthzEnforce bool
 }
 
 type BaseURLConfig struct {
@@ -171,6 +174,7 @@ func LoadConfig() *AppConfig {
 			OwnerInviteTTLHours: getIntWithDefault("GYM_OWNER_INVITE_TTL_HOURS", 168),
 			ClientAppURL:        getStringWithDefault("FRONTEND_URL", "http://localhost:3000"),
 			MembersRead:         getStringWithDefault("GYM_MEMBERS_READ", "legacy"),
+			AuthzEnforce:        viper.GetBool("GYM_AUTHZ_ENFORCE"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

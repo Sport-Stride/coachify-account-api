@@ -126,6 +126,7 @@ func (app *App) setup() {
 	entitlementAuditRepo := repositories.NewAdminAuditRepository(db, repositories.EntitlementAuditColl)
 	gymOwnerInviteRepo := repositories.NewGymOwnerInviteRepository(db, "gym_owner_invites")
 	gymMemberRepo := repositories.NewGymMemberRepository(db)
+	gymPolicyRepo := repositories.NewGymPolicyRepository(db)
 
 	// Align membership history with current team rows (idempotent, runs at every startup)
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -190,6 +191,7 @@ func (app *App) setup() {
 		entitlementAuditRepo,
 		gymOwnerInviteRepo,
 		gymMemberRepo,
+		gymPolicyRepo,
 	)
 
 	// Initialize Router

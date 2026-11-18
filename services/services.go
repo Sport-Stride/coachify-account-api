@@ -30,6 +30,7 @@ type Services struct {
 	EntitlementService      EntitlementService
 	GymOwnerInviteService   GymOwnerInviteService
 	GymMembership           GymMembershipReader
+	GymPolicy               GymPolicyService
 }
 
 func InitServices(config utils.AppConfig,
@@ -52,6 +53,7 @@ func InitServices(config utils.AppConfig,
 	entitlementAuditRepo *repositories.AdminAuditRepository,
 	gymOwnerInviteRepo *repositories.GymOwnerInviteRepository,
 	gymMemberRepo *repositories.GymMemberRepository,
+	gymPolicyRepo *repositories.GymPolicyRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -82,7 +84,13 @@ func InitServices(config utils.AppConfig,
 	}
 	entitlementService := NewEntitlementService(entitlementRepo, userRepo, coachService, planSource, entitlementAuditRepo)
 	authService.WithEntitlements(entitlementService)
-	authService.WithGymMembers(gymMemberRepo)
+	membership := NewGymMembershipReader(config.Gym.MembersRead,
+		NewLegacyMembershipAdapter(gymRepo, teamRepo), NewRepoMembershipReader(gymMemberRepo))
+	chain := NewChainAuthorizer(membership, gymPolicyRepo, nil)
+	authz := NewCachingAuthorizer(chain, DefaultAuthzCacheTTL)
+	// Every membership mirror write drops cached decisions and bumps the gym's authz_version.
+	memberStore := NewInvalidatingMemberStore(gymMemberRepo, authz, gymPolicyRepo)
+	authService.WithGymMembers(memberStore)
 	gymOwnerInviteService := NewGymOwnerInviteService(
 		gymOwnerInviteRepo,
 		userRepo,
@@ -102,12 +110,14 @@ func InitServices(config utils.AppConfig,
 		gymChat = NewGymChatProvisioner(NewGymChatStore(gymRepo, teamRepo), chatClient, nil)
 	}
 	gymService := NewGymService(userRepo, gymRepo, GymSettings{
+		Authz:         authz,
+		AuthzEnforce:  config.Gym.AuthzEnforce,
 		InviteTTL:     time.Duration(config.Gym.InviteTTLHours) * time.Hour,
 		InvitesPerDay: config.Gym.InvitesPerDay,
 		ClientURL:     config.Gym.ClientAppURL,
 		Mailer:        gymJoinMailer,
 		Chat:          gymChat,
-		Members:       gymMemberRepo,
+		Members:       memberStore,
 		Team:          teamRepo,
 	})
 	authService.WithGymJoins(gymService)
@@ -120,15 +130,15 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
-		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(gymMemberRepo), WithReadCache(15*time.Second)),
+		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(memberStore), WithReadCache(15*time.Second)),
 		GymService:              gymService,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,
 		EntitlementService:      entitlementService,
 		GymOwnerInviteService:   gymOwnerInviteService,
-		GymMembership: NewGymMembershipReader(config.Gym.MembersRead,
-			NewLegacyMembershipAdapter(gymRepo, teamRepo), NewRepoMembershipReader(gymMemberRepo)),
+		GymMembership:           membership,
+		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}
 }
 
