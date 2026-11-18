@@ -29,6 +29,7 @@ type Services struct {
 	UserStatus              UserStatusLookup
 	EntitlementService      EntitlementService
 	GymOwnerInviteService   GymOwnerInviteService
+	GymMembership           GymMembershipReader
 }
 
 func InitServices(config utils.AppConfig,
@@ -50,6 +51,7 @@ func InitServices(config utils.AppConfig,
 	entitlementRepo *repositories.EntitlementRepository,
 	entitlementAuditRepo *repositories.AdminAuditRepository,
 	gymOwnerInviteRepo *repositories.GymOwnerInviteRepository,
+	gymMemberRepo *repositories.GymMemberRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -80,6 +82,7 @@ func InitServices(config utils.AppConfig,
 	}
 	entitlementService := NewEntitlementService(entitlementRepo, userRepo, coachService, planSource, entitlementAuditRepo)
 	authService.WithEntitlements(entitlementService)
+	authService.WithGymMembers(gymMemberRepo)
 	gymOwnerInviteService := NewGymOwnerInviteService(
 		gymOwnerInviteRepo,
 		userRepo,
@@ -104,6 +107,8 @@ func InitServices(config utils.AppConfig,
 		ClientURL:     config.Gym.ClientAppURL,
 		Mailer:        gymJoinMailer,
 		Chat:          gymChat,
+		Members:       gymMemberRepo,
+		Team:          teamRepo,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
@@ -115,13 +120,15 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
-		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithReadCache(15*time.Second)),
+		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(gymMemberRepo), WithReadCache(15*time.Second)),
 		GymService:              gymService,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,
 		EntitlementService:      entitlementService,
 		GymOwnerInviteService:   gymOwnerInviteService,
+		GymMembership: NewGymMembershipReader(config.Gym.MembersRead,
+			NewLegacyMembershipAdapter(gymRepo, teamRepo), NewRepoMembershipReader(gymMemberRepo)),
 	}
 }
 

@@ -76,6 +76,7 @@ type AuthServiceImpl struct {
 	registrationLinkRepo registrationLinkLookup
 	chatClient           *chat.ChatClient
 	teamRepo             *repositories.TeamRepository
+	gymMembers           GymMemberStore
 	entitlements         EntitlementGuard
 	gymOwnerInvites      gymOwnerInviteRedeemer
 	gymJoins             gymJoinRedeemer
@@ -118,6 +119,12 @@ func NewAuthService(
 // WithEntitlements sets the in-process entitlement check used by registration links; nil disables it.
 func (s *AuthServiceImpl) WithEntitlements(g EntitlementGuard) *AuthServiceImpl {
 	s.entitlements = g
+	return s
+}
+
+// WithGymMembers mirrors team cleanups into gym_members (dual-write); nil disables it.
+func (s *AuthServiceImpl) WithGymMembers(m GymMemberStore) *AuthServiceImpl {
+	s.gymMembers = m
 	return s
 }
 
@@ -1321,6 +1328,9 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 				zap.String("component", "auth"),
 				zap.Error(tErr),
 			)
+		} else {
+			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
+			mirrorUserGone(ctx, s.gymMembers, req.User.ExternalID)
 		}
 	}
 
@@ -1368,6 +1378,9 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 				zap.String("component", "auth"),
 				zap.Error(tErr),
 			)
+		} else {
+			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
+			mirrorUserGone(ctx, s.gymMembers, id)
 		}
 	}
 

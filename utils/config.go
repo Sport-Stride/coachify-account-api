@@ -53,6 +53,8 @@ type GymConfig struct {
 	InvitesPerDay       int
 	OwnerInviteTTLHours int
 	ClientAppURL        string
+	// MembersRead selects the gym membership read path: "legacy" (default) or "new" (gym_members).
+	MembersRead string
 }
 
 type BaseURLConfig struct {
@@ -168,6 +170,7 @@ func LoadConfig() *AppConfig {
 			InvitesPerDay:       getIntWithDefault("GYM_INVITES_PER_DAY", 20),
 			OwnerInviteTTLHours: getIntWithDefault("GYM_OWNER_INVITE_TTL_HOURS", 168),
 			ClientAppURL:        getStringWithDefault("FRONTEND_URL", "http://localhost:3000"),
+			MembersRead:         getStringWithDefault("GYM_MEMBERS_READ", "legacy"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{
