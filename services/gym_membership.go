@@ -500,3 +500,73 @@ func ReconcileMembers(existing, desired []db.GymMember) MemberPlan {
 	}
 	return plan
 }
+
+// MemberBackfillStore is the part of the gym member repository the backfill needs.
+type MemberBackfillStore interface {
+	ListActive(ctx context.Context) ([]db.GymMember, error)
+	LegacySnapshot(ctx context.Context) ([]db.Gym, []db.GymHeadCoach, []db.TeamMember, error)
+	MarkLeft(ctx context.Context, gymID, userID string, at time.Time) (bool, error)
+	FixRole(ctx context.Context, m *db.GymMember) (bool, error)
+	EnsureActive(ctx context.Context, m *db.GymMember) (bool, error)
+}
+
+var _ MemberBackfillStore = (*repositories.GymMemberRepository)(nil)
+
+// BackfillReport counts what a backfill run saw, would do (would_*) and did.
+type BackfillReport struct {
+	Gyms, Heads, Team, Desired, ExistingActive int
+	WouldClose, WouldFix, WouldCreate          int
+	Closed, Fixed, Created, Failed             int
+}
+
+// RunMemberBackfill reconciles gym_members with the legacy collections. gym_members is read before the legacy
+// snapshot, so a row dual-written in between has a legacy counterpart and never looks stale. A real run closes
+// stale rows first (freeing the one-gym-per-coach index), then fixes drifted rows, then creates missing ones.
+// A dry run writes nothing. logf receives one line per failed row (ids only).
+func RunMemberBackfill(ctx context.Context, store MemberBackfillStore, dryRun bool, logf func(format string, args ...any)) (BackfillReport, error) {
+	var rep BackfillReport
+	existing, err := store.ListActive(ctx)
+	if err != nil {
+		return rep, err
+	}
+	gyms, heads, team, err := store.LegacySnapshot(ctx)
+	if err != nil {
+		return rep, err
+	}
+	desired := BackfillMembers(gyms, heads, team)
+	plan := ReconcileMembers(existing, desired)
+	rep = BackfillReport{
+		Gyms: len(gyms), Heads: len(heads), Team: len(team), Desired: len(desired), ExistingActive: len(existing),
+		WouldClose: len(plan.Close), WouldFix: len(plan.Fix), WouldCreate: len(plan.Create),
+	}
+	if dryRun {
+		return rep, nil
+	}
+	tally := func(ok bool, err error, done *int, op string, r *db.GymMember) {
+		switch {
+		case err != nil:
+			rep.Failed++
+			if logf != nil {
+				logf("%s gym_id=%s user_id=%s: %v", op, r.GymID, r.UserID, err)
+			}
+		case ok:
+			*done++
+		}
+	}
+	for i := range plan.Close {
+		r := &plan.Close[i]
+		ok, err := store.MarkLeft(ctx, r.GymID, r.UserID, time.Now())
+		tally(ok, err, &rep.Closed, "close", r)
+	}
+	for i := range plan.Fix {
+		r := &plan.Fix[i]
+		ok, err := store.FixRole(ctx, r)
+		tally(ok, err, &rep.Fixed, "fix", r)
+	}
+	for i := range plan.Create {
+		r := &plan.Create[i]
+		ok, err := store.EnsureActive(ctx, r)
+		tally(ok, err, &rep.Created, "create", r)
+	}
+	return rep, nil
+}
