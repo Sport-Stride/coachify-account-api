@@ -82,7 +82,7 @@ func TestGymPolicyHandlers(t *testing.T) {
 	t.Run("owner success and 409", func(t *testing.T) {
 		svc := &mocks.GymPolicyService{}
 		svc.On("GetRolePolicy", mock.Anything, "owner1", "g1", "coach").
-			Return(&services.RolePolicyView{GymID: "g1", Role: "coach", Capabilities: map[string]bool{"library.read": true}, Version: 2}, nil)
+			Return(&services.RolePolicyView{GymID: "g1", Role: "coach", Capabilities: map[string]bool{"library.read": true}, Preset: map[string]bool{"library.read": true, "workout.write": false}, Version: 2}, nil)
 		svc.On("PutRolePolicy", mock.Anything, "owner1", "g1", "coach", map[string]bool{"workout.write": true}, int64(2)).
 			Return(&services.RolePolicyView{GymID: "g1", Role: "coach", Version: 3}, nil)
 		svc.On("PutRolePolicy", mock.Anything, "owner1", "g1", "coach", mock.Anything, int64(1)).
@@ -92,6 +92,7 @@ func TestGymPolicyHandlers(t *testing.T) {
 		w := get(r, "/gyms/g1/policies/coach")
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.EqualValues(t, 2, decode(t, w)["version"])
+		assert.Equal(t, map[string]interface{}{"library.read": true, "workout.write": false}, decode(t, w)["preset"])
 
 		w = do(r, http.MethodPut, "/gyms/g1/policies/coach", `{"capabilities":{"workout.write":true},"version":2}`)
 		require.Equal(t, http.StatusOK, w.Code)

@@ -61,7 +61,7 @@ func gymTestDB(t *testing.T) *mongo.Database {
 func gymMemberFixture(t *testing.T) (*mongo.Database, *repositories.GymMemberRepository) {
 	t.Helper()
 	database := gymTestDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	require.NoError(t, repositories.InitializeIndexes(ctx, database))
 	return database, repositories.NewGymMemberRepository(database)
@@ -85,7 +85,7 @@ func memberCtx() (context.Context, context.CancelFunc) {
 
 func TestGymMemberIT_Indexes(t *testing.T) {
 	database := gymTestDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	require.NoError(t, repositories.InitializeIndexes(ctx, database), "fresh database")

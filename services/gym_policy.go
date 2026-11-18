@@ -53,7 +53,9 @@ type RolePolicyView struct {
 	GymID        string          `json:"gym_id"`
 	Role         string          `json:"role"`
 	Capabilities map[string]bool `json:"capabilities"`
-	Version      int64           `json:"version"`
+	// Preset is the platform-preset value of each capability for the role (the lowest layer).
+	Preset  map[string]bool `json:"preset"`
+	Version int64           `json:"version"`
 }
 
 // GrantsView is the override set of one member.
@@ -229,7 +231,7 @@ func (s *gymPolicyService) GetRolePolicy(ctx context.Context, callerID, gymID, r
 	if p != nil {
 		stored, v.Version = p.Capabilities, p.Version
 	}
-	v.Capabilities = effectiveCaps(r, stored)
+	v.Capabilities, v.Preset = effectiveCaps(r, stored), effectiveCaps(r, nil)
 	return v, nil
 }
 
@@ -263,7 +265,7 @@ func (s *gymPolicyService) PutRolePolicy(ctx context.Context, callerID, gymID, r
 	if apiErr := s.bump(ctx, "PutRolePolicy", gymID); apiErr != nil {
 		return nil, apiErr
 	}
-	return &RolePolicyView{GymID: gymID, Role: role, Capabilities: effectiveCaps(r, saved.Capabilities), Version: saved.Version}, nil
+	return &RolePolicyView{GymID: gymID, Role: role, Capabilities: effectiveCaps(r, saved.Capabilities), Preset: effectiveCaps(r, nil), Version: saved.Version}, nil
 }
 
 // grantTarget loads the target member: unknown is 404, the owner cannot be targeted.

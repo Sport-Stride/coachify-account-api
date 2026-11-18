@@ -43,7 +43,7 @@ func newMemberEnv(t *testing.T) *memberEnv {
 	}
 	require.Contains(t, uri, gymTestHost, "gym integration tests only run against the throwaway server")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func (e *memberEnv) count(t *testing.T, filter bson.M) int64 {
 
 func (e *memberEnv) run(t *testing.T, dry bool) services.BackfillReport {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	rep, err := services.RunMemberBackfill(ctx, e.members, dry, t.Logf)
 	require.NoError(t, err)

@@ -325,6 +325,7 @@ func TestPolicyServiceRolePolicyVersioningAndInvalidation(t *testing.T) {
 	assert.Equal(t, int64(0), v.Version)
 	assert.True(t, v.Capabilities["library.read"])
 	assert.False(t, v.Capabilities["workout.write"])
+	assert.Equal(t, v.Capabilities, v.Preset, "no override yet: effective equals preset")
 
 	// Warm the cache, then write: the next check must see the new policy at once.
 	assert.False(t, can(t, authz, "coach", services.CapWorkoutWrite).Allowed)
@@ -332,6 +333,9 @@ func TestPolicyServiceRolePolicyVersioningAndInvalidation(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Equal(t, int64(1), v.Version)
 	assert.True(t, v.Capabilities["workout.write"])
+	assert.False(t, v.Preset["workout.write"], "preset stays the platform value, not the override")
+	assert.True(t, v.Preset["library.read"])
+	assert.Len(t, v.Preset, 9)
 	assert.True(t, can(t, authz, "coach", services.CapWorkoutWrite).Allowed)
 
 	_, apiErr = svc.PutRolePolicy(ctx, "owner", gymA, "coach", map[string]bool{}, 0)
