@@ -74,6 +74,13 @@ type GymConfig struct {
 	// the coach departure cleanup through one Mongo transaction (needs a replica set; startup fails fast without
 	// one) and the tracker transfer. Requires CLIENT_GYM_RELATIONS. Off: legacy behavior.
 	DispatchEnabled bool
+	// SeatsEnabled (GYM_SEATS_ENABLED, default off) turns on gym seats: seat checks at join, the seat endpoints, the
+	// gym entitlement source and the plan based max_gym_clients. Off: no payments gym calls, behavior unchanged.
+	SeatsEnabled bool
+	// SeatGrandfather (GYM_SEAT_GRANDFATHER, default on) keeps gyms with no subscription unlimited and seated.
+	SeatGrandfather bool
+	// SeatOverflowGraceDays (GYM_SEAT_OVERFLOW_GRACE_DAYS, default 7) is the grace of seats above the purchased total.
+	SeatOverflowGraceDays int
 }
 
 type BaseURLConfig struct {
@@ -204,6 +211,10 @@ func LoadConfig() *AppConfig {
 			ClientGymRelations:  viper.GetBool("CLIENT_GYM_RELATIONS"),
 			InviteLinksV2:       viper.GetBool("INVITE_LINKS_V2"),
 			DispatchEnabled:     viper.GetBool("GYM_DISPATCH_ENABLED"),
+
+			SeatsEnabled:          viper.GetBool("GYM_SEATS_ENABLED"),
+			SeatGrandfather:       !viper.IsSet("GYM_SEAT_GRANDFATHER") || viper.GetBool("GYM_SEAT_GRANDFATHER"),
+			SeatOverflowGraceDays: getIntWithDefault("GYM_SEAT_OVERFLOW_GRACE_DAYS", 7),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

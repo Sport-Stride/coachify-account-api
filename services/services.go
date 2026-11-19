@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"coachify-account-api/core"
+	"coachify-account-api/models"
 	"coachify-account-api/models/db"
 	"coachify-account-api/oauth2"
 	"coachify-account-api/pkg/chat"
@@ -38,6 +39,10 @@ type Services struct {
 	Quota                   QuotaGuard
 	// GymLeaver serves POST /me/gyms/:gym_id/leave; nil unless GYM_DISPATCH_ENABLED (and CLIENT_GYM_RELATIONS).
 	GymLeaver GymClientLeaver
+	// Seats serves the seat endpoints (404 while GYM_SEATS_ENABLED is off).
+	Seats SeatService
+	// ContextEntitlements serves GET /internal/users/:id/entitlements; nil (a 404) unless GYM_SEATS_ENABLED.
+	ContextEntitlements ContextEntitlementResolver
 }
 
 // DispatchWiring carries the P6 collaborators; nil while GYM_DISPATCH_ENABLED is off.
@@ -117,6 +122,45 @@ func InitServices(config utils.AppConfig,
 	// Every membership mirror write drops cached decisions and bumps the gym's authz_version.
 	memberStore := NewInvalidatingMemberStore(gymMemberRepo, authz, gymPolicyRepo)
 	authService.WithGymMembers(memberStore)
+	// Seats (P8a). Built always so the endpoints answer 404 when off; every other hook stays nil unless enabled.
+	seatsOn := config.Gym.SeatsEnabled
+	var gymSummaries *GymSummaryCache
+	if seatsOn && payment != nil {
+		gymSummaries = NewGymSummaryCache(payment, gymSummaryTTL)
+	} else {
+		gymSummaries = NewGymSummaryCache(nil, gymSummaryTTL)
+	}
+	var ctxCache *CachedContextResolver // set below when seats are on; the purge closure reads it lazily
+	seatSvc := NewSeatService(authz, gymMemberRepo, gymSummaries, SeatSettings{
+		Enabled: seatsOn, Grandfather: config.Gym.SeatGrandfather,
+		OverflowGrace: time.Duration(config.Gym.SeatOverflowGraceDays) * 24 * time.Hour, Inval: authz, Bump: gymPolicyRepo,
+		Purge: func() {
+			if ctxCache != nil {
+				ctxCache.Invalidate()
+			}
+		},
+	})
+	var joinSeats JoinSeats
+	var seatGuard SeatGuard
+	var planLimit GymClientLimit
+	var contextEnts ContextEntitlementResolver
+	if seatsOn {
+		joinSeats, seatGuard = seatSvc, seatSvc
+		planLimit = &gymPlanLimit{summaries: gymSummaries, grandfather: config.Gym.SeatGrandfather}
+		entitlementService.WithSeatOnlyCheck(seatSvc)
+		authService.WithSeatOnlySignup(true)
+		personalFeatures := func(ctx context.Context, userID string) ([]string, bool, *models.ApiError) {
+			eff, apiErr := entitlementService.resolve(ctx, userID)
+			if apiErr != nil {
+				return nil, false, apiErr
+			}
+			// An unknown plan (payments down) counts as "has a plan": fail open.
+			return enabledFeatures(eff.Features), eff.Plan != nil || eff.planUnknown, nil
+		}
+		ctxCache = NewCachedContextResolver(NewEntitlementSources(NewPersonalSource(entitlementService, seatSvc),
+			NewGymSource(seatSvc, personalFeatures, entitlementService.loadDefaults)), contextEntitlementsTTL)
+		contextEnts = ctxCache
+	}
 	gymOwnerInviteService := NewGymOwnerInviteService(
 		gymOwnerInviteRepo,
 		userRepo,
@@ -130,7 +174,7 @@ func InitServices(config utils.AppConfig,
 	if notification != nil {
 		gymJoinMailer = notification
 	}
-	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
+	quota := NewQuotaGuard(entitlementService, gymClientRepo, planLimit)
 	gymClientDeps := GymClientDeps{
 		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
 		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
@@ -173,6 +217,7 @@ func InitServices(config utils.AppConfig,
 		FlatHierarchy: config.Gym.FlatHierarchy,
 		Projector:     teamRepo,
 		Departures:    departures,
+		Seats:         joinSeats,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
@@ -198,7 +243,7 @@ func InitServices(config utils.AppConfig,
 		NewClientGymKind(authz, membership, gymRepo, gymClients, gymClientRepo, config.Gym.ClientGymRelations),
 		NewLegacyEmailKind(emailInvites),
 	}
-	inviteKinds = append(inviteKinds, NewMemberKinds(gymService, gymService, nil, membership)...)
+	inviteKinds = append(inviteKinds, NewMemberKinds(gymService, gymService, seatGuard, membership)...)
 	inviteLinks := NewInviteLinkService(InviteLinkDeps{
 		Store: inviteLinkRepo, RegLinks: registrationLinkRepo, Users: userRepo, Gyms: gymRepo, Members: membership,
 		Authz: authz, Joiner: gymService, Registry: NewInviteKindRegistry(inviteKinds...),
@@ -225,6 +270,8 @@ func InitServices(config utils.AppConfig,
 		InviteLinks:             inviteLinks,
 		Quota:                   quota,
 		GymLeaver:               gymLeaver,
+		Seats:                   seatSvc,
+		ContextEntitlements:     contextEnts,
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}
 }

@@ -69,8 +69,8 @@ func TestGymOwnerPlanDefaultAdminEditable(t *testing.T) {
 	require.NotNil(t, e.store.defaults["_gym_owner"].Features["nutrition"].Enabled)
 	assert.False(t, *e.store.defaults["_gym_owner"].Features["nutrition"].Enabled)
 
-	// an unknown id is still rejected
-	_, apiErr = e.svc.SetPlanDefault(ctx, "adm", "_gym_seat", api.PlanDefaultRequest{Features: patch})
+	// an unknown id is still rejected (_gym_seat became valid in P8a)
+	_, apiErr = e.svc.SetPlanDefault(ctx, "adm", "_unknown_key", api.PlanDefaultRequest{Features: patch})
 	require.NotNil(t, apiErr)
 }
 

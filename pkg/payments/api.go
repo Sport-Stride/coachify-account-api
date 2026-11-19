@@ -158,3 +158,49 @@ func (c *PaymentClient) GetSubscriptionSummaries(ctx context.Context, userIDs []
 	}
 	return out.Summaries, nil
 }
+
+// MaxGymSummaryIDs is the payments-api limit of gym ids per summary request.
+const MaxGymSummaryIDs = 200
+
+// GymSummaries returns the gym subscription summary of each gym (service-to-service, x-api-key). Every requested gym
+// gets one entry; a gym without a subscription has status "none". Any failure returns an error.
+func (c *PaymentClient) GymSummaries(ctx context.Context, gymIDs []string) ([]GymSummary, error) {
+	if len(gymIDs) == 0 {
+		return nil, nil
+	}
+	if len(gymIDs) > MaxGymSummaryIDs {
+		return nil, fmt.Errorf("too many gym ids: %d", len(gymIDs))
+	}
+	body, err := json.Marshal(gymSummaryRequest{GymIDs: gymIDs})
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/internal/gym-subscriptions/summary", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return nil, fmt.Errorf("payments-api gym summary failed: status=%d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var out gymSummaryResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("error decoding gym summary response: %w", err)
+	}
+	return out.Summaries, nil
+}

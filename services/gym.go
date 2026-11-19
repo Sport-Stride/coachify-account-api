@@ -119,6 +119,14 @@ type GymSettings struct {
 	Projector SupervisionTeamStore
 	// Departures releases the gym clients of a head coach who leaves or is removed (GYM_DISPATCH_ENABLED); nil skips it.
 	Departures CoachDepartures
+	// Seats checks a free seat before a coach or head coach joins and assigns it afterwards (GYM_SEATS_ENABLED); nil skips it.
+	Seats JoinSeats
+}
+
+// JoinSeats is the seat seam of the join paths; SeatService satisfies it.
+type JoinSeats interface {
+	SeatGuard
+	OnJoined(ctx context.Context, gymID, userID string)
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -746,6 +754,12 @@ func (s *gymServiceImpl) joinGymAsHead(ctx context.Context, u *db.User, inv *db.
 		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 	}
 	gid := g.ID.Hex()
+	// No free seat: the join fails and the invitation stays pending (usable again once a seat is free).
+	if s.set.Seats != nil {
+		if apiErr := s.set.Seats.Check(ctx, gid); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 
 	// Claim the invitation first so two concurrent redemptions of one single-use link cannot both join.
 	claimed, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInvitePending, db.GymInviteAccepted, callerID, now)
@@ -819,6 +833,9 @@ func (s *gymServiceImpl) joinGymAsHead(ctx context.Context, u *db.User, inv *db.
 
 	mirrorHeadJoined(ctx, s.set.Members, gid, callerID, inv.InviterID, db.GymMemberSourceInvite, now)
 	mirrorExistingTeam(ctx, s.set.Members, s.set.Team, gid, callerID, inv.InviterID, now)
+	if s.set.Seats != nil {
+		s.set.Seats.OnJoined(ctx, gid, callerID)
+	}
 	s.set.Chat.HeadJoined(ctx, g.OwnerID, callerID)
 
 	entries := make([]*db.TeamAuditEntry, 0, 2)

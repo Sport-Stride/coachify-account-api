@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -579,6 +580,10 @@ func RunMemberBackfill(ctx context.Context, store MemberBackfillStore, dryRun bo
 	for i := range plan.Create {
 		r := &plan.Create[i]
 		ok, err := store.EnsureActive(ctx, r)
+		if errors.Is(err, repositories.ErrAlreadyMember) {
+			// A live dual-write created the row first: it exists, which is what the backfill wanted.
+			ok, err = false, nil
+		}
 		tally(ok, err, &rep.Created, "create", r)
 	}
 	return rep, nil

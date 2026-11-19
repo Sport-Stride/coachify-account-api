@@ -185,6 +185,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		protected.PUT("/gyms/:gym_id/members/:user_id/grants", handlers.PutGymMemberGrants(services.GymPolicy))
 		// Flat hierarchy (GYM_FLAT_HIERARCHY): the member list, supervisor changes and coach invitations answer 404 while the flag is off.
 		protected.GET("/gyms/:gym_id/members", handlers.ListGymMembers(services.GymMembers))
+		// Gym seats (GYM_SEATS_ENABLED): owner only; 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/seats", handlers.GetGymSeats(services.Seats))
+		protected.PUT("/gyms/:gym_id/members/:user_id/seat", handlers.PutGymMemberSeat(services.Seats))
 		protected.PUT("/gyms/:gym_id/members/:user_id/supervisor", handlers.PutGymMemberSupervisor(services.GymMembers))
 		protected.POST("/gyms/:gym_id/coach-invitations", handlers.InviteGymCoach(services.GymService))
 		protected.POST("/gyms/:gym_id/coach-join-links", handlers.CreateGymCoachJoinLink(services.GymService))
@@ -253,7 +256,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/consume", handlers.ConsumeInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
-		internal.POST("/authz/check", handlers.CheckInternalAuthz(services.GymPolicy))
+		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
+		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 	}
 

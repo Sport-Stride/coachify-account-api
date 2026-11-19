@@ -32,6 +32,16 @@ const (
 	GymMemberSourceFlat GymMemberSource = "flat"
 )
 
+// SeatState is the seat standing of a coach or head coach (P8a). The owner has none.
+type SeatState string
+
+const (
+	SeatStateSeated   SeatState = "seated"
+	SeatStateGrace    SeatState = "grace"
+	SeatStateReadOnly SeatState = "read_only"
+	SeatStateNone     SeatState = "none"
+)
+
 // GymMember is one user's membership of one gym (collection gym_members).
 // While GYM_MEMBERS_READ=legacy the legacy collections stay the source of truth and this row is a mirror.
 type GymMember struct {
@@ -45,7 +55,11 @@ type GymMember struct {
 	// CoachSlot is true on active head_coach and coach rows only; the one-gym-per-coach unique index filters on it.
 	CoachSlot bool `bson:"coach_slot,omitempty" json:"-"`
 	// SeatAssignedAt is set when a seat is assigned (P0 never assigns one).
-	SeatAssignedAt *time.Time      `bson:"seat_assigned_at,omitempty" json:"seat_assigned_at,omitempty"`
+	SeatAssignedAt *time.Time `bson:"seat_assigned_at,omitempty" json:"seat_assigned_at,omitempty"`
+	// SeatState, SeatGraceUntil and SeatStateAt are written by the seat reconcile (P8a); empty on legacy rows.
+	SeatState      SeatState       `bson:"seat_state,omitempty" json:"seat_state,omitempty"`
+	SeatGraceUntil *time.Time      `bson:"seat_grace_until,omitempty" json:"seat_grace_until,omitempty"`
+	SeatStateAt    *time.Time      `bson:"seat_state_at,omitempty" json:"seat_state_at,omitempty"`
 	JoinedAt       time.Time       `bson:"joined_at" json:"joined_at"`
 	LeftAt         *time.Time      `bson:"left_at,omitempty" json:"left_at,omitempty"`
 	AddedBy        string          `bson:"added_by" json:"added_by"`

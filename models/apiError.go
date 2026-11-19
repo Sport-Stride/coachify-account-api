@@ -113,6 +113,8 @@ const (
 	CodeQuotaExceeded         = "QUOTA_EXCEEDED"
 	CodeGrantExceedsCoach     = "GRANT_EXCEEDS_COACH"
 	CodeEntitlementsDown      = "ENTITLEMENTS_UNAVAILABLE"
+	CodeSeatsExhausted        = "SEATS_EXHAUSTED"
+	CodePersonalSubRequired   = "PERSONAL_SUBSCRIPTION_REQUIRED"
 )
 
 // EntitlementError is carried in ApiError.Error so handlers can add a stable `code` (and the

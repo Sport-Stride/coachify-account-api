@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -107,6 +108,10 @@ func gymMemberIndexes() []mongo.IndexModel {
 		{
 			Keys:    bson.D{{Key: "supervisor_id", Value: 1}},
 			Options: options.Index().SetName("idx_gym_members_supervisor"),
+		},
+		{
+			Keys:    bson.D{{Key: "gym_id", Value: 1}, {Key: "seat_assigned", Value: 1}, {Key: "status", Value: 1}},
+			Options: options.Index().SetName("idx_gym_members_gym_seat_status"),
 		},
 	}
 }
@@ -231,6 +236,13 @@ func (r *GymMemberRepository) EnsureActive(ctx context.Context, m *db.GymMember)
 		bson.M{"gym_id": m.GymID, "user_id": m.UserID, "status": db.GymMemberStatusActive},
 		ensureUpdate(m), options.Update().SetUpsert(true))
 	if err != nil {
+		// A concurrent writer upserted the same (gym, user) between our match and insert: the active row exists, so
+		// this is the "exists" outcome. Other duplicate keys (another gym for the coach) stay real errors.
+		if mongo.IsDuplicateKeyError(err) && strings.Contains(err.Error(), "idx_gym_members_gym_user_unique") {
+			if cur, getErr := r.Get(ctx, m.UserID, m.GymID); getErr == nil && cur != nil {
+				return false, ErrAlreadyMember
+			}
+		}
 		return false, err
 	}
 	return res.UpsertedCount > 0, nil
@@ -421,7 +433,7 @@ func profileStages() []bson.D {
 				bd("$project", bd("firstname", 1, "lastname", 1, "profile_picture", 1)),
 			},
 			"as", "u",
-		)},},
+		)}},
 		{{Key: "$addFields", Value: bd(
 			"firstname", bd("$ifNull", bson.A{bd("$first", "$u.firstname"), ""}),
 			"lastname", bd("$ifNull", bson.A{bd("$first", "$u.lastname"), ""}),
@@ -509,4 +521,48 @@ func (r *GymMemberRepository) GetRow(ctx context.Context, gymID, userID string) 
 		return nil, nil
 	}
 	return &rows[0], nil
+}
+
+// SetSeat assigns or releases the seat of an active coach or head coach row. Assigning sets seat_state seated and
+// seat_assigned_at; releasing sets seat_state none and clears the grace. False means no such active row.
+func (r *GymMemberRepository) SetSeat(ctx context.Context, gymID, userID string, assigned bool, at time.Time) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	filter := bson.M{"gym_id": gymID, "user_id": userID, "status": db.GymMemberStatusActive, "coach_slot": true}
+	set := bson.M{"seat_assigned": assigned, "seat_state_at": at}
+	unset := bson.M{"seat_grace_until": ""}
+	if assigned {
+		set["seat_state"], set["seat_assigned_at"] = db.SeatStateSeated, at
+	} else {
+		set["seat_state"] = db.SeatStateNone
+		unset["seat_assigned_at"] = ""
+	}
+	res, err := r.members.UpdateOne(ctx, filter, bson.M{"$set": set, "$unset": unset})
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount > 0, nil
+}
+
+// SetSeatState stores the reconciled seat state of an active row; graceUntil nil clears it. Idempotent. A grace
+// deadline is written only while seat_grace_until is unset, so concurrent reconciles keep the first deadline.
+func (r *GymMemberRepository) SetSeatState(ctx context.Context, gymID, userID string, state db.SeatState, graceUntil *time.Time, at time.Time) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	filter := bson.M{"gym_id": gymID, "user_id": userID, "status": db.GymMemberStatusActive, "coach_slot": true}
+	upd := bson.M{"$set": bson.M{"seat_state": state, "seat_state_at": at}}
+	if graceUntil != nil {
+		unsetOnly := bson.M{"gym_id": gymID, "user_id": userID, "status": db.GymMemberStatusActive, "coach_slot": true,
+			"seat_grace_until": bson.M{"$exists": false}}
+		if _, err := r.members.UpdateOne(ctx, unsetOnly, bson.M{"$set": bson.M{"seat_grace_until": *graceUntil}}); err != nil {
+			return false, err
+		}
+	} else {
+		upd["$unset"] = bson.M{"seat_grace_until": ""}
+	}
+	res, err := r.members.UpdateOne(ctx, filter, upd)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount > 0, nil
 }

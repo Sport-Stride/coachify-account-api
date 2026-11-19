@@ -573,6 +573,7 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_members_coach_unique",
 			"idx_gym_members_gym_role_status",
 			"idx_gym_members_supervisor",
+			"idx_gym_members_gym_seat_status",
 		},
 		gymRolePoliciesCollection: {"idx_gym_role_policies_gym_role_unique"},
 		permissionGrantsCollection: {

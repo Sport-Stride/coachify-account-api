@@ -37,6 +37,16 @@ func (c *readCache) purge() {
 	c.mu.Unlock()
 }
 
+// forget drops one key.
+func (c *readCache) forget(key string) {
+	if c == nil || c.ttl <= 0 {
+		return
+	}
+	c.mu.Lock()
+	delete(c.m, key)
+	c.mu.Unlock()
+}
+
 // cachedRead returns the cached value for key or runs load once for all concurrent callers.
 func cachedRead[T any](c *readCache, key string, load func() (T, *models.ApiError)) (T, *models.ApiError) {
 	if c == nil || c.ttl <= 0 {

@@ -31,7 +31,7 @@ func TestGymMemberIndexes(t *testing.T) {
 		}
 		byName[*m.Options.Name] = e
 	}
-	require.Len(t, byName, 4)
+	require.Len(t, byName, 5)
 
 	coach := byName["idx_gym_members_coach_unique"]
 	require.NotNil(t, coach, "index name is kept")

@@ -150,6 +150,12 @@ func (s *gymServiceImpl) joinGymAsCoach(ctx context.Context, u *db.User, inv *db
 		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 	}
 	gid := g.ID.Hex()
+	// No free seat: the join fails and the invitation stays pending.
+	if s.set.Seats != nil {
+		if apiErr := s.set.Seats.Check(ctx, gid); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 
 	// The supervisor named at invitation time may have left since: join without one then.
 	supervisor := inv.SupervisorID
@@ -216,6 +222,9 @@ func (s *gymServiceImpl) joinGymAsCoach(ctx context.Context, u *db.User, inv *db
 			revert(true)
 			return nil, s.internal("AcceptCoach.project", err)
 		}
+	}
+	if s.set.Seats != nil {
+		s.set.Seats.OnJoined(ctx, gid, callerID)
 	}
 	s.auditMany(ctx, []*db.TeamAuditEntry{
 		{Action: db.TeamActionMemberJoin, ActorID: callerID, ActorRole: db.TeamActorRoleCoach, CoachID: callerID, HeadCoachID: supervisor, GymID: gid},

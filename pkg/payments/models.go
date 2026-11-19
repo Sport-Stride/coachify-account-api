@@ -71,7 +71,14 @@ type SubscriptionSummaryEntry struct {
 	PlanID           string     `json:"plan_id"`
 	PlanName         string     `json:"plan_name"`
 	CurrentPeriodEnd *time.Time `json:"current_period_end,omitempty"`
+	// Type is personal or gym ("" from an older payments-api means personal). Consumers keyed by user_id must ignore gym.
+	Type          string `json:"type,omitempty"`
+	PlanOwnerType string `json:"plan_owner_type,omitempty"`
+	PlanOwnerID   string `json:"plan_owner_id,omitempty"`
 }
+
+// IsPersonal reports whether the entry is a personal subscription (gym entries are never one).
+func (e SubscriptionSummaryEntry) IsPersonal() bool { return e.Type != SummaryTypeGym }
 
 type subscriptionSummaryRequest struct {
 	UserIDs []string `json:"user_ids"`
@@ -79,4 +86,33 @@ type subscriptionSummaryRequest struct {
 
 type subscriptionSummaryResponse struct {
 	Summaries []SubscriptionSummaryEntry `json:"summaries"`
+}
+
+// Summary entry types of POST /internal/subscriptions/summary. An empty type (older payments-api) is personal.
+const (
+	SummaryTypePersonal = "personal"
+	SummaryTypeGym      = "gym"
+)
+
+// GymSummary is one entry of POST /internal/gym-subscriptions/summary. Status is active, grace, lapsed or none;
+// a gym without a subscription has zero seats and no features.
+type GymSummary struct {
+	GymID         string     `json:"gym_id"`
+	Status        string     `json:"status"`
+	PlanID        string     `json:"plan_id"`
+	IncludedSeats int64      `json:"included_seats"`
+	ExtraSeats    int64      `json:"extra_seats"`
+	TotalSeats    int64      `json:"total_seats"`
+	MaxGymClients int64      `json:"max_gym_clients"`
+	PeriodEnd     *time.Time `json:"period_end"`
+	GraceUntil    *time.Time `json:"grace_until,omitempty"`
+	Features      []string   `json:"features"`
+}
+
+type gymSummaryRequest struct {
+	GymIDs []string `json:"gym_ids"`
+}
+
+type gymSummaryResponse struct {
+	Summaries []GymSummary `json:"summaries"`
 }

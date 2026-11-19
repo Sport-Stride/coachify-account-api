@@ -82,6 +82,7 @@ type AuthServiceImpl struct {
 	gymOwnerInvites      gymOwnerInviteRedeemer
 	gymJoins             gymJoinRedeemer
 	invites              inviteSignupRedeemer // nil: INVITE_LINKS_V2 off, the legacy registration link paths run
+	seatOnlySignup       bool // GYM_SEATS_ENABLED: member-invite signups start seat-only (no default plan)
 	ownerUsers          invitedOwnerStore // nil: the user repository
 	ownerIDs             ownerIDGenerator  // nil: the identifier client
 }
@@ -565,7 +566,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
 	// Off the request path: a slow payments-api must not hang Google sign-in.
-	s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+	skipPlan := s.skipDefaultPlan(oauthUser.GymJoinToken != "", inviteLink)
+	if !skipPlan {
+		s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+	}
 	if newUser.UserRole == "coach" {
 		newUser.UserStatus = db.ComReg1
 	} else {
@@ -592,7 +596,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 		return nil, err
 	}
 	if oauthUser.GymJoinToken != "" && s.gymJoins != nil {
-		s.joinGymAfterSignup(ctx, newUser.ExternalID, oauthUser.GymJoinToken)
+		if !s.joinGymAfterSignup(ctx, newUser.ExternalID, oauthUser.GymJoinToken) && skipPlan {
+			// The default plan was skipped for the seat-only start; the join failed, so he needs it after all.
+			s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+		}
 	}
 	if inviteLink != nil {
 		inviteSettled = true
@@ -834,8 +841,13 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	if mailboxProven {
-		s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
-		s.joinGymAfterSignup(ctx, dbUser.ExternalID, req.GymJoinToken)
+		skipPlan := s.skipDefaultPlan(req.GymJoinToken != "", nil)
+		if !skipPlan {
+			s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
+		}
+		if !s.joinGymAfterSignup(ctx, dbUser.ExternalID, req.GymJoinToken) && skipPlan {
+			s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
+		}
 		return signupResponse(inserted), nil
 	}
 

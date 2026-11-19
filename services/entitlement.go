@@ -75,6 +75,8 @@ type Effective struct {
 	Plan       *PlanInfo               `json:"plan"`
 	Features   map[string]FeatureState `json:"features"`
 	TTLSeconds int                     `json:"ttl_seconds"`
+	// planUnknown: the plan lookup failed, so Plan is nil only because payments-api was down. Never cached.
+	planUnknown bool
 }
 
 // CoachAccessRow is one coach in the admin access views.
@@ -219,6 +221,8 @@ type entitlementServiceImpl struct {
 	now     func() time.Time
 	planMu  sync.Mutex
 	planMap map[string]planEntry
+	// seatOnly (GYM_SEATS_ENABLED) denies personal invites to a coach in a gym who holds no personal plan; nil skips it.
+	seatOnly GymCoachLookup
 }
 
 // NewEntitlementService wires the service. plans may be nil (every user then has no plan).
@@ -417,9 +421,17 @@ func (s *entitlementServiceImpl) loadDefaults(ctx context.Context) (map[string]d
 // plansFor returns each user's plan (nil when none). Entries are cached 5 minutes; a payments
 // failure is never an error here: affected users simply have no plan this time.
 func (s *entitlementServiceImpl) plansFor(ctx context.Context, ids []string) map[string]*PlanInfo {
-	out := make(map[string]*PlanInfo, len(ids))
+	out, _ := s.plansForChecked(ctx, ids)
+	return out
+}
+
+// plansForChecked is plansFor that also reports whether every lookup succeeded. ok=false means some users have no
+// plan only because payments-api failed: callers must not read that as "no personal subscription".
+func (s *entitlementServiceImpl) plansForChecked(ctx context.Context, ids []string) (out map[string]*PlanInfo, ok bool) {
+	out = make(map[string]*PlanInfo, len(ids))
+	ok = true
 	if s.plans == nil || len(ids) == 0 {
-		return out
+		return out, true
 	}
 	now := s.now()
 	var missing []string
@@ -443,11 +455,13 @@ func (s *entitlementServiceImpl) plansFor(ctx context.Context, ids []string) map
 		if err != nil {
 			zap.L().Warn("entitlement plan lookup failed, resolving without plan",
 				zap.String("component", "entitlement"), zap.Error(err))
+			ok = false
 			continue
 		}
 		found := make(map[string]*PlanInfo, len(summaries))
 		for _, sm := range summaries {
-			if sm.UserID == "" || sm.PlanID == "" {
+			// A gym subscription bought by this user is not his personal plan.
+			if sm.UserID == "" || sm.PlanID == "" || !sm.IsPersonal() {
 				continue
 			}
 			if _, dup := found[sm.UserID]; dup {
@@ -462,7 +476,7 @@ func (s *entitlementServiceImpl) plansFor(ctx context.Context, ids []string) map
 		}
 		s.planMu.Unlock()
 	}
-	return out
+	return out, ok
 }
 
 func planID(p *PlanInfo) string {
@@ -474,7 +488,12 @@ func planID(p *PlanInfo) string {
 
 // resolve returns the cached resolution (no usage) of a user. The result is shared: never mutate it.
 func (s *entitlementServiceImpl) resolve(ctx context.Context, userID string) (*Effective, *models.ApiError) {
-	return cachedRead(s.cache, userID, func() (*Effective, *models.ApiError) { return s.loadEffective(ctx, userID) })
+	key := entCacheKey(EntContext{Kind: EntContextPersonal}, userID)
+	eff, apiErr := cachedRead(s.cache, key, func() (*Effective, *models.ApiError) { return s.loadEffective(ctx, userID) })
+	if apiErr == nil && eff != nil && eff.planUnknown {
+		s.cache.forget(key) // built without a successful plan lookup: do not keep it
+	}
+	return eff, apiErr
 }
 
 func (s *entitlementServiceImpl) loadEffective(ctx context.Context, userID string) (*Effective, *models.ApiError) {
@@ -499,7 +518,8 @@ func (s *entitlementServiceImpl) loadEffective(ctx context.Context, userID strin
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	eff.Plan = s.plansFor(ctx, []string{userID})[userID]
+	plans, plansOK := s.plansForChecked(ctx, []string{userID})
+	eff.Plan, eff.planUnknown = plans[userID], !plansOK
 	grant, err := s.store.GetGrant(ctx, userID)
 	if err != nil {
 		return nil, entitlementUnavailable(err)
@@ -632,6 +652,14 @@ func (s *entitlementServiceImpl) CheckInvitations(ctx context.Context, coachID s
 		// Never block registration because entitlements cannot be read.
 		zap.L().Warn("entitlement_lookup_failed", zap.String("component", "entitlement"), zap.String("user_id", coachID), zap.Int("status", apiErr.Code))
 		return nil
+	}
+	if s.seatOnly != nil {
+		only, serr := isSeatOnly(ctx, s.seatOnly, coachID, eff)
+		if serr != nil {
+			zap.L().Warn("entitlement_lookup_failed", zap.String("component", "entitlement"), zap.String("user_id", coachID), zap.Int("status", serr.Code))
+		} else if only {
+			return entitlementDenied(models.CodePersonalSubRequired, "a personal subscription is required for personal clients", FeatureInvitations)
+		}
 	}
 	st := eff.Features[FeatureInvitations]
 	if !st.Enabled {
@@ -1037,6 +1065,8 @@ func validPlanID(id string) (role string, ok bool) {
 		return "coach", true
 	case db.PlanDefaultClient:
 		return "client", true
+	case db.PlanDefaultGymSeat:
+		return "coach", true
 	case db.PlanDefaultGymOwner:
 		if db.IsCoachingRole(db.RoleGymOwner) {
 			return "coach", true
@@ -1298,4 +1328,10 @@ func (s *entitlementServiceImpl) GetClientAccess(ctx context.Context, coachID, c
 		}
 	}
 	return detail, nil
+}
+
+// WithSeatOnlyCheck turns on the seat-only denial of personal invites (GYM_SEATS_ENABLED); nil turns it off.
+func (s *entitlementServiceImpl) WithSeatOnlyCheck(g GymCoachLookup) *entitlementServiceImpl {
+	s.seatOnly = g
+	return s
 }
