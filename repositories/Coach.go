@@ -386,6 +386,24 @@ func (r *CoachRepository) LinkedClientIDs(ctx context.Context, coachID string, c
 	return linked, nil
 }
 
+// ActiveGymClientsByClients returns the active gym_clients rows of clientIDs in one indexed Find.
+func (r *CoachRepository) ActiveGymClientsByClients(ctx context.Context, clientIDs []string) ([]db.GymClient, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cursor, err := r.gymClients.Find(ctx, bson.M{"client_id": bson.M{"$in": clientIDs}, "status": db.GymClientStatusActive})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	rows := []db.GymClient{}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // LinkedClientIDsWithGym returns the subset of clientIDs the coach reaches through a personal coach_clients row or
 // an active gym_clients row assigned to him, in one aggregation ($unionWith). Gym rows are matched on coach_id only:
 // a coach holds the gym link only while the client is assigned to him.

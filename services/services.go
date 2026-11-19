@@ -144,7 +144,7 @@ func InitServices(config utils.AppConfig,
 	).WithEntitlements(entitlementService)
 
 	if config.Gym.ClientGymRelations {
-		coachService.WithGymRelations(coachRepo)
+		coachService.WithGymRelations(coachRepo, membership)
 	}
 	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
 

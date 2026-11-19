@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"go.uber.org/zap"
@@ -521,24 +522,48 @@ func (s *gymClientService) Relationships(ctx context.Context, actorID, clientID 
 	if err != nil {
 		return nil, s.internal("Relationships.members", err)
 	}
+	out.Gyms = append(out.Gyms, visibleGymRelations(actorID, rows, memberships)...)
+	return out, nil
+}
+
+// visibleGymRow is a gym client row the actor may see as a gym relation, with the actor's role in that gym.
+type visibleGymRow struct {
+	Row  db.GymClient
+	Role db.GymMemberRole
+}
+
+// visibleGymRows keeps the gym client rows the actor may see as a gym relation: he needs a coaching membership
+// in the gym and the row assigned to him, unless he is the owner or a head coach. The owner and head coaches see
+// every client row of their gym (a head coach therefore also covers the coaches he supervises); a plain coach sees
+// only the rows assigned to him. The result is sorted by gym id (stable), so answers are deterministic. Shared by
+// Relationships and the coach client list.
+func visibleGymRows(actorID string, rows []db.GymClient, memberships []db.GymMember) []visibleGymRow {
 	roles := map[string]db.GymMemberRole{}
 	for i := range memberships {
 		if canCoach(&memberships[i]) {
 			roles[memberships[i].GymID] = memberships[i].Role
 		}
 	}
+	out := []visibleGymRow{}
 	for _, row := range rows {
 		role, ok := roles[row.GymID]
 		if !ok {
 			continue
 		}
-		assigned := row.CoachID == actorID
-		// The owner and head coaches see every client row of their gym (a head coach therefore also covers the
-		// coaches he supervises); a plain coach sees only the rows assigned to him.
-		if !assigned && role != db.GymMemberRoleOwner && role != db.GymMemberRoleHeadCoach {
+		if row.CoachID != actorID && role != db.GymMemberRoleOwner && role != db.GymMemberRoleHeadCoach {
 			continue
 		}
-		out.Gyms = append(out.Gyms, GymRelation{GymID: row.GymID, ActorRole: string(role), AssignedToActor: assigned})
+		out = append(out, visibleGymRow{Row: row, Role: role})
 	}
-	return out, nil
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Row.GymID < out[j].Row.GymID })
+	return out
+}
+
+// visibleGymRelations is visibleGymRows as GymRelation entries, sorted by gym id.
+func visibleGymRelations(actorID string, rows []db.GymClient, memberships []db.GymMember) []GymRelation {
+	out := []GymRelation{}
+	for _, v := range visibleGymRows(actorID, rows, memberships) {
+		out = append(out, GymRelation{GymID: v.Row.GymID, ActorRole: string(v.Role), AssignedToActor: v.Row.CoachID == actorID})
+	}
+	return out
 }

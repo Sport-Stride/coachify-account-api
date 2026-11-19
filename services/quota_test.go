@@ -122,7 +122,7 @@ func TestCoachClientKinds(t *testing.T) {
 
 	t.Run("flag on: kind gym reads the gym store", func(t *testing.T) {
 		gym := &fakeCoachGymStore{}
-		svc := services.NewCoachService(nil, nil, nil, nil, "").WithGymRelations(gym)
+		svc := services.NewCoachService(nil, nil, nil, nil, "").WithLinkStore(fakeLinks{}).WithGymRelations(gym, nil)
 		rows, total, err := svc.ListCoachClients(ctx, db.CoachClientListQuery{CoachID: "c1", Kind: services.ClientKindGym})
 		require.NoError(t, err)
 		assert.Equal(t, 1, total)
@@ -147,10 +147,14 @@ func TestCoachClientKinds(t *testing.T) {
 		assert.False(t, links["g1"])
 
 		gym := &fakeCoachGymStore{}
-		svc := services.NewCoachService(nil, nil, nil, nil, "").WithGymRelations(gym)
+		svc := services.NewCoachService(nil, nil, nil, nil, "").WithLinkStore(fakeLinks{}).WithGymRelations(gym, nil)
 		links, apiErr = svc.CheckClientLinks(ctx, "c1", []string{"g1", "p1"})
 		require.Nil(t, apiErr)
 		assert.Equal(t, map[string]bool{"g1": true, "p1": false}, links)
 		assert.Equal(t, 1, gym.linkedCalls)
 	})
+}
+
+func (f *fakeCoachGymStore) ActiveGymClientsByClients(context.Context, []string) ([]db.GymClient, error) {
+	return nil, nil
 }
