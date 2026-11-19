@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,6 +32,15 @@ type GymMemberStore interface {
 	MarkLeftSupervised(ctx context.Context, supervisorID string, at time.Time) (int64, error)
 	ListByUser(ctx context.Context, userID string) ([]db.GymMember, error)
 	Get(ctx context.Context, userID, gymID string) (*db.GymMember, error)
+	// AddActive inserts a membership and returns repositories.ErrAlreadyMember on a duplicate (flat hierarchy join).
+	AddActive(ctx context.Context, m *db.GymMember) error
+	// SetSupervisor changes the supervisor of an active coach row only while it still equals prevSupervisorID
+	// (compare-and-set); false means the row changed meanwhile. The row becomes source "flat".
+	SetSupervisor(ctx context.Context, gymID, userID, prevSupervisorID, supervisorID string) (bool, error)
+	// CountGymsWithoutOwnerRow counts active gyms that have no active owner row in gym_members (backfill not run).
+	CountGymsWithoutOwnerRow(ctx context.Context) (int, error)
+	ListByGymPage(ctx context.Context, gymID, scopeUserID, role string, page, size int) ([]db.GymMemberRow, int64, error)
+	GetRow(ctx context.Context, gymID, userID string) (*db.GymMemberRow, error)
 }
 
 // LegacyMembershipGyms is the part of the gym store the legacy adapter reads.
@@ -469,6 +479,7 @@ type MemberPlan struct {
 	Create []db.GymMember
 }
 
+// Rows with source "flat" are owned by the flat hierarchy and are skipped entirely: never closed, never fixed.
 // ReconcileMembers compares the active gym_members rows with the rows derived from the legacy collections.
 // A row that matches on (gym, user), role and supervisor_id is never touched, so the plan is empty once in sync.
 func ReconcileMembers(existing, desired []db.GymMember) MemberPlan {
@@ -487,6 +498,7 @@ func ReconcileMembers(existing, desired []db.GymMember) MemberPlan {
 		want[k] = true
 		cur, ok := have[k]
 		switch {
+		case ok && cur.Source == db.GymMemberSourceFlat:
 		case !ok:
 			plan.Create = append(plan.Create, desired[i])
 		case cur.Role != desired[i].Role || cur.SupervisorID != desired[i].SupervisorID:
@@ -494,7 +506,8 @@ func ReconcileMembers(existing, desired []db.GymMember) MemberPlan {
 		}
 	}
 	for i := range existing {
-		if existing[i].Status == db.GymMemberStatusActive && !want[key{existing[i].GymID, existing[i].UserID}] {
+		if existing[i].Status == db.GymMemberStatusActive && existing[i].Source != db.GymMemberSourceFlat &&
+			!want[key{existing[i].GymID, existing[i].UserID}] {
 			plan.Close = append(plan.Close, existing[i])
 		}
 	}
@@ -569,4 +582,22 @@ func RunMemberBackfill(ctx context.Context, store MemberBackfillStore, dryRun bo
 		tally(ok, err, &rep.Created, "create", r)
 	}
 	return rep, nil
+}
+
+// GymOwnerRowCounter is what the flat hierarchy startup guard needs.
+type GymOwnerRowCounter interface {
+	CountGymsWithoutOwnerRow(ctx context.Context) (int, error)
+}
+
+// CheckFlatHierarchyReady refuses the flat hierarchy while gym_members lacks owner rows of existing gyms: the
+// membership reader is gym_members then, so unbackfilled owners would lose all access. Run the P0 backfill first.
+func CheckFlatHierarchyReady(ctx context.Context, store GymOwnerRowCounter) error {
+	n, err := store.CountGymsWithoutOwnerRow(ctx)
+	if err != nil {
+		return fmt.Errorf("GYM_FLAT_HIERARCHY readiness check failed: %w", err)
+	}
+	if n > 0 {
+		return fmt.Errorf("GYM_FLAT_HIERARCHY is on but %d active gym(s) have no owner row in gym_members: run the gym_members backfill (migrations/backfill_gym_members) before enabling it", n)
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 const (
 	TeamAssignerAdmin     = "admin"
 	TeamAssignerHeadCoach = "head_coach"
+	TeamAssignerGymOwner  = "gym_owner"
 
 	TeamActionPromote    = "promote"
 	TeamActionDemote     = "demote"
@@ -30,6 +31,11 @@ const (
 	TeamActionGymInviteDecline = "gym_invite_decline"
 	TeamActionGymInviteRevoke  = "gym_invite_revoke"
 	TeamActionGymLeave         = "gym_leave"
+
+	TeamActionMemberJoin       = "member_join"
+	TeamActionSupervisorChange = "supervisor_change"
+
+	TeamActorRoleCoach = "coach"
 )
 
 // TeamMember links a coach to exactly one head coach (flat hierarchy, coach_id is unique).

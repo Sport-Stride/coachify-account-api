@@ -171,3 +171,19 @@ func TestExistingTeamUsesOneBudget(t *testing.T) {
 		assert.True(t, d.Equal(d0), "all upserts share one deadline")
 	}
 }
+
+func (s *recMemberStore) AddActive(ctx context.Context, _ *db.GymMember) error {
+	return s.rec(ctx, "AddActive")
+}
+func (s *recMemberStore) CountGymsWithoutOwnerRow(ctx context.Context) (int, error) {
+	return 0, s.rec(ctx, "CountGymsWithoutOwnerRow")
+}
+func (s *recMemberStore) SetSupervisor(ctx context.Context, _, _, _, _ string) (bool, error) {
+	return true, s.rec(ctx, "SetSupervisor")
+}
+func (s *recMemberStore) ListByGymPage(ctx context.Context, _, _, _ string, _, _ int) ([]db.GymMemberRow, int64, error) {
+	return nil, 0, s.rec(ctx, "ListByGymPage")
+}
+func (s *recMemberStore) GetRow(ctx context.Context, _, _ string) (*db.GymMemberRow, error) {
+	return nil, s.rec(ctx, "GetRow")
+}

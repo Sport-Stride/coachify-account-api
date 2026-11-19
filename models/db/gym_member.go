@@ -27,6 +27,9 @@ const (
 	GymMemberSourceLegacyTeam GymMemberSource = "legacy_team"
 	GymMemberSourceInvite     GymMemberSource = "invite"
 	GymMemberSourceAdmin      GymMemberSource = "admin"
+	// GymMemberSourceFlat marks rows managed by the flat hierarchy (direct coach join, supervisor change). They have
+	// no legacy counterpart to derive from, so the reconcile and backfill never close or fix them.
+	GymMemberSourceFlat GymMemberSource = "flat"
 )
 
 // GymMember is one user's membership of one gym (collection gym_members).
@@ -47,4 +50,13 @@ type GymMember struct {
 	LeftAt         *time.Time      `bson:"left_at,omitempty" json:"left_at,omitempty"`
 	AddedBy        string          `bson:"added_by" json:"added_by"`
 	Source         GymMemberSource `bson:"source" json:"source"`
+}
+
+// GymMemberRow is a membership joined with the safe profile fields of its user (no email, phone or address).
+// The profile fields are empty when the user document is missing.
+type GymMemberRow struct {
+	GymMember      `bson:",inline"`
+	Firstname      string `bson:"firstname"`
+	Lastname       string `bson:"lastname"`
+	ProfilePicture string `bson:"profile_picture"`
 }

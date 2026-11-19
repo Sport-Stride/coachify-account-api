@@ -19,6 +19,9 @@ const (
 	GymInviteRevoked  = "revoked"
 	GymInviteExpired  = "expired"
 
+	// GymInviteRoleCoach marks an invitation that joins the gym as a plain coach (flat hierarchy); empty means head coach.
+	GymInviteRoleCoach = "coach"
+
 	GymAdderAdmin    = "admin"
 	GymAdderGymOwner = "gym_owner"
 )
@@ -67,6 +70,10 @@ type GymInvitation struct {
 	ExpiresAt   time.Time          `bson:"expires_at"` // enforced by the service, no TTL index
 	CreatedAt   time.Time          `bson:"created_at"`
 	RespondedAt *time.Time         `bson:"responded_at,omitempty"`
+	// Role is empty for the legacy head coach invitation, or GymInviteRoleCoach. SupervisorID is the optional head
+	// coach the joining coach reports to.
+	Role         string `bson:"role,omitempty"`
+	SupervisorID string `bson:"supervisor_id,omitempty"`
 }
 
 // GymSummary is one gym of a gym owner.

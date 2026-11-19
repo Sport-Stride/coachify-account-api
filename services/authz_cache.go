@@ -137,3 +137,19 @@ func (s *invalidatingMemberStore) MarkLeftSupervised(ctx context.Context, superv
 	s.changed(ctx, "")
 	return n, err
 }
+
+func (s *invalidatingMemberStore) AddActive(ctx context.Context, m *db.GymMember) error {
+	err := s.GymMemberStore.AddActive(ctx, m)
+	gym := ""
+	if m != nil {
+		gym = m.GymID
+	}
+	s.changed(ctx, gym)
+	return err
+}
+
+func (s *invalidatingMemberStore) SetSupervisor(ctx context.Context, gymID, userID, prevSupervisorID, supervisorID string) (bool, error) {
+	ok, err := s.GymMemberStore.SetSupervisor(ctx, gymID, userID, prevSupervisorID, supervisorID)
+	s.changed(ctx, gymID)
+	return ok, err
+}

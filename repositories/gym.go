@@ -846,7 +846,12 @@ func (r *GymRepository) TransitionInvitation(ctx context.Context, id, from, to, 
 	if inviteeID != "" {
 		set["invitee_id"] = inviteeID
 	}
-	res, err := r.invites.UpdateOne(ctx, bson.M{"_id": oid, "status": from}, bson.M{"$set": set})
+	update := bson.M{"$set": set}
+	if to == db.GymInvitePending {
+		// Reverting a claim: the invitation is back to unanswered.
+		update = bson.M{"$set": bson.M{"status": to}, "$unset": bson.M{"invitee_id": "", "responded_at": ""}}
+	}
+	res, err := r.invites.UpdateOne(ctx, bson.M{"_id": oid, "status": from}, update)
 	if err != nil {
 		return false, err
 	}

@@ -58,6 +58,9 @@ type GymConfig struct {
 	// AuthzEnforce (GYM_AUTHZ_ENFORCE, default off) routes gym owner and head coach checks through the Authorizer.
 	// Off: legacy checks stay and the internal authz endpoint reports instead of denying.
 	AuthzEnforce bool
+	// FlatHierarchy (GYM_FLAT_HIERARCHY, default off) lets a coach join a gym without a head coach and enables
+	// the member list and supervisor endpoints. Off: legacy behavior. On: gym_members is the membership source.
+	FlatHierarchy bool
 }
 
 type BaseURLConfig struct {
@@ -175,6 +178,7 @@ func LoadConfig() *AppConfig {
 			ClientAppURL:        getStringWithDefault("FRONTEND_URL", "http://localhost:3000"),
 			MembersRead:         getStringWithDefault("GYM_MEMBERS_READ", "legacy"),
 			AuthzEnforce:        viper.GetBool("GYM_AUTHZ_ENFORCE"),
+			FlatHierarchy:       viper.GetBool("GYM_FLAT_HIERARCHY"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

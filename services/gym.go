@@ -113,6 +113,10 @@ type GymSettings struct {
 	// otherwise, or when Authz is nil, the legacy checks stay.
 	Authz        Authorizer
 	AuthzEnforce bool
+	// FlatHierarchy (GYM_FLAT_HIERARCHY) lets coach invitations join the gym as a plain coach.
+	FlatHierarchy bool
+	// Projector keeps the legacy TeamMember row in step with supervisor_id on a direct coach join; nil skips it.
+	Projector SupervisionTeamStore
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -228,6 +232,9 @@ type GymService interface {
 	ListInvitations(ctx context.Context, callerID, gymID, status string, page, size int) ([]GymInvitationRow, int, *models.ApiError)
 	RevokeInvitation(ctx context.Context, callerID, gymID, invitationID string) *models.ApiError
 	CreateJoinLink(ctx context.Context, callerID, gymID string) (*JoinLinkResult, *models.ApiError)
+	// Flat hierarchy (GYM_FLAT_HIERARCHY): coach invitations authorized by member.invite; supervisorID is optional.
+	InviteCoach(ctx context.Context, callerID, gymID, email, supervisorID string) (*GymInviteResult, *models.ApiError)
+	CreateCoachJoinLink(ctx context.Context, callerID, gymID, supervisorID string) (*JoinLinkResult, *models.ApiError)
 
 	// Coach self-service.
 	ListMyInvitations(ctx context.Context, callerID string) ([]db.GymInvitationView, *models.ApiError)
@@ -517,6 +524,11 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	return s.invite(ctx, g, email, inviteSpec{inviterID: callerID, actorRole: db.TeamActorRoleGymOwner})
+}
+
+// invite creates the invitation described by spec in an already authorized gym.
+func (s *gymServiceImpl) invite(ctx context.Context, g *db.Gym, email string, spec inviteSpec) (*GymInviteResult, *models.ApiError) {
 	if g.Status != db.GymStatusActive {
 		return nil, teamErr(http.StatusConflict, errGymArchived)
 	}
@@ -544,8 +556,8 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 		return nil, s.internal("Invite.token", err)
 	}
 	inv := &db.GymInvitation{
-		GymID: gid, InviterID: callerID, Email: email, TokenHash: hash, Status: db.GymInvitePending,
-		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now,
+		GymID: gid, InviterID: spec.inviterID, Email: email, TokenHash: hash, Status: db.GymInvitePending,
+		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now, Role: spec.role, SupervisorID: spec.supervisorID,
 	}
 	if err := s.gyms.InsertInvitation(ctx, inv); err != nil {
 		if errors.Is(err, repositories.ErrInvitationPending) {
@@ -554,7 +566,7 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 		return nil, s.internal("Invite.insert", err)
 	}
 	s.audit(ctx, &db.TeamAuditEntry{
-		Action: db.TeamActionGymInvite, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner, GymID: gid,
+		Action: db.TeamActionGymInvite, ActorID: spec.inviterID, ActorRole: spec.actorRole, GymID: gid,
 	})
 	s.sendJoinLink(ctx, inv, g.Name, raw)
 	return &GymInviteResult{InvitationID: inv.ID.Hex(), Status: db.GymInvitePending}, nil
@@ -679,9 +691,23 @@ func (s *gymServiceImpl) AcceptInvitation(ctx context.Context, callerID, invitat
 	return s.joinGym(ctx, u, inv, now)
 }
 
-// joinGym makes the coach a head coach of the invitation's gym and consumes the invitation.
-// The caller has checked the coach role and that the invitation is pending and meant for this coach.
+// gymJoiners dispatches an invitation to its join path by role; an empty role is the legacy head coach invitation.
+var gymJoiners = map[string]func(*gymServiceImpl, context.Context, *db.User, *db.GymInvitation, time.Time) (*GymJoined, *models.ApiError){
+	"":                    (*gymServiceImpl).joinGymAsHead,
+	db.GymInviteRoleCoach: (*gymServiceImpl).joinGymAsCoach,
+}
+
 func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInvitation, now time.Time) (*GymJoined, *models.ApiError) {
+	join, ok := gymJoiners[inv.Role]
+	if !ok {
+		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
+	}
+	return join(s, ctx, u, inv, now)
+}
+
+// joinGymAsHead makes the coach a head coach of the invitation's gym and consumes the invitation.
+// The caller has checked the coach role and that the invitation is pending and meant for this coach.
+func (s *gymServiceImpl) joinGymAsHead(ctx context.Context, u *db.User, inv *db.GymInvitation, now time.Time) (*GymJoined, *models.ApiError) {
 	callerID := u.ExternalID
 	member, err := s.gyms.IsTeamMember(ctx, callerID)
 	if err != nil {
@@ -696,6 +722,16 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	}
 	if cur != nil {
 		return nil, teamErr(http.StatusConflict, errAlreadyInGym)
+	}
+	if s.flatEnabled() {
+		// A coach of a flat gym (no head coach row) must not become a head coach of another gym.
+		inGym, err := s.inAnyGymAsCoach(ctx, callerID)
+		if err != nil {
+			return nil, s.internal("Accept.memberships", err)
+		}
+		if inGym {
+			return nil, teamErr(http.StatusConflict, errAlreadyInGym)
+		}
 	}
 	g, err := s.gyms.GetGym(ctx, inv.GymID)
 	if err != nil {
@@ -719,6 +755,8 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	setFlag := !u.IsHeadCoach
 	// rollbackFlag undoes the claim and, when it was set here, the head coach flag.
 	rollbackFlag := func() {
+		ctx, cancel := detachedContext(ctx)
+		defer cancel()
 		if _, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInviteAccepted, db.GymInvitePending, "", now); err != nil {
 			s.internal("Accept.revertClaim", err)
 		}
@@ -746,6 +784,19 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		if member {
 			rollbackFlag()
 			return nil, teamErr(http.StatusConflict, errCoachHasTeam)
+		}
+	}
+
+	if s.flatEnabled() {
+		// Close the race with a concurrent direct coach join.
+		inGym, err := s.inAnyGymAsCoach(ctx, callerID)
+		if err != nil {
+			rollbackFlag()
+			return nil, s.internal("Accept.recheckMember", err)
+		}
+		if inGym {
+			rollbackFlag()
+			return nil, teamErr(http.StatusConflict, errAlreadyInGym)
 		}
 	}
 

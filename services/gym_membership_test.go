@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"coachify-account-api/models/db"
+	"coachify-account-api/repositories"
 	"coachify-account-api/services"
 	"coachify-account-api/services/mocks"
 )
@@ -20,6 +21,8 @@ import (
 type fakeMemberStore struct {
 	rows   []*db.GymMember
 	failOn string // method name that returns errBoom
+	// missingOwners is the answer of CountGymsWithoutOwnerRow.
+	missingOwners int
 }
 
 func (f *fakeMemberStore) active(gym, user string) *db.GymMember {
@@ -850,4 +853,83 @@ func TestLegacyAdapterOwnerWins(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, db.GymMemberRoleOwner, got[0].Role)
+}
+
+func (f *fakeMemberStore) AddActive(_ context.Context, m *db.GymMember) error {
+	if f.failOn == "AddActive" {
+		return errBoom
+	}
+	if f.active(m.GymID, m.UserID) != nil {
+		return repositories.ErrAlreadyMember
+	}
+	if m.Role != db.GymMemberRoleOwner {
+		for _, r := range f.rows {
+			if r.UserID == m.UserID && r.Status == db.GymMemberStatusActive && r.Role != db.GymMemberRoleOwner {
+				return repositories.ErrAlreadyMember
+			}
+		}
+	}
+	c := *m
+	c.Status, c.SeatAssigned = db.GymMemberStatusActive, false
+	f.rows = append(f.rows, &c)
+	return nil
+}
+
+func (f *fakeMemberStore) SetSupervisor(_ context.Context, gym, user, prev, sup string) (bool, error) {
+	if f.failOn == "SetSupervisor" {
+		return false, errBoom
+	}
+	r := f.active(gym, user)
+	if r == nil || r.Role != db.GymMemberRoleCoach || r.SupervisorID != prev {
+		return false, nil
+	}
+	r.SupervisorID, r.Source = sup, db.GymMemberSourceFlat
+	return true, nil
+}
+
+func (f *fakeMemberStore) CountGymsWithoutOwnerRow(context.Context) (int, error) {
+	if f.failOn == "CountGymsWithoutOwnerRow" {
+		return 0, errBoom
+	}
+	return f.missingOwners, nil
+}
+
+// fakeProfiles maps user id to {firstname, lastname, picture} for the joined list.
+var fakeProfiles = map[string][3]string{}
+
+func (f *fakeMemberStore) row(r db.GymMember) db.GymMemberRow {
+	p := fakeProfiles[r.UserID]
+	return db.GymMemberRow{GymMember: r, Firstname: p[0], Lastname: p[1], ProfilePicture: p[2]}
+}
+
+func (f *fakeMemberStore) GetRow(_ context.Context, gym, user string) (*db.GymMemberRow, error) {
+	if f.failOn == "GetRow" {
+		return nil, errBoom
+	}
+	if r := f.active(gym, user); r != nil {
+		row := f.row(*r)
+		return &row, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeMemberStore) ListByGymPage(_ context.Context, gym, scope, role string, page, size int) ([]db.GymMemberRow, int64, error) {
+	if f.failOn == "ListByGymPage" {
+		return nil, 0, errBoom
+	}
+	all := []db.GymMemberRow{}
+	for _, r := range f.rows {
+		if r.GymID == gym && r.Status == db.GymMemberStatusActive && (scope == "" || r.UserID == scope || r.SupervisorID == scope) && (role == "" || string(r.Role) == role) {
+			all = append(all, f.row(*r))
+		}
+	}
+	lo := (page - 1) * size
+	if lo > len(all) {
+		lo = len(all)
+	}
+	hi := lo + size
+	if hi > len(all) {
+		hi = len(all)
+	}
+	return all[lo:hi], int64(len(all)), nil
 }

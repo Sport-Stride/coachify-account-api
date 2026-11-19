@@ -128,6 +128,16 @@ func (app *App) setup() {
 	gymMemberRepo := repositories.NewGymMemberRepository(db)
 	gymPolicyRepo := repositories.NewGymPolicyRepository(db)
 
+	// The flat hierarchy reads memberships from gym_members only: refuse to start before the P0 backfill ran.
+	if config.Gym.FlatHierarchy {
+		readyCtx, readyCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := services.CheckFlatHierarchyReady(readyCtx, gymMemberRepo)
+		readyCancel()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+	}
+
 	// Align membership history with current team rows (idempotent, runs at every startup)
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if _, _, err := teamRepo.Periods().ReconcileTeam(reconcileCtx); err != nil {

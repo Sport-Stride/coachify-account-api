@@ -171,6 +171,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		protected.PUT("/gyms/:gym_id/policies/:role", handlers.PutGymRolePolicy(services.GymPolicy))
 		protected.GET("/gyms/:gym_id/members/:user_id/grants", handlers.GetGymMemberGrants(services.GymPolicy))
 		protected.PUT("/gyms/:gym_id/members/:user_id/grants", handlers.PutGymMemberGrants(services.GymPolicy))
+		// Flat hierarchy (GYM_FLAT_HIERARCHY): the member list, supervisor changes and coach invitations answer 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/members", handlers.ListGymMembers(services.GymMembers))
+		protected.PUT("/gyms/:gym_id/members/:user_id/supervisor", handlers.PutGymMemberSupervisor(services.GymMembers))
+		protected.POST("/gyms/:gym_id/coach-invitations", handlers.InviteGymCoach(services.GymService))
+		protected.POST("/gyms/:gym_id/coach-join-links", handlers.CreateGymCoachJoinLink(services.GymService))
 
 		adminGroup := protected.Group("/admin")
 		{

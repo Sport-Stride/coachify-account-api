@@ -240,6 +240,9 @@ func (f *fakeGymStore) TransitionInvitation(_ context.Context, id, from, to, inv
 	}
 	i.Status = to
 	i.InviteeID = invitee
+	if to == db.GymInvitePending {
+		i.RespondedAt = nil
+	}
 	return true, nil
 }
 func (f *fakeGymStore) RevokePendingByGym(_ context.Context, gymID string, _ time.Time) error {

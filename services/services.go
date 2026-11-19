@@ -31,6 +31,7 @@ type Services struct {
 	GymOwnerInviteService   GymOwnerInviteService
 	GymMembership           GymMembershipReader
 	GymPolicy               GymPolicyService
+	GymMembers              GymMembersService
 }
 
 func InitServices(config utils.AppConfig,
@@ -84,7 +85,12 @@ func InitServices(config utils.AppConfig,
 	}
 	entitlementService := NewEntitlementService(entitlementRepo, userRepo, coachService, planSource, entitlementAuditRepo)
 	authService.WithEntitlements(entitlementService)
-	membership := NewGymMembershipReader(config.Gym.MembersRead,
+	// The flat hierarchy has coaches without a head coach, which only gym_members can represent.
+	membersRead := config.Gym.MembersRead
+	if config.Gym.FlatHierarchy {
+		membersRead = GymMembersReadNew
+	}
+	membership := NewGymMembershipReader(membersRead,
 		NewLegacyMembershipAdapter(gymRepo, teamRepo), NewRepoMembershipReader(gymMemberRepo))
 	chain := NewChainAuthorizer(membership, gymPolicyRepo, nil)
 	authz := NewCachingAuthorizer(chain, DefaultAuthzCacheTTL)
@@ -119,6 +125,9 @@ func InitServices(config utils.AppConfig,
 		Chat:          gymChat,
 		Members:       memberStore,
 		Team:          teamRepo,
+
+		FlatHierarchy: config.Gym.FlatHierarchy,
+		Projector:     teamRepo,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
@@ -138,6 +147,7 @@ func InitServices(config utils.AppConfig,
 		EntitlementService:      entitlementService,
 		GymOwnerInviteService:   gymOwnerInviteService,
 		GymMembership:           membership,
+		GymMembers:              NewGymMembersService(authz, memberStore, teamRepo, config.Gym.FlatHierarchy),
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}
 }

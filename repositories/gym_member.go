@@ -18,6 +18,10 @@ const (
 	memberScanBatch = 1000
 )
 
+// ErrAlreadyMember is returned by AddActive when the user is already an active member of the gym,
+// or is a head coach or coach of any gym (one gym per coach).
+var ErrAlreadyMember = errors.New("user already belongs to a gym")
+
 // GymMemberRepository persists gym memberships (owners, head coaches, coaches).
 type GymMemberRepository struct {
 	members *mongo.Collection
@@ -314,4 +318,195 @@ func (r *GymMemberRepository) MarkLeftSupervised(ctx context.Context, supervisor
 		return 0, err
 	}
 	return res.ModifiedCount, nil
+}
+
+// AddActive inserts a new active membership and never touches another row. A duplicate on the (gym, user) index or on
+// the one-gym-per-coach index is ErrAlreadyMember.
+func (r *GymMemberRepository) AddActive(ctx context.Context, m *db.GymMember) error {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	row := *m
+	row.Status, row.SeatAssigned = db.GymMemberStatusActive, false
+	row.CoachSlot = coachSlot(row.Role)
+	if row.JoinedAt.IsZero() {
+		row.JoinedAt = time.Now()
+	}
+	if _, err := r.members.InsertOne(ctx, &row); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrAlreadyMember
+		}
+		return err
+	}
+	return nil
+}
+
+// SetSupervisor is a compare-and-set of the supervisor of an active coach row: it applies only while supervisor_id
+// still equals prevSupervisorID (empty means none). An empty supervisorID clears it. The row becomes source "flat".
+// False means no row matched (it changed or left meanwhile).
+func (r *GymMemberRepository) SetSupervisor(ctx context.Context, gymID, userID, prevSupervisorID, supervisorID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	var prev interface{} = prevSupervisorID
+	if prevSupervisorID == "" {
+		prev = nil // matches a missing or null supervisor_id
+	}
+	set := bson.M{"source": db.GymMemberSourceFlat}
+	update := bson.M{"$set": set}
+	if supervisorID == "" {
+		update["$unset"] = bson.M{"supervisor_id": ""}
+	} else {
+		set["supervisor_id"] = supervisorID
+	}
+	res, err := r.members.UpdateOne(ctx,
+		bson.M{"gym_id": gymID, "user_id": userID, "role": db.GymMemberRoleCoach, "status": db.GymMemberStatusActive, "supervisor_id": prev},
+		update)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount > 0, nil
+}
+
+// CountGymsWithoutOwnerRow counts active gyms with no active owner row in gym_members.
+func (r *GymMemberRepository) CountGymsWithoutOwnerRow(ctx context.Context) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	cursor, err := r.members.Database().Collection(gymsCollection).Aggregate(ctx, bson.A{
+		bd("$match", bd("status", db.GymStatusActive)),
+		bd("$lookup", bd(
+			"from", gymMembersCollection,
+			"let", bd("gid", bd("$toString", "$_id")),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$and", bson.A{
+					bd("$eq", bson.A{"$gym_id", "$$gid"}),
+					bd("$eq", bson.A{"$role", string(db.GymMemberRoleOwner)}),
+					bd("$eq", bson.A{"$status", string(db.GymMemberStatusActive)}),
+				}))),
+				bd("$limit", 1),
+			},
+			"as", "owner",
+		)),
+		bd("$match", bd("owner", bd("$size", 0))),
+		bd("$count", "n"),
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(ctx)
+	var res []struct {
+		N int `bson:"n"`
+	}
+	if err := cursor.All(ctx, &res); err != nil {
+		return 0, err
+	}
+	if len(res) == 0 {
+		return 0, nil
+	}
+	return res[0].N, nil
+}
+
+// MaxMemberPage caps the page of the member list so the computed $skip cannot overflow.
+const MaxMemberPage = 10000
+
+// usersCollectionName is the users collection the member profile lookup reads.
+const usersCollectionName = "users"
+
+// profileStages joins the safe profile fields of the member's user in one $lookup; a missing user yields empty strings.
+func profileStages() []bson.D {
+	return []bson.D{
+		{{Key: "$lookup", Value: bd(
+			"from", usersCollectionName,
+			"let", bd("uid", "$user_id"),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$uid"}))),
+				bd("$project", bd("firstname", 1, "lastname", 1, "profile_picture", 1)),
+			},
+			"as", "u",
+		)},},
+		{{Key: "$addFields", Value: bd(
+			"firstname", bd("$ifNull", bson.A{bd("$first", "$u.firstname"), ""}),
+			"lastname", bd("$ifNull", bson.A{bd("$first", "$u.lastname"), ""}),
+			"profile_picture", bd("$ifNull", bson.A{bd("$first", "$u.profile_picture"), ""}),
+		)}},
+		{{Key: "$project", Value: bd("u", 0)}},
+	}
+}
+
+// ListByGymPage returns one page of the active members of a gym with their profile fields, and the total, in one
+// aggregation. A non-empty scopeUserID limits the result to that user and the coaches that user supervises; a
+// non-empty role keeps only that role (applied before the count, so total follows the filter).
+func (r *GymMemberRepository) ListByGymPage(ctx context.Context, gymID, scopeUserID, role string, page, size int) ([]db.GymMemberRow, int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	filter := bson.M{"gym_id": gymID, "status": db.GymMemberStatusActive}
+	if scopeUserID != "" {
+		filter["$or"] = bson.A{bson.M{"user_id": scopeUserID}, bson.M{"supervisor_id": scopeUserID}}
+	}
+	if role != "" {
+		filter["role"] = role
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > MaxMemberPage {
+		page = MaxMemberPage
+	}
+	rowStages := bson.A{
+		bd("$sort", bd("joined_at", 1, "_id", 1)),
+		bd("$skip", int64((page-1)*size)),
+		bd("$limit", int64(size)),
+	}
+	for _, st := range profileStages() {
+		rowStages = append(rowStages, st)
+	}
+	cursor, err := r.members.Aggregate(ctx, bson.A{
+		bd("$match", filter),
+		bd("$facet", bd("rows", rowStages, "total", bson.A{bd("$count", "n")})),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+	var res []struct {
+		Rows  []db.GymMemberRow `bson:"rows"`
+		Total []struct {
+			N int64 `bson:"n"`
+		} `bson:"total"`
+	}
+	if err := cursor.All(ctx, &res); err != nil {
+		return nil, 0, err
+	}
+	if len(res) == 0 {
+		return []db.GymMemberRow{}, 0, nil
+	}
+	var total int64
+	if len(res[0].Total) > 0 {
+		total = res[0].Total[0].N
+	}
+	if res[0].Rows == nil {
+		res[0].Rows = []db.GymMemberRow{}
+	}
+	return res[0].Rows, total, nil
+}
+
+// GetRow returns the active membership of a user in a gym with profile fields, or nil.
+func (r *GymMemberRepository) GetRow(ctx context.Context, gymID, userID string) (*db.GymMemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	pipeline := append([]bson.D{
+		{{Key: "$match", Value: bson.M{"gym_id": gymID, "user_id": userID, "status": db.GymMemberStatusActive}}},
+		{{Key: "$limit", Value: 1}},
+	}, profileStages()...)
+	cursor, err := r.members.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var rows []db.GymMemberRow
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
 }

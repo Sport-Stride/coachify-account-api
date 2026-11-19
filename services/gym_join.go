@@ -38,6 +38,11 @@ func (s *gymServiceImpl) CreateJoinLink(ctx context.Context, callerID, gymID str
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	return s.createJoinLink(ctx, g, inviteSpec{inviterID: callerID, actorRole: db.TeamActorRoleGymOwner})
+}
+
+// createJoinLink creates the open invitation described by spec in an already authorized gym.
+func (s *gymServiceImpl) createJoinLink(ctx context.Context, g *db.Gym, spec inviteSpec) (*JoinLinkResult, *models.ApiError) {
 	if g.Status != db.GymStatusActive {
 		return nil, teamErr(http.StatusConflict, errGymArchived)
 	}
@@ -55,14 +60,14 @@ func (s *gymServiceImpl) CreateJoinLink(ctx context.Context, callerID, gymID str
 		return nil, s.internal("CreateJoinLink.token", err)
 	}
 	inv := &db.GymInvitation{
-		GymID: gid, InviterID: callerID, TokenHash: hash, Status: db.GymInvitePending,
-		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now,
+		GymID: gid, InviterID: spec.inviterID, TokenHash: hash, Status: db.GymInvitePending,
+		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now, Role: spec.role, SupervisorID: spec.supervisorID,
 	}
 	if err := s.gyms.InsertInvitation(ctx, inv); err != nil {
 		return nil, s.internal("CreateJoinLink.insert", err)
 	}
 	s.audit(ctx, &db.TeamAuditEntry{
-		Action: db.TeamActionGymInvite, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner, GymID: gid,
+		Action: db.TeamActionGymInvite, ActorID: spec.inviterID, ActorRole: spec.actorRole, GymID: gid,
 	})
 	return &JoinLinkResult{InvitationID: inv.ID.Hex(), Link: s.joinLink(raw), ExpiresAt: inv.ExpiresAt}, nil
 }
