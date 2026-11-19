@@ -153,6 +153,15 @@ type GymClientRow struct {
 	LinkedAt       time.Time `bson:"linked_at" json:"linked_at"`
 }
 
+// MyGymRow is one active gym relationship of the calling client, with the gym and coach names.
+type MyGymRow struct {
+	GymID     string     `bson:"gym_id" json:"gym_id"`
+	GymName   string     `bson:"gym_name" json:"gym_name"`
+	CoachID   string     `bson:"coach_id,omitempty" json:"coach_id,omitempty"`
+	CoachName string     `bson:"coach_name,omitempty" json:"coach_name,omitempty"`
+	ConsentAt *time.Time `bson:"consent_at,omitempty" json:"consent_at,omitempty"`
+}
+
 // GymCoachQuery paginates and filters the coaches of a gym.
 type GymCoachQuery struct {
 	HeadCoachID string

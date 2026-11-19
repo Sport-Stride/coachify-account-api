@@ -117,6 +117,8 @@ type GymSettings struct {
 	FlatHierarchy bool
 	// Projector keeps the legacy TeamMember row in step with supervisor_id on a direct coach join; nil skips it.
 	Projector SupervisionTeamStore
+	// Departures releases the gym clients of a head coach who leaves or is removed (GYM_DISPATCH_ENABLED); nil skips it.
+	Departures CoachDepartures
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -478,6 +480,7 @@ func (s *gymServiceImpl) RemoveHeadCoach(ctx context.Context, callerID, gymID, h
 		return teamErr(http.StatusNotFound, errHeadNotFound)
 	}
 	mirrorHeadLeft(ctx, s.set.Members, g.ID.Hex(), headID)
+	s.releaseDeparted(ctx, g.ID.Hex(), headID, callerID, db.TeamActorRoleGymOwner)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymRemoveHead, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner,
 		HeadCoachID: headID, GymID: g.ID.Hex(),
@@ -911,6 +914,27 @@ func (s *gymServiceImpl) MyGym(ctx context.Context, callerID string) (*MyGymInfo
 	return info, nil
 }
 
+// releaseDeparted sends the gym clients of a head coach who left the gym, and of the coaches he supervised (their
+// gym membership closes with his, see mirrorHeadLeft), back to the pool. No-op while dispatch is off.
+func (s *gymServiceImpl) releaseDeparted(ctx context.Context, gymID, headID, actorID, actorRole string) {
+	if s.set.Departures == nil {
+		return
+	}
+	ids := []string{headID}
+	if s.set.Team != nil {
+		tctx, cancel := context.WithTimeout(ctx, authzTimeout)
+		team, err := s.set.Team.IDsByHead(tctx, headID)
+		cancel()
+		if err != nil {
+			s.internal("releaseDeparted.team", err)
+		}
+		ids = append(ids, team...)
+	}
+	s.set.Departures.ReleaseCoachClients(ctx, CoachRelease{
+		GymID: gymID, CoachIDs: ids, ActorID: actorID, ActorRole: actorRole, HeadCoachID: headID,
+	})
+}
+
 func (s *gymServiceImpl) LeaveGym(ctx context.Context, callerID string) *models.ApiError {
 	if apiErr := s.requireHead(ctx, callerID); apiErr != nil {
 		return apiErr
@@ -923,6 +947,7 @@ func (s *gymServiceImpl) LeaveGym(ctx context.Context, callerID string) *models.
 		return teamErr(http.StatusNotFound, errNotInGym)
 	}
 	mirrorHeadLeft(ctx, s.set.Members, gymID, callerID)
+	s.releaseDeparted(ctx, gymID, callerID, callerID, db.TeamActorRoleHead)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymLeave, ActorID: callerID, ActorRole: db.TeamActorRoleHead,
 		HeadCoachID: callerID, GymID: gymID,

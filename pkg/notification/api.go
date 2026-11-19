@@ -200,6 +200,16 @@ func (c *NotificationClient) SendGymJoinInviteEmail(ctx context.Context, email, 
 	return c.sendEmail(ctx, email, template, dynamicData)
 }
 
+// SendGymAssignmentEmail tells a coach or client about a gym client assignment change.
+func (c *NotificationClient) SendGymAssignmentEmail(ctx context.Context, email, subject, message string) error {
+	if email == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	template := utils.LoadConfig().GymAssignmentTemplate
+	dynamicData := map[string]string{"message": message, "subject": subject, "username": "", "link": ""}
+	return c.sendEmail(ctx, email, template, dynamicData)
+}
+
 // SendConfirmResetPasswordEmail sends a confirmation of password reset
 func (c *NotificationClient) SendConfirmResetPasswordEmail(ctx context.Context, dbUser *api.ResetPasswordResponse) error {
 	if dbUser.UserEmail == "" {

@@ -8,6 +8,7 @@ import (
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/pkg/payments"
+	"coachify-account-api/pkg/tracker"
 	"coachify-account-api/repositories"
 	"context"
 	"fmt"
@@ -145,6 +146,23 @@ func (app *App) setup() {
 		}
 	}
 
+	// Gym dispatch (P6) commits gym_clients and audit rows in one transaction: refuse to start without a replica set.
+	var dispatch *services.DispatchWiring
+	if config.Gym.DispatchEnabled {
+		dispatchRepo := repositories.NewGymDispatchRepository(db)
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := services.CheckDispatchReady(probeCtx, dispatchRepo, config.Gym.ClientGymRelations)
+		probeCancel()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		trackerClient, err := tracker.NewTrackerClient(config.TrackerAPI)
+		if err != nil {
+			log.Fatalf("Failed to initialize tracker client: %v", err)
+		}
+		dispatch = &services.DispatchWiring{Repo: dispatchRepo, Tracker: trackerClient}
+	}
+
 	// Align membership history with current team rows (idempotent, runs at every startup)
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	if _, _, err := teamRepo.Periods().ReconcileTeam(reconcileCtx); err != nil {
@@ -211,6 +229,7 @@ func (app *App) setup() {
 		gymPolicyRepo,
 		gymClientRepo,
 		inviteLinkRepo,
+		dispatch,
 	)
 
 	// Initialize Router

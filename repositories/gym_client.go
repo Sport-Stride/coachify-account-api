@@ -254,6 +254,59 @@ func gymClientRowPipeline(usersName, gymID string, q db.GymClientQuery) []bson.D
 	}))
 }
 
+// MyGyms lists the active gym relationships of a client with the gym name and the coach name in one aggregation
+// (no per-row lookups). Archived gyms are dropped; the result is sorted by gym id.
+func (r *GymClientRepository) MyGyms(ctx context.Context, clientID string) ([]db.MyGymRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	cur, err := r.clients.Aggregate(ctx, myGymsPipeline(r.usersName, clientID))
+	if err != nil {
+		return nil, err
+	}
+	out := []db.MyGymRow{}
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func myGymsPipeline(usersName, clientID string) []bson.D {
+	return []bson.D{
+		{{Key: "$match", Value: bd("client_id", clientID, "status", string(db.GymClientStatusActive))}},
+		{{Key: "$lookup", Value: bd(
+			"from", gymsCollection,
+			"let", bd("gid", "$gym_id"),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$and", bson.A{
+					bd("$eq", bson.A{"$_id", bd("$convert", bd("input", "$$gid", "to", "objectId", "onError", nil))}),
+					bd("$eq", bson.A{"$status", db.GymStatusActive}),
+				}))),
+				bd("$project", bd("name", 1)),
+			},
+			"as", "g",
+		)}},
+		{{Key: "$unwind", Value: "$g"}},
+		{{Key: "$lookup", Value: bd(
+			"from", usersName,
+			"let", bd("cid", "$coach_id"),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$cid"}))),
+				bd("$project", bd("firstname", 1, "lastname", 1)),
+			},
+			"as", "co",
+		)}},
+		{{Key: "$project", Value: bd(
+			"_id", 0,
+			"gym_id", 1,
+			"gym_name", "$g.name",
+			"coach_id", bd("$cond", bson.A{bd("$eq", bson.A{bd("$ifNull", bson.A{"$coach_id", ""}), ""}), "$$REMOVE", "$coach_id"}),
+			"coach_name", bd("$cond", bson.A{bd("$gt", bson.A{bd("$size", "$co"), 0}), fullName("$co.firstname", "$co.lastname"), "$$REMOVE"}),
+			"consent_at", 1,
+		)}},
+		{{Key: "$sort", Value: bd("gym_id", 1)}},
+	}
+}
+
 // activeGymClientsOf is the $match of a gym_clients sub-pipeline: the active gym clients of the coach in the let variable.
 func activeGymClientsOf(coachVar string) bson.D {
 	return bd("$match", bd("$expr", bd("$and", bson.A{

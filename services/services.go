@@ -12,6 +12,7 @@ import (
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/pkg/payments"
+	"coachify-account-api/pkg/tracker"
 	"coachify-account-api/repositories"
 	"coachify-account-api/utils"
 
@@ -35,6 +36,14 @@ type Services struct {
 	GymClients              GymClientService
 	InviteLinks             InviteLinkService
 	Quota                   QuotaGuard
+	// GymLeaver serves POST /me/gyms/:gym_id/leave; nil unless GYM_DISPATCH_ENABLED (and CLIENT_GYM_RELATIONS).
+	GymLeaver GymClientLeaver
+}
+
+// DispatchWiring carries the P6 collaborators; nil while GYM_DISPATCH_ENABLED is off.
+type DispatchWiring struct {
+	Repo    *repositories.GymDispatchRepository
+	Tracker *tracker.TrackerClient
 }
 
 func InitServices(config utils.AppConfig,
@@ -60,6 +69,7 @@ func InitServices(config utils.AppConfig,
 	gymPolicyRepo *repositories.GymPolicyRepository,
 	gymClientRepo *repositories.GymClientRepository,
 	inviteLinkRepo *repositories.InviteLinkRepository,
+	dispatch *DispatchWiring,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -120,6 +130,30 @@ func InitServices(config utils.AppConfig,
 	if notification != nil {
 		gymJoinMailer = notification
 	}
+	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
+	gymClientDeps := GymClientDeps{
+		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
+		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
+	}
+	gymClients := NewGymClientService(gymClientDeps, config.Gym.ClientGymRelations)
+	// Dispatch (P6): the transactional service replaces the P4 one behind the same routes. Off: nothing changes.
+	var gymLeaver GymClientLeaver
+	var departures CoachDepartures
+	if config.Gym.DispatchEnabled && config.Gym.ClientGymRelations && dispatch != nil && dispatch.Repo != nil {
+		dd := GymDispatchDeps{Repo: dispatch.Repo, Users: userRepo}
+		if dispatch.Tracker != nil {
+			dd.Tracker = dispatch.Tracker
+		}
+		if chatClient != nil {
+			dd.Chat = chatClient
+		}
+		if notification != nil {
+			dd.Mailer = notification
+		}
+		d := NewGymDispatch(gymClientDeps, dd)
+		gymClients, gymLeaver, departures = d, d, d
+		authService.WithCoachDepartures(d)
+	}
 	// Owner chats need the chat client; a nil client (tests) disables them.
 	var gymChat *GymChatProvisioner
 	if chatClient != nil {
@@ -138,6 +172,7 @@ func InitServices(config utils.AppConfig,
 
 		FlatHierarchy: config.Gym.FlatHierarchy,
 		Projector:     teamRepo,
+		Departures:    departures,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(
@@ -148,11 +183,6 @@ func InitServices(config utils.AppConfig,
 	if config.Gym.ClientGymRelations {
 		coachService.WithGymRelations(coachRepo, membership)
 	}
-	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
-	gymClients := NewGymClientService(GymClientDeps{
-		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
-		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
-	}, config.Gym.ClientGymRelations)
 
 	// Unified invite links: always built (404 while INVITE_LINKS_V2 is off); only the flag wires them into signup.
 	var asyncObs []RedeemObserver
@@ -182,7 +212,7 @@ func InitServices(config utils.AppConfig,
 		AuthService:             authService,
 		CoachService:            coachService,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
-		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(memberStore), WithReadCache(15*time.Second)),
+		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(memberStore), WithReadCache(15*time.Second), WithCoachDepartures(departures)),
 		GymService:              gymService,
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
@@ -194,6 +224,7 @@ func InitServices(config utils.AppConfig,
 		GymClients:              gymClients,
 		InviteLinks:             inviteLinks,
 		Quota:                   quota,
+		GymLeaver:               gymLeaver,
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}
 }

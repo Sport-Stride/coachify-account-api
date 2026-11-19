@@ -77,6 +77,7 @@ type AuthServiceImpl struct {
 	chatClient           *chat.ChatClient
 	teamRepo             *repositories.TeamRepository
 	gymMembers           GymMemberStore
+	departures           CoachDepartures
 	entitlements         EntitlementGuard
 	gymOwnerInvites      gymOwnerInviteRedeemer
 	gymJoins             gymJoinRedeemer
@@ -127,6 +128,34 @@ func (s *AuthServiceImpl) WithEntitlements(g EntitlementGuard) *AuthServiceImpl 
 func (s *AuthServiceImpl) WithGymMembers(m GymMemberStore) *AuthServiceImpl {
 	s.gymMembers = m
 	return s
+}
+
+// WithCoachDepartures releases the gym clients of a user whose account is deleted or changes role; nil disables it.
+func (s *AuthServiceImpl) WithCoachDepartures(d CoachDepartures) *AuthServiceImpl {
+	s.departures = d
+	return s
+}
+
+// releaseGymClientsOfGone sends the gym clients of a departed user and of the coaches he supervised to the pool.
+func (s *AuthServiceImpl) releaseGymClientsOfGone(ctx context.Context, userID string, supervised []string) {
+	if s.departures == nil {
+		return
+	}
+	s.departures.ReleaseCoachClients(ctx, CoachRelease{
+		CoachIDs: append([]string{userID}, supervised...), ActorID: userID, ActorRole: db.TeamActorRoleCoach,
+	})
+}
+
+// supervisedBy lists the coaches of a head coach before his team rows are deleted; a failure reads as none.
+func (s *AuthServiceImpl) supervisedBy(ctx context.Context, userID string) []string {
+	if s.departures == nil || s.teamRepo == nil {
+		return nil
+	}
+	ids, err := s.teamRepo.IDsByHead(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 // WithGymOwnerInvites sets the invite redeemer used by invited gym owner signup; nil disables the invite paths.
@@ -1351,6 +1380,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 
 	// An accepted role change drops any leftover team membership.
 	if roleChange && s.teamRepo != nil {
+		supervised := s.supervisedBy(ctx, req.User.ExternalID)
 		if _, tErr := s.teamRepo.DeleteByAny(ctx, req.User.ExternalID); tErr != nil {
 			zap.L().Error("update user: failed to clean team memberships",
 				zap.String("component", "auth"),
@@ -1359,6 +1389,7 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 		} else {
 			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
 			mirrorUserGone(ctx, s.gymMembers, req.User.ExternalID)
+			s.releaseGymClientsOfGone(ctx, req.User.ExternalID, supervised)
 		}
 	}
 
@@ -1401,6 +1432,7 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 
 	// Drop any team membership the user takes part in (as member or head coach).
 	if s.teamRepo != nil {
+		supervised := s.supervisedBy(ctx, id)
 		if _, tErr := s.teamRepo.DeleteByAny(ctx, id); tErr != nil {
 			zap.L().Error("delete user: failed to clean team memberships",
 				zap.String("component", "auth"),
@@ -1409,6 +1441,7 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 		} else {
 			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
 			mirrorUserGone(ctx, s.gymMembers, id)
+			s.releaseGymClientsOfGone(ctx, id, supervised)
 		}
 	}
 

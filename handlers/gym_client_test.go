@@ -120,3 +120,27 @@ func TestListCoachClientsKind(t *testing.T) {
 		s.coach.AssertNotCalled(t, "ListCoachClients", mock.Anything, mock.Anything)
 	}
 }
+
+func TestListMyGyms(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	build := func(svc *mocks.GymClientService, uid string) *gin.Engine {
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			if uid != "" {
+				c.Set("userID", uid)
+			}
+		})
+		r.GET("/me/gyms", handlers.ListMyGyms(svc))
+		return r
+	}
+	assert.Equal(t, http.StatusUnauthorized, do(build(&mocks.GymClientService{}, ""), http.MethodGet, "/me/gyms", "").Code)
+
+	svc := &mocks.GymClientService{}
+	svc.On("MyGyms", mock.Anything, "cl1").Return([]db.MyGymRow{{GymID: "g1", GymName: "Gym", CoachID: "c1", CoachName: "Co Ach"}}, nil)
+	w := do(build(svc, "cl1"), http.MethodGet, "/me/gyms", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	gyms := decode(t, w)["gyms"].([]interface{})
+	require.Len(t, gyms, 1)
+	assert.Equal(t, "g1", gyms[0].(map[string]interface{})["gym_id"])
+	assert.NotContains(t, gyms[0], "consent_at")
+}

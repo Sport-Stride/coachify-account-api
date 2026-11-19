@@ -37,6 +37,7 @@ type GymClientStore interface {
 	Leave(ctx context.Context, gymID, clientID string, at time.Time) (bool, error)
 	ListByGym(ctx context.Context, gymID string, q db.GymClientQuery) ([]db.GymClientRow, int, error)
 	ActiveByClient(ctx context.Context, clientID string) ([]db.GymClient, error)
+	MyGyms(ctx context.Context, clientID string) ([]db.MyGymRow, error)
 }
 
 var _ GymClientStore = (*repositories.GymClientRepository)(nil)
@@ -89,6 +90,8 @@ type GymClientService interface {
 	Assign(ctx context.Context, callerID, gymID, clientID, coachID string) (*DispatchResult, *models.ApiError)
 	// Unassign returns a gym client to the pool (client.unassign).
 	Unassign(ctx context.Context, callerID, gymID, clientID string) (*DispatchResult, *models.ApiError)
+	// MyGyms lists the caller's own active gym relationships (never anyone else's), sorted by gym id.
+	MyGyms(ctx context.Context, clientID string) ([]db.MyGymRow, *models.ApiError)
 	// Remove ends the gym relationship (owner only).
 	Remove(ctx context.Context, callerID, gymID, clientID string) *models.ApiError
 	// Join creates the relationship after the client consented. It checks the gym quota and ignores personal links.
@@ -413,6 +416,25 @@ func (s *gymClientService) Remove(ctx context.Context, callerID, gymID, clientID
 	})
 	s.changed(ctx, gymID)
 	return nil
+}
+
+func (s *gymClientService) MyGyms(ctx context.Context, clientID string) ([]db.MyGymRow, *models.ApiError) {
+	if !s.enabled {
+		return nil, teamErr(http.StatusNotFound, errClientsDisabled)
+	}
+	if clientID == "" {
+		return nil, teamErr(http.StatusBadRequest, errClientRequired)
+	}
+	ctx, cancel := context.WithTimeout(ctx, authzTimeout)
+	defer cancel()
+	rows, err := s.store.MyGyms(ctx, clientID)
+	if err != nil {
+		return nil, s.internal("MyGyms", err)
+	}
+	if rows == nil {
+		rows = []db.MyGymRow{}
+	}
+	return rows, nil
 }
 
 func (s *gymClientService) Join(ctx context.Context, in JoinGymClientInput) (*db.GymClient, *models.ApiError) {

@@ -110,3 +110,20 @@ func RemoveGymClient(svc services.GymClientService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"message": "Client removed from the gym"})
 	}
 }
+
+// ListMyGyms lists the caller's own active gym relationships (GET /me/gyms).
+func ListMyGyms(svc services.GymClientService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetString("userID")
+		if id == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		rows, apiErr := svc.MyGyms(c.Request.Context(), id)
+		if apiErr != nil {
+			respondAdminError(c, apiErr)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"gyms": rows})
+	}
+}

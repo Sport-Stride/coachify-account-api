@@ -26,8 +26,10 @@ type AppConfig struct {
 	GymOwnerWelcomeTemplate         string
 	GymOwnerInviteTemplate          string
 	GymJoinInviteTemplate           string
+	GymAssignmentTemplate           string
 	ConfirmResetPasswordTemplate    string
 	ChatAPI                         ChatAPIConfig
+	TrackerAPI                      TrackerAPIConfig
 	FacebookOAuth                   *oauth2.Config
 	FacebookEncryptionKey           string
 	GoogleOAuth                     *oauth2.Config
@@ -68,6 +70,10 @@ type GymConfig struct {
 	// InviteLinksV2 (INVITE_LINKS_V2, default off) routes registration links, gym join links and email invites through
 	// the unified InviteLink aggregate and enables /invite-links and /me/invites. Off: legacy behavior.
 	InviteLinksV2 bool
+	// DispatchEnabled (GYM_DISPATCH_ENABLED, default off) routes gym client assign, unassign, remove and leave and
+	// the coach departure cleanup through one Mongo transaction (needs a replica set; startup fails fast without
+	// one) and the tracker transfer. Requires CLIENT_GYM_RELATIONS. Off: legacy behavior.
+	DispatchEnabled bool
 }
 
 type BaseURLConfig struct {
@@ -96,6 +102,10 @@ type InvitationAPIConfig struct {
 	APIKey string
 }
 type PaymentAPIConfig struct {
+	URL    string
+	APIKey string
+}
+type TrackerAPIConfig struct {
 	URL    string
 	APIKey string
 }
@@ -146,9 +156,14 @@ func LoadConfig() *AppConfig {
 			GymOwnerWelcomeTemplate:         getStringWithDefault("GYM_OWNER_WELCOME_TEMPLATE", "gym_owner_welcome"),
 			GymOwnerInviteTemplate:          getStringWithDefault("GYM_OWNER_INVITE_TEMPLATE", "gym_owner_invite"),
 			GymJoinInviteTemplate:           getStringWithDefault("GYM_JOIN_INVITE_TEMPLATE", "gym_join_invite"),
+			GymAssignmentTemplate:           getStringWithDefault("GYM_ASSIGNMENT_TEMPLATE", "gym_assignment"),
 			ConfirmResetPasswordTemplate:    getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
 			NotificationAPI: NotificationAPIConfig{
 				URL:    getStringWithDefault("NOTIFICATION_API_URL", "https://coachify-notification-api-b1f95c31a09f.herokuapp.com"),
+				APIKey: internalKey,
+			},
+			TrackerAPI: TrackerAPIConfig{
+				URL:    getStringWithDefault("TRACKER_API_URL", "https://api.coachify.tn/tracker"),
 				APIKey: internalKey,
 			},
 			ChatAPI: ChatAPIConfig{
@@ -188,6 +203,7 @@ func LoadConfig() *AppConfig {
 			FlatHierarchy:       viper.GetBool("GYM_FLAT_HIERARCHY"),
 			ClientGymRelations:  viper.GetBool("CLIENT_GYM_RELATIONS"),
 			InviteLinksV2:       viper.GetBool("INVITE_LINKS_V2"),
+			DispatchEnabled:     viper.GetBool("GYM_DISPATCH_ENABLED"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

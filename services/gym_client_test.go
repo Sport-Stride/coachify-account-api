@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ type fakeGymClientStore struct {
 	lastQuery db.GymClientQuery
 	failSet   bool // SetCoach reports a lost compare-and-set
 	setCalls  int
+	archived  map[string]bool
 }
 
 func (f *fakeGymClientStore) Insert(_ context.Context, c *db.GymClient) error {
@@ -89,6 +91,19 @@ func (f *fakeGymClientStore) ActiveByClient(_ context.Context, clientID string) 
 			out = append(out, *r)
 		}
 	}
+	return out, nil
+}
+
+// MyGyms: archived gyms are the ones listed in archived; names come from gymNames.
+func (f *fakeGymClientStore) MyGyms(_ context.Context, clientID string) ([]db.MyGymRow, error) {
+	out := []db.MyGymRow{}
+	for _, r := range f.rows {
+		if r.ClientID != clientID || r.Status != db.GymClientStatusActive || f.archived[r.GymID] {
+			continue
+		}
+		out = append(out, db.MyGymRow{GymID: r.GymID, GymName: "name-" + r.GymID, CoachID: r.CoachID})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].GymID < out[j].GymID })
 	return out, nil
 }
 
