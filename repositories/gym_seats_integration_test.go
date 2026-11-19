@@ -3,6 +3,7 @@
 package repositories_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -78,7 +79,8 @@ func TestGymMemberIT_SeatAssignReleaseAndState(t *testing.T) {
 
 func TestGymMemberIT_SeatIndexExists(t *testing.T) {
 	database := gymTestDB(t)
-	ctx, cancel := memberCtx()
+	// InitializeIndexes touches every collection; over a remote DB it can exceed memberCtx's 20s.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	require.NoError(t, repositories.InitializeIndexes(ctx, database))
 	cur, err := database.Collection("gym_members").Indexes().List(ctx)
