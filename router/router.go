@@ -237,6 +237,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
 		internal.POST("/authz/check", handlers.CheckInternalAuthz(services.GymPolicy))
+		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 	}
 
 	// fallback

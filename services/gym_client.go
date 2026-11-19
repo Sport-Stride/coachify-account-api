@@ -92,6 +92,22 @@ type GymClientService interface {
 	Remove(ctx context.Context, callerID, gymID, clientID string) *models.ApiError
 	// Join creates the relationship after the client consented. It checks the gym quota and ignores personal links.
 	Join(ctx context.Context, in JoinGymClientInput) (*db.GymClient, *models.ApiError)
+	// Relationships answers how the actor reaches a client (internal, tracker/WMS data context): the personal link
+	// and every gym where the actor may see the client as gym context. No relation is an empty answer, not an error.
+	Relationships(ctx context.Context, actorID, clientID string) (*ClientRelationships, *models.ApiError)
+}
+
+// GymRelation is one gym through which the actor reaches the client.
+type GymRelation struct {
+	GymID           string `json:"gym_id"`
+	ActorRole       string `json:"actor_role"`
+	AssignedToActor bool   `json:"assigned_to_actor"`
+}
+
+// ClientRelationships is the answer of Relationships.
+type ClientRelationships struct {
+	Personal bool          `json:"personal"`
+	Gyms     []GymRelation `json:"gyms"`
 }
 
 type gymClientService struct {
@@ -99,6 +115,7 @@ type gymClientService struct {
 	members GymMembershipReader
 	store   GymClientStore
 	team    SupervisionLookup
+	links   CoachLinkStore
 	audit   GymClientAudit
 	quota   QuotaGuard
 	inval   AuthzInvalidator
@@ -112,6 +129,7 @@ type GymClientDeps struct {
 	Members GymMembershipReader
 	Store   GymClientStore
 	Team    SupervisionLookup
+	Links   CoachLinkStore // personal coach_clients lookup; nil reports no personal link
 	Audit   GymClientAudit
 	Quota   QuotaGuard
 	Inval   AuthzInvalidator   // optional
@@ -121,7 +139,7 @@ type GymClientDeps struct {
 // NewGymClientService wires the service; enabled=false (flag off) answers 404 everywhere.
 func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
-		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, audit: d.Audit,
+		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
 		quota: d.Quota, inval: d.Inval, bump: d.Bump, enabled: enabled,
 	}
 }
@@ -469,4 +487,58 @@ func (g *gymClientScopeSource) ClientScope(ctx context.Context, clientID string)
 		scope.Gyms = append(scope.Gyms, ScopeGym{GymID: r.GymID, CoachID: r.CoachID})
 	}
 	return scope, nil
+}
+
+func (s *gymClientService) Relationships(ctx context.Context, actorID, clientID string) (*ClientRelationships, *models.ApiError) {
+	if actorID == "" || clientID == "" {
+		return nil, teamErr(http.StatusBadRequest, errClientRequired)
+	}
+	out := &ClientRelationships{Gyms: []GymRelation{}}
+	ctx, cancel := context.WithTimeout(ctx, authzTimeout)
+	defer cancel()
+	if s.links != nil {
+		linked, err := s.links.LinkedClientIDs(ctx, actorID, []string{clientID})
+		if err != nil {
+			return nil, s.internal("Relationships.personal", err)
+		}
+		for _, id := range linked {
+			if id == clientID {
+				out.Personal = true
+			}
+		}
+	}
+	if !s.enabled {
+		return out, nil
+	}
+	rows, err := s.store.ActiveByClient(ctx, clientID)
+	if err != nil {
+		return nil, s.internal("Relationships.rows", err)
+	}
+	if len(rows) == 0 {
+		return out, nil
+	}
+	memberships, err := s.members.MembershipsOf(ctx, actorID)
+	if err != nil {
+		return nil, s.internal("Relationships.members", err)
+	}
+	roles := map[string]db.GymMemberRole{}
+	for i := range memberships {
+		if canCoach(&memberships[i]) {
+			roles[memberships[i].GymID] = memberships[i].Role
+		}
+	}
+	for _, row := range rows {
+		role, ok := roles[row.GymID]
+		if !ok {
+			continue
+		}
+		assigned := row.CoachID == actorID
+		// The owner and head coaches see every client row of their gym (a head coach therefore also covers the
+		// coaches he supervises); a plain coach sees only the rows assigned to him.
+		if !assigned && role != db.GymMemberRoleOwner && role != db.GymMemberRoleHeadCoach {
+			continue
+		}
+		out.Gyms = append(out.Gyms, GymRelation{GymID: row.GymID, ActorRole: string(role), AssignedToActor: assigned})
+	}
+	return out, nil
 }

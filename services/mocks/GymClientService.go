@@ -57,3 +57,12 @@ func (_m *GymClientService) Join(ctx context.Context, in services.JoinGymClientI
 	}
 	return r0, apiErrAt(ret, 1)
 }
+
+func (_m *GymClientService) Relationships(ctx context.Context, actorID, clientID string) (*services.ClientRelationships, *models.ApiError) {
+	ret := _m.Called(ctx, actorID, clientID)
+	var r0 *services.ClientRelationships
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*services.ClientRelationships)
+	}
+	return r0, apiErrAt(ret, 1)
+}

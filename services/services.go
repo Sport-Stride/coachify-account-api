@@ -162,7 +162,7 @@ func InitServices(config utils.AppConfig,
 		GymMembership:           membership,
 		GymMembers:              NewGymMembersService(authz, memberStore, teamRepo, config.Gym.FlatHierarchy),
 		GymClients: NewGymClientService(GymClientDeps{
-			Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Audit: teamRepo,
+			Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
 			Quota: quota, Inval: authz, Bump: gymPolicyRepo,
 		}, config.Gym.ClientGymRelations),
 		Quota:                   quota,
