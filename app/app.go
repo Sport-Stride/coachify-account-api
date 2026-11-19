@@ -11,6 +11,7 @@ import (
 	"coachify-account-api/repositories"
 	"context"
 	"fmt"
+	"errors"
 	"log"
 	"time"
 
@@ -78,6 +79,10 @@ func (app *App) setup() {
 	defer indexCancel()
 
 	if err := repositories.InitializeIndexes(indexCtx, db); err != nil {
+		if errors.Is(err, repositories.ErrCriticalIndexes) {
+			// Uniqueness of coach_clients and registration_links is relied upon: never run without it.
+			log.Fatalf("FATAL: critical index initialization failed: %v", err)
+		}
 		// In production, you might want to fail here
 		// For now, we'll log and continue
 		log.Printf("WARNING: Failed to initialize indexes: %v", err)
@@ -127,6 +132,7 @@ func (app *App) setup() {
 	gymOwnerInviteRepo := repositories.NewGymOwnerInviteRepository(db, "gym_owner_invites")
 	gymMemberRepo := repositories.NewGymMemberRepository(db)
 	gymPolicyRepo := repositories.NewGymPolicyRepository(db)
+	gymClientRepo := repositories.NewGymClientRepository(db, "users")
 
 	// The flat hierarchy reads memberships from gym_members only: refuse to start before the P0 backfill ran.
 	if config.Gym.FlatHierarchy {
@@ -202,6 +208,7 @@ func (app *App) setup() {
 		gymOwnerInviteRepo,
 		gymMemberRepo,
 		gymPolicyRepo,
+		gymClientRepo,
 	)
 
 	// Initialize Router

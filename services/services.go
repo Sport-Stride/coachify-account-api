@@ -32,6 +32,8 @@ type Services struct {
 	GymMembership           GymMembershipReader
 	GymPolicy               GymPolicyService
 	GymMembers              GymMembersService
+	GymClients              GymClientService
+	Quota                   QuotaGuard
 }
 
 func InitServices(config utils.AppConfig,
@@ -55,6 +57,7 @@ func InitServices(config utils.AppConfig,
 	gymOwnerInviteRepo *repositories.GymOwnerInviteRepository,
 	gymMemberRepo *repositories.GymMemberRepository,
 	gymPolicyRepo *repositories.GymPolicyRepository,
+	gymClientRepo *repositories.GymClientRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -92,7 +95,12 @@ func InitServices(config utils.AppConfig,
 	}
 	membership := NewGymMembershipReader(membersRead,
 		NewLegacyMembershipAdapter(gymRepo, teamRepo), NewRepoMembershipReader(gymMemberRepo))
-	chain := NewChainAuthorizer(membership, gymPolicyRepo, nil)
+	// With client gym relations on, client resources resolve against gym_clients (the gym-derived grants need an active row).
+	var clientResolver ResourceResolver
+	if config.Gym.ClientGymRelations {
+		clientResolver = NewResourceResolver(NewClientScopeSource(gymClientRepo))
+	}
+	chain := NewChainAuthorizer(membership, gymPolicyRepo, clientResolver)
 	authz := NewCachingAuthorizer(chain, DefaultAuthzCacheTTL)
 	// Every membership mirror write drops cached decisions and bumps the gym's authz_version.
 	memberStore := NewInvalidatingMemberStore(gymMemberRepo, authz, gymPolicyRepo)
@@ -135,6 +143,11 @@ func InitServices(config utils.AppConfig,
 		userRepo,
 	).WithEntitlements(entitlementService)
 
+	if config.Gym.ClientGymRelations {
+		coachService.WithGymRelations(coachRepo)
+	}
+	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
+
 	return &Services{
 		AuthService:             authService,
 		CoachService:            coachService,
@@ -148,6 +161,11 @@ func InitServices(config utils.AppConfig,
 		GymOwnerInviteService:   gymOwnerInviteService,
 		GymMembership:           membership,
 		GymMembers:              NewGymMembersService(authz, memberStore, teamRepo, config.Gym.FlatHierarchy),
+		GymClients: NewGymClientService(GymClientDeps{
+			Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Audit: teamRepo,
+			Quota: quota, Inval: authz, Bump: gymPolicyRepo,
+		}, config.Gym.ClientGymRelations),
+		Quota:                   quota,
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}
 }

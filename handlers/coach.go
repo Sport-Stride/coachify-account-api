@@ -32,9 +32,14 @@ func ListCoachClients(coachService services.CoachService) gin.HandlerFunc {
 			ToDate   string `form:"to_date"`
 			Page     int    `form:"page"`
 			Size     int    `form:"size"`
+			Kind     string `form:"kind"`
 		}
 		if err := c.ShouldBindQuery(&query); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query params"})
+			return
+		}
+		if !services.IsValidClientKind(query.Kind) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "kind must be personal or gym"})
 			return
 		}
 		var fromDate, toDate time.Time
@@ -56,6 +61,7 @@ func ListCoachClients(coachService services.CoachService) gin.HandlerFunc {
 		listQuery := db.CoachClientListQuery{
 			CoachID:  coachID,
 			ClientID: query.ClientID,
+			Kind:     query.Kind,
 			FromDate: fromDate,
 			ToDate:   toDate,
 			Page:     query.Page,

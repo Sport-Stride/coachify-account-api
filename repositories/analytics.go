@@ -77,24 +77,35 @@ func (r *AnalyticsRepository) CoachIdentities(ctx context.Context, limit int) ([
 	return out, nil
 }
 
-// ClientsOfCoaches returns one page of the clients linked to the given coaches (safe fields only),
-// in a single aggregation: coach_clients -> $lookup users -> $facet total/data.
+// ClientsOfCoaches returns one page of the gym clients assigned to the given coaches (safe fields only),
+// in a single aggregation: gym_clients -> $lookup users -> $facet total/data. Personal coach_clients are never read.
 func (r *AnalyticsRepository) ClientsOfCoaches(ctx context.Context, coachIDs []string, f db.ScopeClientFilter) ([]db.ClientRowLinked, int, error) {
 	if len(coachIDs) == 0 {
 		return []db.ClientRowLinked{}, 0, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
+	return runPaged[db.ClientRowLinked](ctx, r.team.gymClients, clientsOfCoachesPipeline(r.team.usersName, coachIDs, f))
+}
+
+// clientsOfCoachesPipeline reads gym_clients only (never coach_clients), so personal clients are out of reach.
+func clientsOfCoachesPipeline(usersName string, coachIDs []string, f db.ScopeClientFilter) []bson.D {
+	match := bd("coach_id", bd("$in", coachIDs), "status", string(db.GymClientStatusActive))
+	return clientRowsPipeline(usersName, match, "$joined_at", f)
+}
+
+// clientRowsPipeline turns the relationship rows selected by match into safe client rows (names, email, status),
+// one aggregation with users lookups and a facet page. timeField is the link date of the source collection.
+func clientRowsPipeline(usersName string, match bson.D, timeField string, f db.ScopeClientFilter) []bson.D {
 	f.Page, f.Size = pageDefaults(f.Page, f.Size)
 
-	match := bd("coach_id", bd("$in", coachIDs))
 	if len(f.ClientIDs) > 0 {
 		match = append(match, bson.E{Key: "client_id", Value: bd("$in", f.ClientIDs)})
 	}
 	pipeline := []bson.D{
 		{{Key: "$match", Value: match}},
 		{{Key: "$lookup", Value: bd(
-			"from", r.team.usersName,
+			"from", usersName,
 			"let", bd("client", "$client_id"),
 			"pipeline", bson.A{
 				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$client"}))),
@@ -104,7 +115,7 @@ func (r *AnalyticsRepository) ClientsOfCoaches(ctx context.Context, coachIDs []s
 		)}},
 		{{Key: "$unwind", Value: "$u"}},
 		{{Key: "$lookup", Value: bd(
-			"from", r.team.usersName,
+			"from", usersName,
 			"let", bd("cid", "$coach_id"),
 			"pipeline", bson.A{
 				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$cid"}))),
@@ -122,7 +133,7 @@ func (r *AnalyticsRepository) ClientsOfCoaches(ctx context.Context, coachIDs []s
 			"status", "$u.status",
 			"coach_id", 1,
 			"coach_name", fullName("$co.firstname", "$co.lastname"),
-			"linked_at", "$created_at",
+			"linked_at", timeField,
 		)}},
 	}
 	if f.Q != "" {
@@ -132,10 +143,9 @@ func (r *AnalyticsRepository) ClientsOfCoaches(ctx context.Context, coachIDs []s
 	if f.Sort == "linked_at" {
 		sortDoc = bd("linked_at", -1, "externalid", 1, "coach_id", 1)
 	}
-	pipeline = append(pipeline, facetPage(bson.A{
+	return append(pipeline, facetPage(bson.A{
 		bd("$sort", sortDoc),
 		bd("$skip", int64((f.Page-1)*f.Size)),
 		bd("$limit", int64(f.Size)),
 	}))
-	return runPaged[db.ClientRowLinked](ctx, r.team.clients, pipeline)
 }

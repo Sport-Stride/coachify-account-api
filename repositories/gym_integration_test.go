@@ -41,6 +41,9 @@ func setupGym(t *testing.T) *gymFixture {
 	}
 	require.NoError(t, gf.gyms.CreateGym(ctx, gf.gym))
 	require.False(t, gf.gym.ID.IsZero())
+	_, err = f.database.Collection("gym_clients").UpdateMany(ctx, bson.M{"gym_id": fixtureGymID},
+		bson.M{"$set": bson.M{"gym_id": gf.gym.ID.Hex()}})
+	require.NoError(t, err)
 	for _, h := range []string{hA, hB} {
 		require.NoError(t, gf.gyms.AddHeadCoach(ctx, &db.GymHeadCoach{
 			GymID: gf.gym.ID.Hex(), HeadCoachID: h, AddedBy: "admin1", AddedByRole: db.GymAdderAdmin,
@@ -195,8 +198,8 @@ func TestGymHeadCoachCountsAsCoach(t *testing.T) {
 	f := setupGym(t)
 	ctx := context.Background()
 	gid := f.gym.ID.Hex()
-	_, err := f.database.Collection("coach_clients").InsertOne(ctx,
-		bson.M{"coach_id": hA, "client_id": "cl8", "created_at": f.ago(day(1))})
+	_, err := f.database.Collection("gym_clients").InsertOne(ctx, bson.M{"gym_id": gid, "client_id": "cl9", "coach_id": hA,
+		"status": "active", "joined_at": f.ago(day(1)), "assigned_at": f.ago(day(1))})
 	require.NoError(t, err)
 
 	rows, _, err := f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{HeadCoachID: hA, Q: "alice"})
@@ -211,7 +214,7 @@ func TestGymHeadCoachCountsAsCoach(t *testing.T) {
 	clients, total, err := f.gyms.ListClients(ctx, gid, db.GymClientQuery{CoachID: hA})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
-	assert.Equal(t, "cl8", clients[0].ExternalID)
+	assert.Equal(t, "cl9", clients[0].ExternalID)
 
 	heads, _, err := f.gyms.ListHeadCoachRows(ctx, gid, "alice", 1, 20)
 	require.NoError(t, err)
@@ -407,4 +410,41 @@ func TestGymAggregations(t *testing.T) {
 		assert.Equal(t, 1, total)
 		assert.Equal(t, db.TeamActionGymCreate, entries[0].Action)
 	})
+}
+
+// Privacy: personal coach_clients never reach the gym or head coach views.
+func TestGymViewsExcludePersonalClients(t *testing.T) {
+	f := setupGym(t)
+	ctx := context.Background()
+	gid := f.gym.ID.Hex()
+
+	clients, total, err := f.gyms.ListClients(ctx, gid, db.GymClientQuery{Size: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 8, total, "the seeded gym clients with a user; ghostclient has none")
+	for _, c := range clients {
+		assert.NotContains(t, []string{"personal-only", "personal-c3"}, c.ExternalID)
+	}
+
+	// Head coach scope: hA's team has c1 c2 c3, so the personal clients of c1 and c3 would show up if they leaked.
+	scoped, _, err := f.gyms.ListClients(ctx, gid, db.GymClientQuery{HeadCoachID: hA, Size: 100})
+	require.NoError(t, err)
+	for _, c := range scoped {
+		assert.NotContains(t, []string{"personal-only", "personal-c3"}, c.ExternalID)
+	}
+
+	rows, _, err := f.gyms.ListCoaches(ctx, gid, db.GymCoachQuery{HeadCoachID: hA, Q: "eve"})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 0, rows[0].ClientCount, "c3 has a personal client only")
+
+	// Dual affiliation: the client is listed once, as a gym client, and its personal link stays out of the gym.
+	_, err = f.database.Collection("gym_clients").InsertOne(ctx, bson.M{"gym_id": gid, "client_id": "personal-only",
+		"coach_id": "", "status": "active", "joined_at": f.now})
+	require.NoError(t, err)
+	pool := false
+	pooled, total, err := f.gyms.ListClients(ctx, gid, db.GymClientQuery{Assigned: &pool, Size: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, "personal-only", pooled[0].ExternalID)
+	assert.Equal(t, "", pooled[0].CoachID)
 }

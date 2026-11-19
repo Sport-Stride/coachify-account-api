@@ -61,6 +61,10 @@ type GymConfig struct {
 	// FlatHierarchy (GYM_FLAT_HIERARCHY, default off) lets a coach join a gym without a head coach and enables
 	// the member list and supervisor endpoints. Off: legacy behavior. On: gym_members is the membership source.
 	FlatHierarchy bool
+	// ClientGymRelations (CLIENT_GYM_RELATIONS, default off) enables the gym client relationship endpoints, the kind
+	// filter of GET /coach/clients and the gym leg of the link check. Off: legacy behavior. The privacy rule that gym
+	// and head coach views read gym_clients only applies regardless of this flag.
+	ClientGymRelations bool
 }
 
 type BaseURLConfig struct {
@@ -179,6 +183,7 @@ func LoadConfig() *AppConfig {
 			MembersRead:         getStringWithDefault("GYM_MEMBERS_READ", "legacy"),
 			AuthzEnforce:        viper.GetBool("GYM_AUTHZ_ENFORCE"),
 			FlatHierarchy:       viper.GetBool("GYM_FLAT_HIERARCHY"),
+			ClientGymRelations:  viper.GetBool("CLIENT_GYM_RELATIONS"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

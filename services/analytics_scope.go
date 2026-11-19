@@ -46,6 +46,8 @@ type AnalyticsStore interface {
 	UserIdentities(ctx context.Context, ids []string) (map[string]db.UserIdentity, error)
 	CoachIdentities(ctx context.Context, limit int) ([]db.UserIdentity, error)
 	ClientsOfCoaches(ctx context.Context, coachIDs []string, f db.ScopeClientFilter) ([]db.ClientRowLinked, int, error)
+	// PersonalClientsOfCoach reads the coach's own personal coach_clients; only the coach-own scope may call it.
+	PersonalClientsOfCoach(ctx context.Context, coachID string, f db.ScopeClientFilter) ([]db.ClientRowLinked, int, error)
 }
 
 var (
@@ -369,15 +371,31 @@ func (s *analyticsServiceImpl) LookupClients(ctx context.Context, callerID strin
 		return nil, apiErr
 	}
 	items := []db.ClientRow{}
-	if len(scope.CurrentCoachIDs) == 0 {
-		return items, nil
+	seen := map[string]bool{}
+	flt := db.ScopeClientFilter{ClientIDs: ids, Page: 1, Size: lookupRowLimit}
+	if len(scope.CurrentCoachIDs) > 0 {
+		rows, _, err := s.store.ClientsOfCoaches(ctx, scope.CurrentCoachIDs, flt)
+		if err != nil {
+			return nil, s.internal("LookupClients", err)
+		}
+		for _, r := range rows {
+			seen[r.ExternalID] = true
+			items = append(items, r.ClientRow)
+		}
 	}
-	rows, _, err := s.store.ClientsOfCoaches(ctx, scope.CurrentCoachIDs, db.ScopeClientFilter{ClientIDs: ids, Page: 1, Size: lookupRowLimit})
-	if err != nil {
-		return nil, s.internal("LookupClients", err)
-	}
-	for _, r := range rows {
-		items = append(items, r.ClientRow)
+	// Personal leg: a coach resolves the names of his OWN personal clients, in his own scope only (team scope narrowed
+	// to himself). Gym, platform and the team-wide scope never see personal clients, nor does anyone but that coach.
+	if req.Scope == db.AnalyticsScopeTeam && req.CoachID != "" && req.CoachID == callerID {
+		rows, _, err := s.store.PersonalClientsOfCoach(ctx, callerID, flt)
+		if err != nil {
+			return nil, s.internal("LookupClients.personal", err)
+		}
+		for _, r := range rows {
+			if !seen[r.ExternalID] {
+				seen[r.ExternalID] = true
+				items = append(items, r.ClientRow)
+			}
+		}
 	}
 	return items, nil
 }

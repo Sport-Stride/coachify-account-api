@@ -176,6 +176,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		protected.PUT("/gyms/:gym_id/members/:user_id/supervisor", handlers.PutGymMemberSupervisor(services.GymMembers))
 		protected.POST("/gyms/:gym_id/coach-invitations", handlers.InviteGymCoach(services.GymService))
 		protected.POST("/gyms/:gym_id/coach-join-links", handlers.CreateGymCoachJoinLink(services.GymService))
+		// Gym client relationships (CLIENT_GYM_RELATIONS): the service answers 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/clients", handlers.ListGymRelationClients(services.GymClients))
+		protected.POST("/gyms/:gym_id/clients/:client_id/assign", handlers.AssignGymClient(services.GymClients))
+		protected.POST("/gyms/:gym_id/clients/:client_id/unassign", handlers.UnassignGymClient(services.GymClients))
+		protected.DELETE("/gyms/:gym_id/clients/:client_id", handlers.RemoveGymClient(services.GymClients))
 
 		adminGroup := protected.Group("/admin")
 		{

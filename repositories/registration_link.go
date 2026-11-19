@@ -7,38 +7,15 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.uber.org/zap"
-
-	"coachify-account-api/utils"
 )
 
 type RegistrationLinkRepository struct {
 	collection *mongo.Collection
 }
 
+// NewRegistrationLinkRepository does not create indexes: token_1 and coach_id_1 live in InitializeIndexes (indexes.go).
 func NewRegistrationLinkRepository(database *mongo.Database, collName string) *RegistrationLinkRepository {
-	collection := database.Collection(collName)
-
-	// Unique index on token
-	tokenIndex := mongo.IndexModel{
-		Keys:    bson.D{{Key: "token", Value: 1}},
-		Options: options.Index().SetUnique(true),
-	}
-	if _, err := collection.Indexes().CreateOne(context.Background(), tokenIndex); err != nil {
-		utils.Logger.Fatal("failed to create token index on registration_links", zap.Error(err))
-	}
-
-	// Unique index on coach_id (one link per coach)
-	coachIndex := mongo.IndexModel{
-		Keys:    bson.D{{Key: "coach_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
-	}
-	if _, err := collection.Indexes().CreateOne(context.Background(), coachIndex); err != nil {
-		utils.Logger.Fatal("failed to create coach_id index on registration_links", zap.Error(err))
-	}
-
-	return &RegistrationLinkRepository{collection: collection}
+	return &RegistrationLinkRepository{collection: database.Collection(collName)}
 }
 
 // GetByCoachID returns the existing registration link for a coach, or nil if none exists.

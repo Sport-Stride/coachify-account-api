@@ -38,6 +38,8 @@ type Gym struct {
 	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt       time.Time          `bson:"updated_at" json:"updated_at"`
 	ArchivedAt      *time.Time         `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
+	// MaxGymClientsOverride is the admin-set cap on active gym clients; nil means the plan decides.
+	MaxGymClientsOverride *int `bson:"max_gym_clients_override,omitempty" json:"-"`
 }
 
 // GymUpdate lists the fields to change; nil means unchanged.
@@ -169,6 +171,9 @@ type GymClientQuery struct {
 	Size        int
 	Q           string
 	Sort        string // name | linked_at
+	// Assigned filters on having a coach (nil: both). CoachIDs limits the coaches (nil: no limit, empty: none).
+	Assigned *bool
+	CoachIDs []string
 }
 
 // GymInvitationView is a pending invitation as the invited coach sees it.

@@ -32,6 +32,7 @@ type GymRepository struct {
 	gyms    *mongo.Collection
 	heads   *mongo.Collection
 	invites *mongo.Collection
+	gymClients *mongo.Collection
 	team    *TeamRepository
 }
 
@@ -40,6 +41,7 @@ func NewGymRepository(database *mongo.Database, team *TeamRepository) *GymReposi
 		gyms:    database.Collection(gymsCollection),
 		heads:   database.Collection(gymHeadCoachesCollection),
 		invites: database.Collection(gymInvitationsCollection),
+		gymClients: database.Collection(gymClientsCollection),
 		team:    team,
 	}
 }
@@ -646,10 +648,10 @@ func (r *GymRepository) ListHeadCoachRows(ctx context.Context, gymID, q string, 
 			"pipeline", bson.A{
 				bd("$match", bd("$expr", bd("$eq", bson.A{"$head_coach_id", "$$hid"}))),
 				bd("$lookup", bd(
-					"from", r.team.clientsName,
+					"from", gymClientsCollection,
 					"let", bd("cid", "$coach_id"),
 					"pipeline", bson.A{
-						bd("$match", bd("$expr", bd("$eq", bson.A{"$coach_id", "$$cid"}))),
+						activeGymClientsOf("$$cid"),
 						bd("$count", "n"),
 					},
 					"as", "cc",
@@ -663,10 +665,10 @@ func (r *GymRepository) ListHeadCoachRows(ctx context.Context, gymID, q string, 
 			"as", "t",
 		)),
 		bd("$lookup", bd(
-			"from", r.team.clientsName,
+			"from", gymClientsCollection,
 			"let", bd("hid", "$externalid"),
 			"pipeline", bson.A{
-				bd("$match", bd("$expr", bd("$eq", bson.A{"$coach_id", "$$hid"}))),
+				activeGymClientsOf("$$hid"),
 				bd("$count", "n"),
 			},
 			"as", "own",
@@ -684,77 +686,12 @@ func (r *GymRepository) ListHeadCoachRows(ctx context.Context, gymID, q string, 
 	return runPaged[db.GymHeadCoachRow](ctx, r.heads, pipeline)
 }
 
-// ListClients returns one page of the clients of the gym's coaches (safe fields only), in a single aggregation.
+// ListClients returns one page of the gym's own clients (safe fields only), in a single aggregation over gym_clients.
+// Personal coach_clients of the gym's coaches are never read: the gym cannot see or reassign them.
 func (r *GymRepository) ListClients(ctx context.Context, gymID string, q db.GymClientQuery) ([]db.GymClientRow, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
 	defer cancel()
-	q.Page, q.Size = pageDefaults(q.Page, q.Size)
-
-	match := bd("gym_id", gymID)
-	if q.HeadCoachID != "" {
-		match = append(match, bson.E{Key: "head_coach_id", Value: q.HeadCoachID})
-	}
-	pipeline := append([]bson.D{{{Key: "$match", Value: match}}}, teamCoachStages()...)
-	if q.CoachID != "" {
-		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bd("m.coach_id", q.CoachID)}})
-	}
-	pipeline = append(pipeline,
-		bson.D{{Key: "$lookup", Value: bd(
-			"from", r.team.clientsName,
-			"let", bd("cid", "$m.coach_id"),
-			"pipeline", bson.A{
-				bd("$match", bd("$expr", bd("$eq", bson.A{"$coach_id", "$$cid"}))),
-				bd("$project", bd("client_id", 1, "created_at", 1)),
-			},
-			"as", "cc",
-		)}},
-		bson.D{{Key: "$unwind", Value: "$cc"}},
-		bson.D{{Key: "$lookup", Value: bd(
-			"from", r.team.usersName,
-			"let", bd("client", "$cc.client_id"),
-			"pipeline", bson.A{
-				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$client"}))),
-				bd("$project", bd("externalid", 1, "firstname", 1, "lastname", 1, "email", 1, "profile_picture", 1, "status", 1)),
-			},
-			"as", "u",
-		)}},
-		bson.D{{Key: "$unwind", Value: "$u"}},
-		bson.D{{Key: "$lookup", Value: bd(
-			"from", r.team.usersName,
-			"let", bd("cid", "$m.coach_id"),
-			"pipeline", bson.A{
-				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$cid"}))),
-				bd("$project", bd("firstname", 1, "lastname", 1)),
-			},
-			"as", "co",
-		)}},
-		bson.D{{Key: "$project", Value: bd(
-			"_id", 0,
-			"externalid", "$u.externalid",
-			"firstname", "$u.firstname",
-			"lastname", "$u.lastname",
-			"email", "$u.email",
-			"profile_picture", "$u.profile_picture",
-			"status", "$u.status",
-			"coach_id", "$m.coach_id",
-			"coach_name", fullName("$co.firstname", "$co.lastname"),
-			"head_coach_id", 1,
-			"linked_at", "$cc.created_at",
-		)}},
-	)
-	if q.Q != "" {
-		pipeline = append(pipeline, bson.D{{Key: "$match", Value: nameRegex(q.Q, "firstname", "lastname", "email")}})
-	}
-	sortDoc := bd("firstname", 1, "lastname", 1, "externalid", 1)
-	if q.Sort == "linked_at" {
-		sortDoc = bd("linked_at", -1, "externalid", 1)
-	}
-	pipeline = append(pipeline, facetPage(bson.A{
-		bd("$sort", sortDoc),
-		bd("$skip", int64((q.Page-1)*q.Size)),
-		bd("$limit", int64(q.Size)),
-	}))
-	return runPaged[db.GymClientRow](ctx, r.heads, pipeline)
+	return runPaged[db.GymClientRow](ctx, r.gymClients, gymClientRowPipeline(r.team.usersName, gymID, q))
 }
 
 // ---------- Invitations ----------
