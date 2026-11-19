@@ -181,6 +181,9 @@ func InitServices(config utils.AppConfig,
 		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
 		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
 	}
+	if seatsOn {
+		gymClientDeps.Seats = seatSvc
+	}
 	gymClients := NewGymClientService(gymClientDeps, config.Gym.ClientGymRelations)
 	// Dispatch (P6): the transactional service replaces the P4 one behind the same routes. Off: nothing changes.
 	var gymLeaver GymClientLeaver
@@ -195,6 +198,9 @@ func InitServices(config utils.AppConfig,
 		}
 		if notification != nil {
 			dd.Mailer = notification
+		}
+		if config.Gym.MembershipPlansEnabled && payment != nil && config.PaymentAPI.APIKey != "" {
+			dd.Billing = NewPaymentsMembershipBilling(payment)
 		}
 		d := NewGymDispatch(gymClientDeps, dd)
 		gymClients, gymLeaver, departures = d, d, d

@@ -124,6 +124,7 @@ type gymClientService struct {
 	quota   QuotaGuard
 	inval   AuthzInvalidator
 	bump    AuthzVersionBumper
+	seats   GymSeatStanding // nil: no coach seat check on assign
 	enabled bool
 }
 
@@ -138,13 +139,14 @@ type GymClientDeps struct {
 	Quota   QuotaGuard
 	Inval   AuthzInvalidator   // optional
 	Bump    AuthzVersionBumper // optional
+	Seats   GymSeatStanding    // optional (GYM_SEATS_ENABLED): refuses assigning to a coach without a seat
 }
 
 // NewGymClientService wires the service; enabled=false (flag off) answers 404 everywhere.
 func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
 		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
-		quota: d.Quota, inval: d.Inval, bump: d.Bump, enabled: enabled,
+		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, enabled: enabled,
 	}
 }
 
@@ -314,6 +316,9 @@ func (s *gymClientService) Assign(ctx context.Context, callerID, gymID, clientID
 	prev := row.CoachID
 	if prev == coachID {
 		return &DispatchResult{ClientID: clientID, CoachID: coachID, PreviousCoachID: prev, AssignedAt: row.AssignedAt}, nil
+	}
+	if apiErr := s.requireCoachSeat(ctx, gymID, coachID); apiErr != nil {
+		return nil, apiErr
 	}
 	now := time.Now()
 	ok, err := s.store.SetCoach(ctx, gymID, clientID, prev, coachID, now)
@@ -588,4 +593,28 @@ func visibleGymRelations(actorID string, rows []db.GymClient, memberships []db.G
 		out = append(out, GymRelation{GymID: v.Row.GymID, ActorRole: string(v.Role), AssignedToActor: v.Row.CoachID == actorID})
 	}
 	return out
+}
+
+// requireCoachSeat refuses (409 COACH_SEAT_REQUIRED) assigning a gym client to a coach or head coach whose seat is
+// read_only or none, while the gym enforces seats (not a grandfathered unlimited gym). The owner has no seat and is
+// skipped. It fails open: a lookup error or an unknown standing never blocks the assignment.
+func (s *gymClientService) requireCoachSeat(ctx context.Context, gymID, coachID string) *models.ApiError {
+	if s.seats == nil {
+		return nil
+	}
+	st, apiErr := s.seats.Standing(ctx, gymID, coachID)
+	if apiErr != nil {
+		zap.L().Warn("gym client assign: seat lookup failed, allowing", zap.String("component", "gym_client"),
+			zap.String("gym_id", gymID), zap.Int("status", apiErr.Code))
+		return nil
+	}
+	if st == nil || st.Member == nil || st.Unlimited || !isSeatRole(st.Member.Role) {
+		return nil
+	}
+	if st.State != db.SeatStateReadOnly && st.State != db.SeatStateNone {
+		return nil
+	}
+	return models.NewEntitlementApiError(http.StatusConflict, &models.EntitlementError{
+		Code: models.CodeCoachSeatRequired, Message: "the coach needs a gym seat to receive clients", Limit: "seats",
+	})
 }

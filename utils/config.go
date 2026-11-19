@@ -81,6 +81,10 @@ type GymConfig struct {
 	SeatGrandfather bool
 	// SeatOverflowGraceDays (GYM_SEAT_OVERFLOW_GRACE_DAYS, default 7) is the grace of seats above the purchased total.
 	SeatOverflowGraceDays int
+	// MembershipPlansEnabled (GYM_MEMBERSHIP_PLANS_ENABLED, default off) cancels the gym membership plan
+	// subscription at the period end when a client leaves or is removed from a gym (payments-api call; needs
+	// GYM_DISPATCH_ENABLED and the payments key). Off: no extra calls.
+	MembershipPlansEnabled bool
 }
 
 type BaseURLConfig struct {
@@ -215,6 +219,8 @@ func LoadConfig() *AppConfig {
 			SeatsEnabled:          viper.GetBool("GYM_SEATS_ENABLED"),
 			SeatGrandfather:       !viper.IsSet("GYM_SEAT_GRANDFATHER") || viper.GetBool("GYM_SEAT_GRANDFATHER"),
 			SeatOverflowGraceDays: getIntWithDefault("GYM_SEAT_OVERFLOW_GRACE_DAYS", 7),
+
+			MembershipPlansEnabled: viper.GetBool("GYM_MEMBERSHIP_PLANS_ENABLED"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

@@ -82,7 +82,13 @@ type AssignmentTransferer interface {
 }
 
 // GymMembershipBilling is the payments seam of a client leaving a gym (decision 17): the gym membership plan
-// subscription ends at the period end. The real payments call lands in P8b; the default does nothing.
+// subscription ends at the period end. With GYM_MEMBERSHIP_PLANS_ENABLED it is the payments-api cancel call
+// (NewPaymentsMembershipBilling); otherwise the default does nothing.
+//
+// Failure semantics: a failure never fails the departure (the gym_clients change is already committed). The call is
+// retried, then logged as "gym dispatch billing cancel failed, replay needed" with gym_id and client_id. Operator
+// replay: POST {PAYMENTS}/internal/gym-memberships/cancel (x-api-key) with {"gym_id","user_id":client_id}; it is
+// idempotent. Until replayed the client keeps paying the gym plan to the next renewal.
 type GymMembershipBilling interface {
 	CancelAtPeriodEnd(ctx context.Context, gymID, clientID string) error
 }
@@ -307,6 +313,9 @@ func (s *GymDispatch) Assign(ctx context.Context, callerID, gymID, clientID, coa
 	if prev == coachID {
 		return &DispatchResult{ClientID: clientID, CoachID: coachID, PreviousCoachID: prev, AssignedAt: row.AssignedAt}, nil
 	}
+	if apiErr := s.requireCoachSeat(ctx, gymID, coachID); apiErr != nil {
+		return nil, apiErr
+	}
 	action := db.TeamActionClientAssign
 	reason := dispatchReasonAssign
 	if prev != "" {
@@ -442,9 +451,10 @@ func (s *GymDispatch) endRelationship(ctx context.Context, actorID string, row *
 	gymID, clientID := row.GymID, row.ClientID
 	s.background(ctx, 1, func(ctx context.Context) {
 		s.cancelGym(ctx, gymID, clientID, &now)
-		if err := s.billing.CancelAtPeriodEnd(ctx, gymID, clientID); err != nil {
-			zap.L().Error("gym dispatch billing cancel failed", zap.String("component", "gym_dispatch"),
-				zap.String("gym_id", gymID), zap.Error(err))
+		err := s.retry(ctx, func() error { return s.billing.CancelAtPeriodEnd(ctx, gymID, clientID) })
+		if err != nil {
+			zap.L().Error("gym dispatch billing cancel failed, replay needed", zap.String("component", "gym_dispatch"),
+				zap.String("gym_id", gymID), zap.String("client_id", clientID), zap.Error(err))
 		}
 	})
 	return nil

@@ -114,6 +114,7 @@ const (
 	CodeGrantExceedsCoach     = "GRANT_EXCEEDS_COACH"
 	CodeEntitlementsDown      = "ENTITLEMENTS_UNAVAILABLE"
 	CodeSeatsExhausted        = "SEATS_EXHAUSTED"
+	CodeCoachSeatRequired     = "COACH_SEAT_REQUIRED"
 	CodePersonalSubRequired   = "PERSONAL_SUBSCRIPTION_REQUIRED"
 )
 

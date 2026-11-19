@@ -127,11 +127,14 @@ func (f *fakeDispatchChat) EnsureConversation(_ context.Context, adminID, peerID
 	return nil
 }
 
-type fakeDispatchBilling struct{ calls []string }
+type fakeDispatchBilling struct {
+	calls []string
+	err   error
+}
 
 func (f *fakeDispatchBilling) CancelAtPeriodEnd(_ context.Context, gymID, clientID string) error {
 	f.calls = append(f.calls, gymID+"/"+clientID)
-	return nil
+	return f.err
 }
 
 type dispatchFixture struct {
@@ -148,7 +151,9 @@ type dispatchFixture struct {
 
 // newDispatchFixture mirrors newGymClientFixture: gymA has an owner, a head coach and coaches c1, c2; cl1 belongs to
 // c1, cl2 is in the pool, cl3 belongs to another gym.
-func newDispatchFixture(t *testing.T) *dispatchFixture {
+func newDispatchFixture(t *testing.T) *dispatchFixture { return newDispatchFixtureSeats(t, nil) }
+
+func newDispatchFixtureSeats(t *testing.T, seats services.GymSeatStanding) *dispatchFixture {
 	t.Helper()
 	members := &fakeAuthzMembers{rows: []db.GymMember{
 		member("owner", db.GymMemberRoleOwner),
@@ -169,7 +174,7 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 	var sleeps []time.Duration
 	svc := services.NewGymDispatch(services.GymClientDeps{
 		Authz: authz, Members: members, Store: store, Team: fakeSupervision{"head": {"c1"}}, Links: links,
-		Audit: audit, Quota: &mocks.QuotaGuard{},
+		Audit: audit, Quota: &mocks.QuotaGuard{}, Seats: seats,
 	}, services.GymDispatchDeps{Repo: tx, Tracker: tr, Chat: ch, Billing: bill, Spawn: func(f func()) { f() },
 		Sleep: func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) }})
 	return &dispatchFixture{svc: svc, store: store, tx: tx, audit: audit, tracker: tr, chat: ch, billing: bill, links: links, sleeps: &sleeps}
