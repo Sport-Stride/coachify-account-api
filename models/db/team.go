@@ -9,14 +9,15 @@ import (
 const (
 	TeamAssignerAdmin     = "admin"
 	TeamAssignerHeadCoach = "head_coach"
+	TeamAssignerGymOwner  = "gym_owner"
 
-	TeamActionPromote    = "promote"
-	TeamActionDemote     = "demote"
-	TeamActionAssign     = "assign"
-	TeamActionUnassign   = "unassign"
-	TeamActionReassign   = "reassign"
-	TeamActorRoleAdmin   = "admin"
-	TeamActorRoleHead    = "head_coach"
+	TeamActionPromote  = "promote"
+	TeamActionDemote   = "demote"
+	TeamActionAssign   = "assign"
+	TeamActionUnassign = "unassign"
+	TeamActionReassign = "reassign"
+	TeamActorRoleAdmin = "admin"
+	TeamActorRoleHead  = "head_coach"
 
 	TeamActorRoleGymOwner = "gym_owner"
 
@@ -30,6 +31,18 @@ const (
 	TeamActionGymInviteDecline = "gym_invite_decline"
 	TeamActionGymInviteRevoke  = "gym_invite_revoke"
 	TeamActionGymLeave         = "gym_leave"
+
+	TeamActionMemberJoin       = "member_join"
+	TeamActionSupervisorChange = "supervisor_change"
+
+	TeamActionClientAssign   = "client_assign"
+	TeamActionClientUnassign = "client_unassign"
+	TeamActionClientReassign = "client_reassign"
+	TeamActionClientJoinGym  = "client_join_gym"
+	TeamActionClientLeaveGym = "client_leave_gym"
+
+	TeamActorRoleCoach  = "coach"
+	TeamActorRoleClient = "client"
 )
 
 // TeamMember links a coach to exactly one head coach (flat hierarchy, coach_id is unique).
@@ -51,6 +64,8 @@ type TeamAuditEntry struct {
 	HeadCoachID     string             `bson:"head_coach_id,omitempty" json:"head_coach_id,omitempty"`
 	CoachID         string             `bson:"coach_id,omitempty" json:"coach_id,omitempty"`
 	PrevHeadCoachID string             `bson:"prev_head_coach_id,omitempty" json:"prev_head_coach_id,omitempty"`
+	ClientID        string             `bson:"client_id,omitempty" json:"client_id,omitempty"`
+	PrevCoachID     string             `bson:"prev_coach_id,omitempty" json:"prev_coach_id,omitempty"`
 	GymID           string             `bson:"gym_id,omitempty" json:"gym_id,omitempty"`
 	OwnerID         string             `bson:"owner_id,omitempty" json:"owner_id,omitempty"`
 	PrevOwnerID     string             `bson:"prev_owner_id,omitempty" json:"prev_owner_id,omitempty"`
@@ -99,17 +114,17 @@ type HeadCoachRow struct {
 
 // AdminCoachListRow is a coach row for the admin list, enriched with team data.
 type AdminCoachListRow struct {
-	ExternalID      string    `bson:"externalid"`
-	Firstname       string    `bson:"firstname"`
-	Lastname        string    `bson:"lastname"`
-	Email           string    `bson:"email"`
-	Status          string    `bson:"status"`
-	ProfilePicture  string    `bson:"profile_picture"`
-	UpdatedAt       time.Time `bson:"updated_at"`
-	IsHeadCoach     bool      `bson:"is_head_coach"`
-	HeadCoachID     string    `bson:"head_coach_id"`
-	HeadCoachName   string    `bson:"head_coach_name"`
-	TeamSize        int       `bson:"team_size"`
+	ExternalID     string    `bson:"externalid"`
+	Firstname      string    `bson:"firstname"`
+	Lastname       string    `bson:"lastname"`
+	Email          string    `bson:"email"`
+	Status         string    `bson:"status"`
+	ProfilePicture string    `bson:"profile_picture"`
+	UpdatedAt      time.Time `bson:"updated_at"`
+	IsHeadCoach    bool      `bson:"is_head_coach"`
+	HeadCoachID    string    `bson:"head_coach_id"`
+	HeadCoachName  string    `bson:"head_coach_name"`
+	TeamSize       int       `bson:"team_size"`
 }
 
 // AdminCoachFilter filters the admin coach list. nil bool = no filter.

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coachify-account-api/models/db"
 	"coachify-account-api/services"
 	"net/http"
 	"strconv"
@@ -24,7 +25,7 @@ func SubmitMatriculeFiscale(authService services.AuthService) gin.HandlerFunc {
 
 		userRole, _ := c.Get("userRole")
 		role, _ := userRole.(string)
-		if role != "coach" && role != "nutritionist" {
+		if !db.IsMatriculeRole(role) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "matricule fiscale is only available for coach or nutritionist roles"})
 			return
 		}
@@ -167,7 +168,7 @@ func WithdrawTaxRegistration(authService services.AuthService) gin.HandlerFunc {
 
 		userRole, _ := c.Get("userRole")
 		role, _ := userRole.(string)
-		if role != "coach" && role != "nutritionist" {
+		if !db.IsMatriculeRole(role) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "tax registration is only available for coach or nutritionist roles"})
 			return
 		}

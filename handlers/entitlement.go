@@ -154,12 +154,13 @@ func ListEntitlementAudit(svc services.EntitlementService) gin.HandlerFunc {
 // admins the coach given in ?coach_id. It writes the error response and returns false otherwise.
 func accessCoachID(c *gin.Context) (string, bool) {
 	userID := c.GetString("userID")
-	switch c.GetString("userRole") {
-	case "coach", "nutritionist":
+	role := c.GetString("userRole")
+	switch {
+	case db.IsCoachingRole(role) || role == "nutritionist":
 		if userID != "" {
 			return userID, true
 		}
-	case "admin":
+	case role == "admin":
 		if id := c.Query("coach_id"); id != "" {
 			return id, true
 		}

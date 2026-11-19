@@ -1607,7 +1607,7 @@ func (r *UserRepository) FindByMatriculeFiscaleStatus(ctx context.Context, statu
 	}
 
 	filter := bson.M{
-		"role": bson.M{"$in": []string{"coach", "nutritionist"}},
+		"role": bson.M{"$in": coachingRoles()},
 	}
 	if status != "" {
 		filter["matricule_fiscale_status"] = status
@@ -1779,4 +1779,14 @@ func (r *UserRepository) LockResetCode(ctx context.Context, email string, locked
 // LockConfirmCode invalidates the confirmation code after too many failed tries.
 func (r *UserRepository) LockConfirmCode(ctx context.Context, email string, lockedUntil time.Time) *models.ApiError {
 	return r.lockCode(ctx, email, "confirm_code", lockedUntil)
+}
+
+// coachingRoles lists the roles whose matricule and entitlements admins manage as coaching accounts.
+// gym_owner is included only while GYM_OWNER_AS_COACH is on.
+func coachingRoles() []string {
+	roles := []string{"coach", "nutritionist"}
+	if db.IsCoachingRole(db.RoleGymOwner) {
+		roles = append(roles, db.RoleGymOwner)
+	}
+	return roles
 }

@@ -41,6 +41,8 @@ type fakeAStore struct {
 	idents      map[string]db.UserIdentity
 	coaches     []db.UserIdentity
 	clients     []db.ClientRowLinked
+	personal    []db.ClientRowLinked // coach_clients rows: only the coach-own scope may read them
+	personalFor []string             // coach ids PersonalClientsOfCoach was called with
 	err         error
 
 	lastLimit    int
@@ -120,6 +122,26 @@ func (f *fakeAStore) ClientsOfCoaches(_ context.Context, coachIDs []string, flt 
 		out = append(out, r)
 	}
 	return out, len(out), nil
+}
+
+func (f *fakeAStore) PersonalClientsOfCoach(_ context.Context, coachID string, flt db.ScopeClientFilter) ([]db.ClientRowLinked, int, error) {
+	f.personalFor = append(f.personalFor, coachID)
+	out := []db.ClientRowLinked{}
+	for _, r := range f.personal {
+		if r.CoachID == coachID && (len(flt.ClientIDs) == 0 || containsStr(flt.ClientIDs, r.ExternalID)) {
+			out = append(out, r)
+		}
+	}
+	return out, len(out), nil
+}
+
+func containsStr(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 var t0 = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -542,5 +564,56 @@ func TestAnalyticsListHeadClients(t *testing.T) {
 		_, _, apiErr := svc.ListHeadClients(ctx, "c1", services.HeadClientsQuery{})
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusForbidden, apiErr.Code)
+	})
+}
+
+func TestAnalyticsLookupClientsPersonalLeg(t *testing.T) {
+	ctx := context.Background()
+	ids := func(items []db.ClientRow) []string {
+		out := []string{}
+		for _, it := range items {
+			out = append(out, it.ExternalID)
+		}
+		return out
+	}
+
+	t.Run("own scope resolves the coach's personal clients", func(t *testing.T) {
+		users := map[string]*db.User{"h1": user("h1", "coach", true, db.Active)}
+		st := &fakeAStore{
+			clients:  []db.ClientRowLinked{clientRow("g1", "h1")},
+			personal: []db.ClientRowLinked{clientRow("p1", "h1"), clientRow("g1", "h1"), clientRow("pother", "c9")},
+		}
+		items, apiErr := newAnalytics(users, st, 0).LookupClients(ctx, "h1", services.ScopeRequest{Scope: "team", CoachID: "h1"}, []string{"p1", "g1", "pother"})
+		require.Nil(t, apiErr)
+		assert.ElementsMatch(t, []string{"g1", "p1"}, ids(items), "gym client once, own personal client, nobody else's")
+		assert.Equal(t, []string{"h1"}, st.personalFor)
+	})
+
+	t.Run("team-wide scope never resolves personal clients", func(t *testing.T) {
+		users := map[string]*db.User{"h1": user("h1", "coach", true, db.Active)}
+		st := &fakeAStore{
+			teamPeriods: []db.MembershipPeriod{period("team", "c1", "h1", mo(1), nil)},
+			personal:    []db.ClientRowLinked{clientRow("p1", "h1"), clientRow("p2", "c1")},
+		}
+		svc := newAnalytics(users, st, 0)
+		items, apiErr := svc.LookupClients(ctx, "h1", services.ScopeRequest{Scope: "team"}, []string{"p1", "p2"})
+		require.Nil(t, apiErr)
+		assert.Empty(t, items)
+		// A head coach narrowed to a team member is not the member's own scope either.
+		items, apiErr = svc.LookupClients(ctx, "h1", services.ScopeRequest{Scope: "team", CoachID: "c1"}, []string{"p2"})
+		require.Nil(t, apiErr)
+		assert.Empty(t, items)
+		assert.Empty(t, st.personalFor)
+	})
+
+	t.Run("gym scope never resolves personal clients", func(t *testing.T) {
+		gym, users, st := gymFixture()
+		st.personal = []db.ClientRowLinked{clientRow("p1", "c1"), clientRow("p2", "o1")}
+		items, apiErr := newAnalytics(users, st, 0).LookupClients(ctx, "o1",
+			services.ScopeRequest{Scope: "gym", GymID: gym.ID.Hex(), CoachID: "o1"}, []string{"p1", "p2"})
+		if apiErr == nil {
+			assert.Empty(t, items)
+		}
+		assert.Empty(t, st.personalFor)
 	})
 }

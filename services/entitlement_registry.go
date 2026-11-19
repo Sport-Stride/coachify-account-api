@@ -3,6 +3,8 @@ package services
 import (
 	"sort"
 	"time"
+
+	"coachify-account-api/models/db"
 )
 
 // Entitlement sources reported per feature.
@@ -154,14 +156,19 @@ func (d FeatureDef) hasLimit(limit string) bool {
 }
 
 // entitlementRole maps an account role to its entitlement role: coach (coach, nutritionist),
-// client, bypass (admin, gym_owner) or "" (not applicable).
+// client, bypass (admin, gym_owner) or "" (not applicable). With GYM_OWNER_AS_COACH on, gym_owner maps to coach.
 func entitlementRole(role string) string {
 	switch role {
 	case "coach", "nutritionist":
 		return "coach"
 	case "client":
 		return "client"
-	case "admin", "gym_owner":
+	case "gym_owner":
+		if db.IsCoachingRole(role) {
+			return "coach"
+		}
+		return "bypass"
+	case "admin":
 		return "bypass"
 	}
 	return ""

@@ -18,6 +18,7 @@ type CoachClient struct {
 type CoachClientListQuery struct {
 	CoachID  string    // required
 	ClientID string    // optional, for filtering by client
+	Kind     string    // optional: "" or "personal" (coach_clients), "gym" (gym_clients assigned to the coach)
 	FromDate time.Time // optional, filter by created after
 	ToDate   time.Time // optional, filter by created before
 	Page     int       // pagination

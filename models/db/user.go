@@ -68,7 +68,7 @@ func (u *User) IsPaymentUnlocked() bool {
 	if u == nil {
 		return false
 	}
-	if u.UserRole != "coach" && u.UserRole != "nutritionist" {
+	if !IsMatriculeRole(u.UserRole) {
 		return false
 	}
 	return u.MatriculeFiscaleStatus == MatriculeFiscaleApproved

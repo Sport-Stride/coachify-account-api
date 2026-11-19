@@ -16,9 +16,65 @@ import (
 func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 	startTime := time.Now()
 	zap.L().Info("starting index initialization", zap.String("component", "repository"))
-	
-	// Define indexes for each collection
-	indexes := map[string][]mongo.IndexModel{
+
+	dropLegacyIndexes(ctx, db)
+
+	return ensureIndexes(indexDefinitions(), func(collectionName string, models []mongo.IndexModel) error {
+		return createIndexesForCollection(ctx, db, collectionName, models)
+	}, startTime)
+}
+
+// ErrCriticalIndexes marks a failure on a collection whose unique indexes the app depends on at runtime
+// (one personal coach per client, one registration link per coach). The caller must stop the startup on it.
+var ErrCriticalIndexes = errors.New("critical index creation failed")
+
+// criticalIndexCollections keep the old fatal guarantee their repository constructors had: a conflicting index
+// (for example IndexOptionsConflict) must surface at startup instead of leaving the uniqueness unenforced.
+var criticalIndexCollections = map[string]bool{"coach_clients": true, "registration_links": true}
+
+// ensureIndexes creates the indexes of every collection through create. Failures are logged and the other
+// collections still run, but a failure on a critical collection is returned wrapped in ErrCriticalIndexes.
+func ensureIndexes(indexes map[string][]mongo.IndexModel, create func(collection string, models []mongo.IndexModel) error, startTime time.Time) error {
+	var successCount, failCount int
+	var critical []error
+	for collectionName, indexModels := range indexes {
+		if err := create(collectionName, indexModels); err != nil {
+			zap.L().Error("failed to create indexes",
+				zap.String("component", "repository"),
+				zap.String("collection", collectionName),
+				zap.Error(err),
+			)
+			failCount++
+			if criticalIndexCollections[collectionName] {
+				critical = append(critical, fmt.Errorf("%s: %w", collectionName, err))
+			}
+			// Continue with other collections instead of failing completely
+			continue
+		}
+		successCount++
+	}
+
+	duration := time.Since(startTime)
+
+	if len(critical) > 0 {
+		return fmt.Errorf("%w: %w (%d succeeded, %d failed)", ErrCriticalIndexes, errors.Join(critical...), successCount, failCount)
+	}
+	if failCount > 0 {
+		return fmt.Errorf("index initialization completed with errors: %d succeeded, %d failed (duration: %v)",
+			successCount, failCount, duration)
+	}
+
+	zap.L().Info("index initialization completed",
+		zap.String("component", "repository"),
+		zap.Int("collections", successCount),
+		zap.Duration("duration", duration),
+	)
+	return nil
+}
+
+// indexDefinitions declares the indexes of every collection.
+func indexDefinitions() map[string][]mongo.IndexModel {
+	return map[string][]mongo.IndexModel{
 		// Users collection indexes
 		"users": {
 			// Unique index on externalid (primary lookup field)
@@ -273,6 +329,13 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				},
 			},
 
+			// Gym members: one active row per (gym, user); a head coach or coach belongs to one gym at a time
+			gymMembersCollection: gymMemberIndexes(),
+
+				// Owner-set role capability defaults and per-member overrides
+				gymRolePoliciesCollection:  gymPolicyIndexes(),
+				permissionGrantsCollection: permissionGrantIndexes(),
+
 			// Coach clients collection indexes (CRITICAL for ListCoachClients performance)
 		"coach_clients": {
 			// Primary index: coach_id + created_at (for most common queries)
@@ -297,13 +360,17 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 				Options: options.Index().
 					SetName("idx_coach_clients_coach_client_created"),
 			},
-			// Index for reverse lookup (finding coach by client)
+			// One personal coach per client (GetCoachIDByClientID, payments CanSubscribe and the client /coach/client call
+			// depend on it). It also serves the reverse lookup, so the redundant non-unique idx_coach_clients_client is
+			// dropped (legacyIndexes). The name is the one live in production: the same key and options under another
+			// name would fail with IndexOptionsConflict.
 			{
 				Keys: bson.D{
 					{Key: "client_id", Value: 1},
 				},
 				Options: options.Index().
-					SetName("idx_coach_clients_client"),
+					SetUnique(true).
+					SetName("client_id_1"),
 			},
 			// Unique compound index to prevent duplicate associations
 			{
@@ -317,6 +384,24 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 			},
 		},
 		
+		// Gym client relationships (gym_clients), separate from the personal coach_clients above
+		gymClientsCollection: gymClientIndexes(),
+
+		// Coach registration links: one link per coach, token lookup. Live production names, kept as they are.
+		"registration_links": {
+			{
+				Keys:    bson.D{{Key: "token", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("token_1"),
+			},
+			{
+				Keys:    bson.D{{Key: "coach_id", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("coach_id_1"),
+			},
+		},
+
+		// Unified invite links (new collection: first declaration of these names).
+		inviteLinksCollection: inviteLinkIndexes(),
+
 		// Coaches collection indexes (if you have a separate coaches collection)
 		"coaches": {
 			{
@@ -380,43 +465,12 @@ func InitializeIndexes(ctx context.Context, db *mongo.Database) error {
 			},
 		},
 	}
-	
-	dropLegacyIndexes(ctx, db)
-
-	// Create indexes for each collection
-	var successCount, failCount int
-	for collectionName, indexModels := range indexes {
-		if err := createIndexesForCollection(ctx, db, collectionName, indexModels); err != nil {
-			zap.L().Error("failed to create indexes",
-				zap.String("component", "repository"),
-				zap.String("collection", collectionName),
-				zap.Error(err),
-			)
-			failCount++
-			// Continue with other collections instead of failing completely
-			continue
-		}
-		successCount++
-	}
-	
-	duration := time.Since(startTime)
-	
-	if failCount > 0 {
-		return fmt.Errorf("index initialization completed with errors: %d succeeded, %d failed (duration: %v)", 
-			successCount, failCount, duration)
-	}
-	
-	zap.L().Info("index initialization completed",
-		zap.String("component", "repository"),
-		zap.Int("collections", successCount),
-		zap.Duration("duration", duration),
-	)
-	return nil
 }
 
 // legacyIndexes are replaced by differently named indexes on the same keys, which MongoDB refuses to create next to them.
 var legacyIndexes = map[string][]string{
 	"gym_invitations": {"idx_gym_invites_pending_unique"}, // replaced by idx_gym_invites_pending_email_unique (open join links have no email)
+	"coach_clients":   {"idx_coach_clients_client"},       // non-unique and redundant next to the unique client_id_1
 }
 
 // dropLegacyIndexes removes superseded indexes; a missing index is fine, other failures are logged.
@@ -514,9 +568,35 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_owner_invites_pending_email_unique",
 			"idx_gym_owner_invites_status_created",
 		},
+		gymMembersCollection: {
+			"idx_gym_members_gym_user_unique",
+			"idx_gym_members_coach_unique",
+			"idx_gym_members_gym_role_status",
+			"idx_gym_members_supervisor",
+			"idx_gym_members_gym_seat_status",
+		},
+		gymRolePoliciesCollection: {"idx_gym_role_policies_gym_role_unique"},
+		permissionGrantsCollection: {
+			"idx_permission_grants_gym_user_cap_unique",
+			"idx_permission_grants_gym_user",
+		},
 		"coach_clients": {
 			"idx_coach_clients_coach_created",
 			"idx_coach_clients_unique",
+			"client_id_1",
+		},
+		"registration_links": {"token_1", "coach_id_1"},
+		gymClientsCollection: {
+			"idx_gym_clients_gym_client_unique",
+			"idx_gym_clients_client_status",
+			"idx_gym_clients_gym_coach_joined",
+			"idx_gym_clients_coach_status_joined",
+		},
+		inviteLinksCollection: {
+			"idx_invite_links_token_hash_unique",
+			"idx_invite_links_creator_status_created",
+			"idx_invite_links_gym_status_created",
+			"idx_invite_links_email_status",
 		},
 		EntitlementGrantsColl:   {"idx_ent_grants_subject_unique", "idx_ent_grants_coach"},
 		EntitlementDefaultsColl: {"idx_ent_defaults_plan_unique"},

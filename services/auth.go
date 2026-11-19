@@ -76,10 +76,14 @@ type AuthServiceImpl struct {
 	registrationLinkRepo registrationLinkLookup
 	chatClient           *chat.ChatClient
 	teamRepo             *repositories.TeamRepository
+	gymMembers           GymMemberStore
+	departures           CoachDepartures
 	entitlements         EntitlementGuard
 	gymOwnerInvites      gymOwnerInviteRedeemer
 	gymJoins             gymJoinRedeemer
-	ownerUsers           invitedOwnerStore // nil: the user repository
+	invites              inviteSignupRedeemer // nil: INVITE_LINKS_V2 off, the legacy registration link paths run
+	seatOnlySignup       bool // GYM_SEATS_ENABLED: member-invite signups start seat-only (no default plan)
+	ownerUsers          invitedOwnerStore // nil: the user repository
 	ownerIDs             ownerIDGenerator  // nil: the identifier client
 }
 
@@ -119,6 +123,40 @@ func NewAuthService(
 func (s *AuthServiceImpl) WithEntitlements(g EntitlementGuard) *AuthServiceImpl {
 	s.entitlements = g
 	return s
+}
+
+// WithGymMembers mirrors team cleanups into gym_members (dual-write); nil disables it.
+func (s *AuthServiceImpl) WithGymMembers(m GymMemberStore) *AuthServiceImpl {
+	s.gymMembers = m
+	return s
+}
+
+// WithCoachDepartures releases the gym clients of a user whose account is deleted or changes role; nil disables it.
+func (s *AuthServiceImpl) WithCoachDepartures(d CoachDepartures) *AuthServiceImpl {
+	s.departures = d
+	return s
+}
+
+// releaseGymClientsOfGone sends the gym clients of a departed user and of the coaches he supervised to the pool.
+func (s *AuthServiceImpl) releaseGymClientsOfGone(ctx context.Context, userID string, supervised []string) {
+	if s.departures == nil {
+		return
+	}
+	s.departures.ReleaseCoachClients(ctx, CoachRelease{
+		CoachIDs: append([]string{userID}, supervised...), ActorID: userID, ActorRole: db.TeamActorRoleCoach,
+	})
+}
+
+// supervisedBy lists the coaches of a head coach before his team rows are deleted; a failure reads as none.
+func (s *AuthServiceImpl) supervisedBy(ctx context.Context, userID string) []string {
+	if s.departures == nil || s.teamRepo == nil {
+		return nil
+	}
+	ids, err := s.teamRepo.IDsByHead(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return ids
 }
 
 // WithGymOwnerInvites sets the invite redeemer used by invited gym owner signup; nil disables the invite paths.
@@ -458,9 +496,18 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	// If a registration link token is present, resolve the coach from it directly
 	// rather than checking the invitation service.
 	var role, coachId string
+	var inviteLink *db.InviteLink
 	if oauthUser.GymJoinToken != "" {
 		// A gym join link is for head coaches only: no client invitation lookup.
 		role = "coach"
+	} else if oauthUser.RegistrationToken != "" && s.invites != nil {
+		// INVITE_LINKS_V2: the link is redeemed after the user exists (see below); chat is an observer.
+		var apiErr *models.ApiError
+		inviteLink, apiErr = s.invites.PrepareSignup(ctx, oauthUser.RegistrationToken, oauthUser.Profile.Email)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		role = "client"
 	} else if oauthUser.RegistrationToken != "" {
 		link, err := s.registrationLinkRepo.GetByToken(ctx, oauthUser.RegistrationToken)
 		if err != nil {
@@ -500,6 +547,12 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: Rolerr}
 		}
 	}
+	inviteSettled := false
+	defer func() {
+		if inviteLink != nil && !inviteSettled {
+			s.invites.AbortSignup(ctx, inviteLink) // signup failed: give back the reserved use
+		}
+	}()
 	if isAdminProvisionedRole(role) {
 		return nil, &models.ApiError{Code: http.StatusForbidden, Error: errConfirmNotApplicable}
 	}
@@ -513,7 +566,10 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 	newUser.Token = &accessToken
 	newUser.UserRefreshToken = &refreshToken
 	// Off the request path: a slow payments-api must not hang Google sign-in.
-	s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+	skipPlan := s.skipDefaultPlan(oauthUser.GymJoinToken != "", inviteLink)
+	if !skipPlan {
+		s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+	}
 	if newUser.UserRole == "coach" {
 		newUser.UserStatus = db.ComReg1
 	} else {
@@ -540,7 +596,14 @@ func (s *AuthServiceImpl) createNewOAuthUser(ctx context.Context, oauthUser db.G
 		return nil, err
 	}
 	if oauthUser.GymJoinToken != "" && s.gymJoins != nil {
-		s.joinGymAfterSignup(ctx, newUser.ExternalID, oauthUser.GymJoinToken)
+		if !s.joinGymAfterSignup(ctx, newUser.ExternalID, oauthUser.GymJoinToken) && skipPlan {
+			// The default plan was skipped for the seat-only start; the join failed, so he needs it after all.
+			s.subscribeDefaultPlanAsync(ctx, newUser.UserRole, refreshToken)
+		}
+	}
+	if inviteLink != nil {
+		inviteSettled = true
+		s.completeInviteSignup(ctx, inviteLink, newUser)
 	}
 	// Get the user from the database using email
 	user, err := s.userRepository.GetByEmail(ctx, newUser.UserEmail)
@@ -778,8 +841,13 @@ func (s AuthServiceImpl) Register(ctx context.Context, req *api.CreateUserReques
 	}
 
 	if mailboxProven {
-		s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
-		s.joinGymAfterSignup(ctx, dbUser.ExternalID, req.GymJoinToken)
+		skipPlan := s.skipDefaultPlan(req.GymJoinToken != "", nil)
+		if !skipPlan {
+			s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
+		}
+		if !s.joinGymAfterSignup(ctx, dbUser.ExternalID, req.GymJoinToken) && skipPlan {
+			s.subscribeDefaultPlanAsync(ctx, role, refreshToken)
+		}
 		return signupResponse(inserted), nil
 	}
 
@@ -1000,6 +1068,14 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 						zap.String("external_id", u.UserExternalID),
 						zap.Error(coachErr),
 					)
+				} else if s.chatClient != nil && s.invites != nil {
+					// INVITE_LINKS_V2: internal-key EnsureConversation, no stored coach token.
+					if convErr := s.chatClient.EnsureConversation(ctx, coachID, u.UserExternalID); convErr != nil {
+						zap.L().Warn("confirm: failed to ensure coach-client conversation",
+							zap.String("component", "auth"),
+							zap.Any("error", convErr),
+						)
+					}
 				} else if s.chatClient != nil {
 					coachUser, coachUserErr := s.userRepository.GetUserByExternalIdUpdate(ctx, coachID)
 					var coachToken string
@@ -1316,11 +1392,16 @@ func (s *AuthServiceImpl) UpdateUser(ctx context.Context, req api.RequestUpdateU
 
 	// An accepted role change drops any leftover team membership.
 	if roleChange && s.teamRepo != nil {
+		supervised := s.supervisedBy(ctx, req.User.ExternalID)
 		if _, tErr := s.teamRepo.DeleteByAny(ctx, req.User.ExternalID); tErr != nil {
 			zap.L().Error("update user: failed to clean team memberships",
 				zap.String("component", "auth"),
 				zap.Error(tErr),
 			)
+		} else {
+			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
+			mirrorUserGone(ctx, s.gymMembers, req.User.ExternalID)
+			s.releaseGymClientsOfGone(ctx, req.User.ExternalID, supervised)
 		}
 	}
 
@@ -1363,11 +1444,16 @@ func (s *AuthServiceImpl) DeleteUser(ctx *gin.Context, id string) *models.ApiErr
 
 	// Drop any team membership the user takes part in (as member or head coach).
 	if s.teamRepo != nil {
+		supervised := s.supervisedBy(ctx, id)
 		if _, tErr := s.teamRepo.DeleteByAny(ctx, id); tErr != nil {
 			zap.L().Error("delete user: failed to clean team memberships",
 				zap.String("component", "auth"),
 				zap.Error(tErr),
 			)
+		} else {
+			// Mirror only after the legacy cleanup succeeded, so gym_members never runs ahead of it.
+			mirrorUserGone(ctx, s.gymMembers, id)
+			s.releaseGymClientsOfGone(ctx, id, supervised)
 		}
 	}
 
@@ -1388,21 +1474,40 @@ func (s *AuthServiceImpl) setUserRoleByInvitation(ctx context.Context, email str
 
 // RegisterViaLink registers a new user as a client through a coach's public registration link.
 func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req *api.CreateUserRequest) (*api.RegisterResponse, *models.ApiError) {
-	// Validate the token and resolve the coach
-	link, err := s.registrationLinkRepo.GetByToken(ctx, token)
-	if err != nil {
-		return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
-	}
-	if link == nil {
-		return nil, &models.ApiError{Code: http.StatusNotFound, Error: models.ErrRegistrationLinkNotFound}
-	}
-
-	// The coach's plan may disable invitations or cap the number of clients.
-	if s.entitlements != nil {
-		if apiErr := s.entitlements.CheckInvitations(ctx, link.CoachID); apiErr != nil {
+	var link *db.RegistrationLink
+	var inviteLink *db.InviteLink
+	if s.invites != nil {
+		// INVITE_LINKS_V2: the kind's guard replaces the entitlement check; the link is redeemed once the user exists.
+		var apiErr *models.ApiError
+		inviteLink, apiErr = s.invites.PrepareSignup(ctx, token, req.Email)
+		if apiErr != nil {
 			return nil, apiErr
 		}
+	} else {
+		// Validate the token and resolve the coach
+		var err error
+		link, err = s.registrationLinkRepo.GetByToken(ctx, token)
+		if err != nil {
+			return nil, &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+		}
+		if link == nil {
+			return nil, &models.ApiError{Code: http.StatusNotFound, Error: models.ErrRegistrationLinkNotFound}
+		}
+
+		// The coach's plan may disable invitations or cap the number of clients.
+		if s.entitlements != nil {
+			if apiErr := s.entitlements.CheckInvitations(ctx, link.CoachID); apiErr != nil {
+				return nil, apiErr
+			}
+		}
 	}
+
+	inviteSettled := false
+	defer func() {
+		if inviteLink != nil && !inviteSettled {
+			s.invites.AbortSignup(ctx, inviteLink) // signup failed: give back the reserved use
+		}
+	}()
 
 	// Check if email already exists in the system
 	userExists, errEmail := s.userRepository.EmailExists(ctx, req.Email)
@@ -1463,7 +1568,12 @@ func (s AuthServiceImpl) RegisterViaLink(ctx context.Context, token string, req 
 	}
 
 	// Associate client with coach — same pattern as invitation flow
-	s.coachService.AddCoachClient(ctx, link.CoachID, dbUser.ExternalID)
+	if inviteLink != nil {
+		inviteSettled = true
+		s.completeInviteSignup(ctx, inviteLink, dbUser)
+	} else {
+		s.coachService.AddCoachClient(ctx, link.CoachID, dbUser.ExternalID)
+	}
 
 	// Send confirmation email
 	go func() {
@@ -1495,7 +1605,7 @@ func (s *AuthServiceImpl) SubmitMatriculeFiscale(ctx context.Context, externalID
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 	if user.MatriculeFiscaleStatus == db.MatriculeFiscaleApproved {
@@ -1545,7 +1655,7 @@ func (s *AuthServiceImpl) ApproveMatriculeFiscale(ctx context.Context, targetExt
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 
@@ -1569,7 +1679,7 @@ func (s *AuthServiceImpl) RejectMatriculeFiscale(ctx context.Context, targetExte
 	if apiErr != nil {
 		return apiErr
 	}
-	if user.UserRole != "coach" && user.UserRole != "nutritionist" {
+	if !db.IsMatriculeRole(user.UserRole) {
 		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrMatriculeFiscaleInvalidRole}
 	}
 

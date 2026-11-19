@@ -19,6 +19,9 @@ const (
 	GymInviteRevoked  = "revoked"
 	GymInviteExpired  = "expired"
 
+	// GymInviteRoleCoach marks an invitation that joins the gym as a plain coach (flat hierarchy); empty means head coach.
+	GymInviteRoleCoach = "coach"
+
 	GymAdderAdmin    = "admin"
 	GymAdderGymOwner = "gym_owner"
 )
@@ -35,6 +38,8 @@ type Gym struct {
 	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt       time.Time          `bson:"updated_at" json:"updated_at"`
 	ArchivedAt      *time.Time         `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
+	// MaxGymClientsOverride is the admin-set cap on active gym clients; nil means the plan decides.
+	MaxGymClientsOverride *int `bson:"max_gym_clients_override,omitempty" json:"-"`
 }
 
 // GymUpdate lists the fields to change; nil means unchanged.
@@ -67,6 +72,10 @@ type GymInvitation struct {
 	ExpiresAt   time.Time          `bson:"expires_at"` // enforced by the service, no TTL index
 	CreatedAt   time.Time          `bson:"created_at"`
 	RespondedAt *time.Time         `bson:"responded_at,omitempty"`
+	// Role is empty for the legacy head coach invitation, or GymInviteRoleCoach. SupervisorID is the optional head
+	// coach the joining coach reports to.
+	Role         string `bson:"role,omitempty"`
+	SupervisorID string `bson:"supervisor_id,omitempty"`
 }
 
 // GymSummary is one gym of a gym owner.
@@ -144,6 +153,15 @@ type GymClientRow struct {
 	LinkedAt       time.Time `bson:"linked_at" json:"linked_at"`
 }
 
+// MyGymRow is one active gym relationship of the calling client, with the gym and coach names.
+type MyGymRow struct {
+	GymID     string     `bson:"gym_id" json:"gym_id"`
+	GymName   string     `bson:"gym_name" json:"gym_name"`
+	CoachID   string     `bson:"coach_id,omitempty" json:"coach_id,omitempty"`
+	CoachName string     `bson:"coach_name,omitempty" json:"coach_name,omitempty"`
+	ConsentAt *time.Time `bson:"consent_at,omitempty" json:"consent_at,omitempty"`
+}
+
 // GymCoachQuery paginates and filters the coaches of a gym.
 type GymCoachQuery struct {
 	HeadCoachID string
@@ -162,6 +180,9 @@ type GymClientQuery struct {
 	Size        int
 	Q           string
 	Sort        string // name | linked_at
+	// Assigned filters on having a coach (nil: both). CoachIDs limits the coaches (nil: no limit, empty: none).
+	Assigned *bool
+	CoachIDs []string
 }
 
 // GymInvitationView is a pending invitation as the invited coach sees it.

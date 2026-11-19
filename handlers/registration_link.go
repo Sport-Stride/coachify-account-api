@@ -17,7 +17,7 @@ func GenerateRegistrationLink(service services.RegistrationLinkService) gin.Hand
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in token"})
 			return
 		}
-		if c.GetString("userRole") == db.RoleGymOwner {
+		if role := c.GetString("userRole"); role == db.RoleGymOwner && !db.IsCoachingRole(role) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Coach access required"})
 			return
 		}

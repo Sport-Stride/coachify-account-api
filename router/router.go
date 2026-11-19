@@ -73,6 +73,10 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	// Public gym join link lookup (no auth required)
 	r.GET("/gym-join/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupGymJoin(services.GymService))
 
+	// Unified invite links (INVITE_LINKS_V2): the service answers 404 while the flag is off.
+	r.GET("/invite-links/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupInviteLink(services.InviteLinks))
+	r.GET("/invite-links/:token/lookup", RateLimit(120, time.Minute, clientIPKey), handlers.LookupInviteLink(services.InviteLinks))
+
 	// Public registration link routes (no auth required)
 	regLinkGroup := r.Group("/coach/registration-link")
 	regLinkGroup.GET("/:token", handlers.ValidateRegistrationLink(services.RegistrationLinkService))
@@ -165,6 +169,39 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			gymOwnerGroup.DELETE("/gyms/:gym_id/invitations/:id", handlers.RevokeGymInvitation(services.GymService))
 		}
 
+		// Gym capabilities: the caller's gym context (any role) and owner-only policies and member overrides.
+		// Invite links. The :token wildcard of DELETE carries the link id (one wildcard name per path position).
+		protected.POST("/invite-links", handlers.CreateInviteLink(services.InviteLinks))
+		protected.GET("/invite-links", handlers.ListInviteLinks(services.InviteLinks))
+		protected.DELETE("/invite-links/:token", handlers.RevokeInviteLink(services.InviteLinks))
+		protected.POST("/invite-links/:token/redeem", RateLimit(30, time.Minute, userOrIPKey), handlers.RedeemInviteLink(services.InviteLinks))
+		protected.GET("/me/invites", handlers.ListMyInvites(services.InviteLinks))
+		protected.POST("/me/invites/:id/accept", handlers.AcceptMyInvite(services.InviteLinks))
+		protected.POST("/me/invites/:id/decline", handlers.DeclineMyInvite(services.InviteLinks))
+		protected.GET("/me/gym-context", handlers.GetMyGymContext(services.GymPolicy))
+		protected.GET("/gyms/:gym_id/policies/:role", handlers.GetGymRolePolicy(services.GymPolicy))
+		protected.PUT("/gyms/:gym_id/policies/:role", handlers.PutGymRolePolicy(services.GymPolicy))
+		protected.GET("/gyms/:gym_id/members/:user_id/grants", handlers.GetGymMemberGrants(services.GymPolicy))
+		protected.PUT("/gyms/:gym_id/members/:user_id/grants", handlers.PutGymMemberGrants(services.GymPolicy))
+		// Flat hierarchy (GYM_FLAT_HIERARCHY): the member list, supervisor changes and coach invitations answer 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/members", handlers.ListGymMembers(services.GymMembers))
+		// Gym seats (GYM_SEATS_ENABLED): owner only; 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/seats", handlers.GetGymSeats(services.Seats))
+		protected.PUT("/gyms/:gym_id/members/:user_id/seat", handlers.PutGymMemberSeat(services.Seats))
+		protected.PUT("/gyms/:gym_id/members/:user_id/supervisor", handlers.PutGymMemberSupervisor(services.GymMembers))
+		protected.POST("/gyms/:gym_id/coach-invitations", handlers.InviteGymCoach(services.GymService))
+		protected.POST("/gyms/:gym_id/coach-join-links", handlers.CreateGymCoachJoinLink(services.GymService))
+		// Gym client relationships (CLIENT_GYM_RELATIONS): the service answers 404 while the flag is off.
+		protected.GET("/gyms/:gym_id/clients", handlers.ListGymRelationClients(services.GymClients))
+		protected.POST("/gyms/:gym_id/clients/:client_id/assign", handlers.AssignGymClient(services.GymClients))
+		protected.POST("/gyms/:gym_id/clients/:client_id/unassign", handlers.UnassignGymClient(services.GymClients))
+		protected.DELETE("/gyms/:gym_id/clients/:client_id", handlers.RemoveGymClient(services.GymClients))
+		protected.GET("/me/gyms", handlers.ListMyGyms(services.GymClients))
+		// Client leaves a gym (GYM_DISPATCH_ENABLED); not registered while the flag is off.
+		if services.GymLeaver != nil {
+			protected.POST("/me/gyms/:gym_id/leave", handlers.LeaveMyGymAsClient(services.GymLeaver))
+		}
+
 		adminGroup := protected.Group("/admin")
 		{
 			adminGroup.GET("/coaches", handlers.ListAdminCoaches(services.AdminService))
@@ -219,6 +256,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/consume", handlers.ConsumeInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
+		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
+		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
+		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 	}
 
 	// fallback

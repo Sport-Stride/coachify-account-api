@@ -209,7 +209,7 @@ func (r *EntitlementRepository) ListCoachAccess(ctx context.Context, q db.CoachA
 	if q.Size < 1 {
 		q.Size = 20
 	}
-	match := bson.D{{Key: "role", Value: bson.D{{Key: "$in", Value: bson.A{"coach", "nutritionist"}}}}}
+	match := bson.D{{Key: "role", Value: bson.D{{Key: "$in", Value: coachingRoles()}}}}
 	if q.Status != "" {
 		match = append(match, bson.E{Key: "status", Value: q.Status})
 	}

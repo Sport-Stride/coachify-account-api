@@ -105,6 +105,28 @@ type GymSettings struct {
 	Mailer GymJoinMailer
 	// Chat opens owner-to-coach conversations when head coaches join; nil disables it.
 	Chat *GymChatProvisioner
+	// Members mirrors head coach joins and leaves into gym_members (dual-write); nil disables it.
+	Members GymMemberStore
+	// Team lists the coaches of a head coach, to mirror an existing team when a head coach joins a gym; nil skips it.
+	Team GymTeamLister
+	// Authz with AuthzEnforce (GYM_AUTHZ_ENFORCE) moves the gym ownership and head coach checks onto the Authorizer;
+	// otherwise, or when Authz is nil, the legacy checks stay.
+	Authz        Authorizer
+	AuthzEnforce bool
+	// FlatHierarchy (GYM_FLAT_HIERARCHY) lets coach invitations join the gym as a plain coach.
+	FlatHierarchy bool
+	// Projector keeps the legacy TeamMember row in step with supervisor_id on a direct coach join; nil skips it.
+	Projector SupervisionTeamStore
+	// Departures releases the gym clients of a head coach who leaves or is removed (GYM_DISPATCH_ENABLED); nil skips it.
+	Departures CoachDepartures
+	// Seats checks a free seat before a coach or head coach joins and assigns it afterwards (GYM_SEATS_ENABLED); nil skips it.
+	Seats JoinSeats
+}
+
+// JoinSeats is the seat seam of the join paths; SeatService satisfies it.
+type JoinSeats interface {
+	SeatGuard
+	OnJoined(ctx context.Context, gymID, userID string)
 }
 
 // GymJoinMailer sends the gym join link email; *notification.NotificationClient satisfies it.
@@ -123,6 +145,8 @@ type JoinLinkResult struct {
 type JoinLookup struct {
 	GymName string `json:"gym_name"`
 	Email   string `json:"email"`
+	// Role is the role the link grants (db.GymInviteRoleCoach, or "" for head coach). Internal: never serialized.
+	Role string `json:"-"`
 }
 
 // GymOwnerMe is the answer of GET /gym-owner/me.
@@ -220,6 +244,9 @@ type GymService interface {
 	ListInvitations(ctx context.Context, callerID, gymID, status string, page, size int) ([]GymInvitationRow, int, *models.ApiError)
 	RevokeInvitation(ctx context.Context, callerID, gymID, invitationID string) *models.ApiError
 	CreateJoinLink(ctx context.Context, callerID, gymID string) (*JoinLinkResult, *models.ApiError)
+	// Flat hierarchy (GYM_FLAT_HIERARCHY): coach invitations authorized by member.invite; supervisorID is optional.
+	InviteCoach(ctx context.Context, callerID, gymID, email, supervisorID string) (*GymInviteResult, *models.ApiError)
+	CreateCoachJoinLink(ctx context.Context, callerID, gymID, supervisorID string) (*JoinLinkResult, *models.ApiError)
 
 	// Coach self-service.
 	ListMyInvitations(ctx context.Context, callerID string) ([]db.GymInvitationView, *models.ApiError)
@@ -313,11 +340,37 @@ func (s *gymServiceImpl) ownedGym(ctx context.Context, callerID, gymID string) (
 	if apiErr := s.requireOwner(ctx, callerID); apiErr != nil {
 		return nil, apiErr
 	}
+	if s.authzEnforced() {
+		return s.ownedGymAuthz(ctx, callerID, gymID)
+	}
 	g, err := s.gyms.GetOwnedGym(ctx, gymID, callerID)
 	if err != nil {
 		return nil, s.internal("ownedGym", err)
 	}
 	if g == nil {
+		return nil, teamErr(http.StatusNotFound, errGymNotFound)
+	}
+	return g, nil
+}
+
+func (s *gymServiceImpl) authzEnforced() bool {
+	return s.set.AuthzEnforce && s.set.Authz != nil
+}
+
+// ownedGymAuthz is ownedGym on the Authorizer: the owner link decides, a gym the caller is not the owner of is a 404.
+func (s *gymServiceImpl) ownedGymAuthz(ctx context.Context, callerID, gymID string) (*db.Gym, *models.ApiError) {
+	g, err := s.gyms.GetGym(ctx, gymID)
+	if err != nil {
+		return nil, s.internal("ownedGym", err)
+	}
+	if g == nil {
+		return nil, teamErr(http.StatusNotFound, errGymNotFound)
+	}
+	d, apiErr := s.set.Authz.Can(ctx, Actor{ID: callerID, Role: db.RoleGymOwner}, CapGymManage, Resource{Type: ResourceGym, ID: gymID, GymID: gymID})
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if !d.Allowed {
 		return nil, teamErr(http.StatusNotFound, errGymNotFound)
 	}
 	return g, nil
@@ -434,6 +487,8 @@ func (s *gymServiceImpl) RemoveHeadCoach(ctx context.Context, callerID, gymID, h
 	if !removed {
 		return teamErr(http.StatusNotFound, errHeadNotFound)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, g.ID.Hex(), headID)
+	s.releaseDeparted(ctx, g.ID.Hex(), headID, callerID, db.TeamActorRoleGymOwner)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymRemoveHead, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner,
 		HeadCoachID: headID, GymID: g.ID.Hex(),
@@ -482,6 +537,11 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	return s.invite(ctx, g, email, inviteSpec{inviterID: callerID, actorRole: db.TeamActorRoleGymOwner})
+}
+
+// invite creates the invitation described by spec in an already authorized gym.
+func (s *gymServiceImpl) invite(ctx context.Context, g *db.Gym, email string, spec inviteSpec) (*GymInviteResult, *models.ApiError) {
 	if g.Status != db.GymStatusActive {
 		return nil, teamErr(http.StatusConflict, errGymArchived)
 	}
@@ -509,8 +569,8 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 		return nil, s.internal("Invite.token", err)
 	}
 	inv := &db.GymInvitation{
-		GymID: gid, InviterID: callerID, Email: email, TokenHash: hash, Status: db.GymInvitePending,
-		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now,
+		GymID: gid, InviterID: spec.inviterID, Email: email, TokenHash: hash, Status: db.GymInvitePending,
+		ExpiresAt: now.Add(s.set.InviteTTL), CreatedAt: now, Role: spec.role, SupervisorID: spec.supervisorID,
 	}
 	if err := s.gyms.InsertInvitation(ctx, inv); err != nil {
 		if errors.Is(err, repositories.ErrInvitationPending) {
@@ -519,7 +579,7 @@ func (s *gymServiceImpl) Invite(ctx context.Context, callerID, gymID, email stri
 		return nil, s.internal("Invite.insert", err)
 	}
 	s.audit(ctx, &db.TeamAuditEntry{
-		Action: db.TeamActionGymInvite, ActorID: callerID, ActorRole: db.TeamActorRoleGymOwner, GymID: gid,
+		Action: db.TeamActionGymInvite, ActorID: spec.inviterID, ActorRole: spec.actorRole, GymID: gid,
 	})
 	s.sendJoinLink(ctx, inv, g.Name, raw)
 	return &GymInviteResult{InvitationID: inv.ID.Hex(), Status: db.GymInvitePending}, nil
@@ -644,9 +704,23 @@ func (s *gymServiceImpl) AcceptInvitation(ctx context.Context, callerID, invitat
 	return s.joinGym(ctx, u, inv, now)
 }
 
-// joinGym makes the coach a head coach of the invitation's gym and consumes the invitation.
-// The caller has checked the coach role and that the invitation is pending and meant for this coach.
+// gymJoiners dispatches an invitation to its join path by role; an empty role is the legacy head coach invitation.
+var gymJoiners = map[string]func(*gymServiceImpl, context.Context, *db.User, *db.GymInvitation, time.Time) (*GymJoined, *models.ApiError){
+	"":                    (*gymServiceImpl).joinGymAsHead,
+	db.GymInviteRoleCoach: (*gymServiceImpl).joinGymAsCoach,
+}
+
 func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInvitation, now time.Time) (*GymJoined, *models.ApiError) {
+	join, ok := gymJoiners[inv.Role]
+	if !ok {
+		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
+	}
+	return join(s, ctx, u, inv, now)
+}
+
+// joinGymAsHead makes the coach a head coach of the invitation's gym and consumes the invitation.
+// The caller has checked the coach role and that the invitation is pending and meant for this coach.
+func (s *gymServiceImpl) joinGymAsHead(ctx context.Context, u *db.User, inv *db.GymInvitation, now time.Time) (*GymJoined, *models.ApiError) {
 	callerID := u.ExternalID
 	member, err := s.gyms.IsTeamMember(ctx, callerID)
 	if err != nil {
@@ -662,6 +736,16 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	if cur != nil {
 		return nil, teamErr(http.StatusConflict, errAlreadyInGym)
 	}
+	if s.flatEnabled() {
+		// A coach of a flat gym (no head coach row) must not become a head coach of another gym.
+		inGym, err := s.inAnyGymAsCoach(ctx, callerID)
+		if err != nil {
+			return nil, s.internal("Accept.memberships", err)
+		}
+		if inGym {
+			return nil, teamErr(http.StatusConflict, errAlreadyInGym)
+		}
+	}
 	g, err := s.gyms.GetGym(ctx, inv.GymID)
 	if err != nil {
 		return nil, s.internal("Accept.gym", err)
@@ -670,6 +754,12 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 	}
 	gid := g.ID.Hex()
+	// No free seat: the join fails and the invitation stays pending (usable again once a seat is free).
+	if s.set.Seats != nil {
+		if apiErr := s.set.Seats.Check(ctx, gid); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 
 	// Claim the invitation first so two concurrent redemptions of one single-use link cannot both join.
 	claimed, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInvitePending, db.GymInviteAccepted, callerID, now)
@@ -684,6 +774,8 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 	setFlag := !u.IsHeadCoach
 	// rollbackFlag undoes the claim and, when it was set here, the head coach flag.
 	rollbackFlag := func() {
+		ctx, cancel := detachedContext(ctx)
+		defer cancel()
 		if _, err := s.gyms.TransitionInvitation(ctx, inv.ID.Hex(), db.GymInviteAccepted, db.GymInvitePending, "", now); err != nil {
 			s.internal("Accept.revertClaim", err)
 		}
@@ -714,6 +806,19 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		}
 	}
 
+	if s.flatEnabled() {
+		// Close the race with a concurrent direct coach join.
+		inGym, err := s.inAnyGymAsCoach(ctx, callerID)
+		if err != nil {
+			rollbackFlag()
+			return nil, s.internal("Accept.recheckMember", err)
+		}
+		if inGym {
+			rollbackFlag()
+			return nil, teamErr(http.StatusConflict, errAlreadyInGym)
+		}
+	}
+
 	err = s.gyms.AddHeadCoach(ctx, &db.GymHeadCoach{
 		GymID: gid, HeadCoachID: callerID, AddedBy: inv.InviterID, AddedByRole: db.GymAdderGymOwner,
 		InvitationID: inv.ID.Hex(), AddedAt: now,
@@ -726,6 +831,11 @@ func (s *gymServiceImpl) joinGym(ctx context.Context, u *db.User, inv *db.GymInv
 		return nil, s.internal("Accept.add", err)
 	}
 
+	mirrorHeadJoined(ctx, s.set.Members, gid, callerID, inv.InviterID, db.GymMemberSourceInvite, now)
+	mirrorExistingTeam(ctx, s.set.Members, s.set.Team, gid, callerID, inv.InviterID, now)
+	if s.set.Seats != nil {
+		s.set.Seats.OnJoined(ctx, gid, callerID)
+	}
 	s.set.Chat.HeadJoined(ctx, g.OwnerID, callerID)
 
 	entries := make([]*db.TeamAuditEntry, 0, 2)
@@ -773,8 +883,23 @@ func (s *gymServiceImpl) DeclineInvitation(ctx context.Context, callerID, invita
 // ---------- Head coach ----------
 
 func (s *gymServiceImpl) requireHead(ctx context.Context, callerID string) *models.ApiError {
-	_, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, true)
-	return apiErr
+	if !s.authzEnforced() {
+		_, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, true)
+		return apiErr
+	}
+	// The gym membership decides; a head coach with no gym keeps the legacy flag (he has no gym power anyway).
+	u, apiErr := s.requireRole(ctx, "requireHead", callerID, "coach", errHeadAccess, false)
+	if apiErr != nil {
+		return apiErr
+	}
+	d, apiErr := s.set.Authz.Can(ctx, Actor{ID: callerID, Role: u.UserRole}, CapGymHead, Resource{Type: ResourceGym})
+	if apiErr != nil {
+		return apiErr
+	}
+	if d.Allowed || (d.Reason == ReasonNotMember && u.IsHeadCoach) {
+		return nil
+	}
+	return teamErr(http.StatusForbidden, errHeadAccess)
 }
 
 func (s *gymServiceImpl) MyGym(ctx context.Context, callerID string) (*MyGymInfo, *models.ApiError) {
@@ -806,6 +931,27 @@ func (s *gymServiceImpl) MyGym(ctx context.Context, callerID string) (*MyGymInfo
 	return info, nil
 }
 
+// releaseDeparted sends the gym clients of a head coach who left the gym, and of the coaches he supervised (their
+// gym membership closes with his, see mirrorHeadLeft), back to the pool. No-op while dispatch is off.
+func (s *gymServiceImpl) releaseDeparted(ctx context.Context, gymID, headID, actorID, actorRole string) {
+	if s.set.Departures == nil {
+		return
+	}
+	ids := []string{headID}
+	if s.set.Team != nil {
+		tctx, cancel := context.WithTimeout(ctx, authzTimeout)
+		team, err := s.set.Team.IDsByHead(tctx, headID)
+		cancel()
+		if err != nil {
+			s.internal("releaseDeparted.team", err)
+		}
+		ids = append(ids, team...)
+	}
+	s.set.Departures.ReleaseCoachClients(ctx, CoachRelease{
+		GymID: gymID, CoachIDs: ids, ActorID: actorID, ActorRole: actorRole, HeadCoachID: headID,
+	})
+}
+
 func (s *gymServiceImpl) LeaveGym(ctx context.Context, callerID string) *models.ApiError {
 	if apiErr := s.requireHead(ctx, callerID); apiErr != nil {
 		return apiErr
@@ -817,6 +963,8 @@ func (s *gymServiceImpl) LeaveGym(ctx context.Context, callerID string) *models.
 	if !removed {
 		return teamErr(http.StatusNotFound, errNotInGym)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, gymID, callerID)
+	s.releaseDeparted(ctx, gymID, callerID, callerID, db.TeamActorRoleHead)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymLeave, ActorID: callerID, ActorRole: db.TeamActorRoleHead,
 		HeadCoachID: callerID, GymID: gymID,
@@ -886,6 +1034,7 @@ func (s *gymServiceImpl) AdminCreateGym(ctx context.Context, adminID, name, owne
 		Action: db.TeamActionGymCreate, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		GymID: g.ID.Hex(), OwnerID: ownerID,
 	})
+	mirrorOwnerSet(ctx, s.set.Members, g.ID.Hex(), ownerID, "", adminID, now)
 	return gymView(g), nil
 }
 
@@ -941,6 +1090,22 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 		}
 	}
 
+	if upd.Status != nil || upd.OwnerID != nil {
+		finalStatus := g.Status
+		if upd.Status != nil {
+			finalStatus = *upd.Status
+		}
+		newOwner := g.OwnerID
+		if upd.OwnerID != nil {
+			newOwner = *upd.OwnerID
+		}
+		if finalStatus == db.GymStatusActive {
+			mirrorOwnerSet(ctx, s.set.Members, gid, newOwner, g.OwnerID, adminID, time.Now())
+		} else {
+			mirrorOwnerLeft(ctx, s.set.Members, gid, g.OwnerID)
+		}
+	}
+
 	if upd.OwnerID != nil && !archiveRequested {
 		s.set.Chat.GymOwnerChanged(ctx, gid)
 	}
@@ -968,6 +1133,7 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 			})
 		}
 		for _, id := range released {
+			mirrorHeadLeft(ctx, s.set.Members, gid, id)
 			entries = append(entries, &db.TeamAuditEntry{
 				Action: db.TeamActionGymRemoveHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 				HeadCoachID: id, GymID: gid,
@@ -1035,6 +1201,8 @@ func (s *gymServiceImpl) AdminAddHeadCoach(ctx context.Context, adminID, gymID, 
 		}
 		return s.internal("AdminAddHeadCoach.add", err)
 	}
+	mirrorHeadJoined(ctx, s.set.Members, gid, headID, adminID, db.GymMemberSourceAdmin, time.Now())
+	mirrorExistingTeam(ctx, s.set.Members, s.set.Team, gid, headID, adminID, time.Now())
 	s.set.Chat.HeadJoined(ctx, g.OwnerID, headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymAddHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
@@ -1059,6 +1227,7 @@ func (s *gymServiceImpl) AdminRemoveHeadCoach(ctx context.Context, adminID, gymI
 	if !removed {
 		return teamErr(http.StatusNotFound, errHeadNotFound)
 	}
+	mirrorHeadLeft(ctx, s.set.Members, gid, headID)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionGymRemoveHead, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		HeadCoachID: headID, GymID: gid,

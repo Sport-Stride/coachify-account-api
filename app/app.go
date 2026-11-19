@@ -8,9 +8,11 @@ import (
 	"coachify-account-api/pkg/invitation"
 	"coachify-account-api/pkg/notification"
 	"coachify-account-api/pkg/payments"
+	"coachify-account-api/pkg/tracker"
 	"coachify-account-api/repositories"
 	"context"
 	"fmt"
+	"errors"
 	"log"
 	"time"
 
@@ -78,6 +80,10 @@ func (app *App) setup() {
 	defer indexCancel()
 
 	if err := repositories.InitializeIndexes(indexCtx, db); err != nil {
+		if errors.Is(err, repositories.ErrCriticalIndexes) {
+			// Uniqueness of coach_clients and registration_links is relied upon: never run without it.
+			log.Fatalf("FATAL: critical index initialization failed: %v", err)
+		}
 		// In production, you might want to fail here
 		// For now, we'll log and continue
 		log.Printf("WARNING: Failed to initialize indexes: %v", err)
@@ -125,6 +131,37 @@ func (app *App) setup() {
 	entitlementRepo := repositories.NewEntitlementRepository(db, "users", "coach_clients")
 	entitlementAuditRepo := repositories.NewAdminAuditRepository(db, repositories.EntitlementAuditColl)
 	gymOwnerInviteRepo := repositories.NewGymOwnerInviteRepository(db, "gym_owner_invites")
+	gymMemberRepo := repositories.NewGymMemberRepository(db)
+	gymPolicyRepo := repositories.NewGymPolicyRepository(db)
+	gymClientRepo := repositories.NewGymClientRepository(db, "users")
+	inviteLinkRepo := repositories.NewInviteLinkRepository(db)
+
+	// The flat hierarchy reads memberships from gym_members only: refuse to start before the P0 backfill ran.
+	if config.Gym.FlatHierarchy {
+		readyCtx, readyCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := services.CheckFlatHierarchyReady(readyCtx, gymMemberRepo)
+		readyCancel()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+	}
+
+	// Gym dispatch (P6) commits gym_clients and audit rows in one transaction: refuse to start without a replica set.
+	var dispatch *services.DispatchWiring
+	if config.Gym.DispatchEnabled {
+		dispatchRepo := repositories.NewGymDispatchRepository(db)
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := services.CheckDispatchReady(probeCtx, dispatchRepo, config.Gym.ClientGymRelations)
+		probeCancel()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		trackerClient, err := tracker.NewTrackerClient(config.TrackerAPI)
+		if err != nil {
+			log.Fatalf("Failed to initialize tracker client: %v", err)
+		}
+		dispatch = &services.DispatchWiring{Repo: dispatchRepo, Tracker: trackerClient}
+	}
 
 	// Align membership history with current team rows (idempotent, runs at every startup)
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -188,6 +225,11 @@ func (app *App) setup() {
 		entitlementRepo,
 		entitlementAuditRepo,
 		gymOwnerInviteRepo,
+		gymMemberRepo,
+		gymPolicyRepo,
+		gymClientRepo,
+		inviteLinkRepo,
+		dispatch,
 	)
 
 	// Initialize Router

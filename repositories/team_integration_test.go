@@ -20,6 +20,9 @@ import (
 	"coachify-account-api/repositories"
 )
 
+// fixtureGymID is the gym_id of the seeded gym clients until setupGym replaces it with the real gym.
+const fixtureGymID = "fixture-gym"
+
 // Fixture ids.
 const (
 	hA = "head-a" // Active head coach, team: c1 c2 c3 + orphan
@@ -110,6 +113,7 @@ func (f *fixture) seed(t *testing.T, ctx context.Context) {
 	clientStatus := map[string]string{
 		"cl1": "Active", "cl2": "Active", "cl3": "Inactive", "cl4": "Active",
 		"cl5": "Inactive", "cl6": "Active", "cl7": "Active", "cl8": "Inactive",
+		"personal-only": "Active", "personal-c3": "Active", "cl9": "Active",
 	}
 	for id, st := range clientStatus {
 		u(id, "Client", id, id+"@hctest", "client", st, false, nil, f.ago(day(1)), 10*time.Hour)
@@ -117,14 +121,25 @@ func (f *fixture) seed(t *testing.T, ctx context.Context) {
 	_, err := f.database.Collection("users").InsertMany(ctx, users)
 	require.NoError(t, err)
 
+	// Gym clients (the only source of the gym and head coach views). gym_id is patched in by setupGym.
+	glink := func(coach, client string, age time.Duration) interface{} {
+		return bson.M{"gym_id": fixtureGymID, "client_id": client, "coach_id": coach, "status": "active",
+			"joined_at": f.ago(age), "assigned_at": f.ago(age)}
+	}
+	_, err = f.database.Collection("gym_clients").InsertMany(ctx, []interface{}{
+		glink(c1, "cl1", day(5)), glink(c1, "cl2", day(40)), glink(c1, "cl3", day(10)),
+		glink(c2, "cl4", day(20)), glink(c2, "cl5", day(60)), glink(c2, "ghostclient", day(1)),
+		glink(c4, "cl6", day(1)),
+		glink(c5, "cl7", day(100)), glink(c5, "cl8", day(2)),
+	})
+	require.NoError(t, err)
+
+	// Personal-only coach_clients: they must never show up in any gym, head coach or team view or count.
 	link := func(coach, client string, age time.Duration) interface{} {
 		return bson.M{"coach_id": coach, "client_id": client, "created_at": f.ago(age)}
 	}
 	_, err = f.database.Collection("coach_clients").InsertMany(ctx, []interface{}{
-		link(c1, "cl1", day(5)), link(c1, "cl2", day(40)), link(c1, "cl3", day(10)),
-		link(c2, "cl4", day(20)), link(c2, "cl5", day(60)), link(c2, "ghostclient", day(1)),
-		link(c4, "cl6", day(1)),
-		link(c5, "cl7", day(100)), link(c5, "cl8", day(2)),
+		link(c1, "personal-only", day(1)), link(c3, "personal-c3", day(1)),
 	})
 	require.NoError(t, err)
 

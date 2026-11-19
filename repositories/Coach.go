@@ -18,22 +18,13 @@ import (
 
 type CoachRepository struct {
 	collection *mongo.Collection
+	gymClients *mongo.Collection
 	userColl   *mongo.Collection
 }
 
+// NewCoachRepository does not create indexes: the unique client_id index lives in InitializeIndexes (indexes.go).
 func NewCoachRepository(db *mongo.Database, collName string, userColl *mongo.Collection) *CoachRepository {
-	collection := db.Collection(collName)
-
-	// Create unique index on client_id
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "client_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
-	}
-	if _, err := collection.Indexes().CreateOne(context.Background(), indexModel); err != nil {
-		utils.Logger.Fatal("failed to create client_id index", zap.Error(err))
-	}
-
-	return &CoachRepository{collection: collection, userColl: userColl}
+	return &CoachRepository{collection: db.Collection(collName), gymClients: db.Collection(gymClientsCollection), userColl: userColl}
 }
 
 // GetAllCoachClientDetails retrieves all client details (externalid, firstname, lastname, profile_picture) for a given coach.
@@ -101,8 +92,27 @@ func (r *CoachRepository) AddCoachClient(ctx context.Context, coachID, clientID 
 }
 
 func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
+	return r.listLinkedClients(ctx, r.collection, "created_at", nil, query)
+}
+
+// ListCoachGymClients lists the active gym clients assigned to the coach (collection gym_clients), in the same row
+// shape as ListCoachClients plus gym_id and relationships. created_at is the date the client joined the gym.
+func (r *CoachRepository) ListCoachGymClients(ctx context.Context, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
+	extra := bson.D{
+		{Key: "gym_id", Value: "$gym_id"},
+		{Key: "relationships", Value: bson.A{bson.D{{Key: "kind", Value: "gym"}, {Key: "gym_id", Value: "$gym_id"}}}},
+	}
+	return r.listLinkedClients(ctx, r.gymClients, "joined_at", extra, query)
+}
+
+// listLinkedClients is the shared list pipeline over a link collection (coach_clients or gym_clients). timeField is
+// the link date field; extra adds fields to the projection. gym_clients rows are restricted to active ones.
+func (r *CoachRepository) listLinkedClients(ctx context.Context, coll *mongo.Collection, timeField string, extra bson.D, query db.CoachClientListQuery) ([]map[string]interface{}, int, error) {
 	// Build filter
 	filter := bson.M{"coach_id": query.CoachID}
+	if coll == r.gymClients {
+		filter["status"] = db.GymClientStatusActive
+	}
 	if query.ClientID != "" {
 		filter["client_id"] = query.ClientID
 	}
@@ -116,7 +126,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 		if !query.ToDate.IsZero() {
 			dateFilter["$lte"] = query.ToDate
 		}
-		filter["created_at"] = dateFilter
+		filter[timeField] = dateFilter
 	}
 
 	// Pagination defaults
@@ -161,11 +171,11 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 					bson.D{{Key: "$count", Value: "count"}},
 				}},
 				{Key: "data", Value: bson.A{
-					bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: -1}}}},
+					bson.D{{Key: "$sort", Value: bson.D{{Key: timeField, Value: -1}}}},
 					bson.D{{Key: "$skip", Value: int64((page - 1) * size)}},
 					bson.D{{Key: "$limit", Value: int64(size)}},
 					bson.D{
-						{Key: "$project", Value: bson.D{
+						{Key: "$project", Value: append(bson.D{
 							{Key: "_id", Value: 0},
 							{Key: "externalid", Value: "$user.externalid"},
 							{Key: "firstname", Value: "$user.firstname"},
@@ -175,10 +185,10 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 							{Key: "phone_number", Value: "$user.phone_number"},
 							{Key: "address", Value: "$user.address"},
 							{Key: "status", Value: "$user.status"},
-							{Key: "created_at", Value: "$created_at"},
+							{Key: "created_at", Value: "$" + timeField},
 							{Key: "last_login", Value: "$user.last_login"},
 							{Key: "gender", Value: "$user.gender"},
-						}},
+						}, extra...)},
 					},
 				}},
 			}},
@@ -189,7 +199,7 @@ func (r *CoachRepository) ListCoachClients(ctx context.Context, query db.CoachCl
 	defer cancel()
 
 	// Execute aggregation
-	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	cursor, err := coll.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -365,6 +375,62 @@ func (r *CoachRepository) LinkedClientIDs(ctx context.Context, coachID string, c
 
 	var rows []struct {
 		ClientID string `bson:"client_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	linked := make([]string, 0, len(rows))
+	for _, row := range rows {
+		linked = append(linked, row.ClientID)
+	}
+	return linked, nil
+}
+
+// ActiveGymClientsByClients returns the active gym_clients rows of clientIDs in one indexed Find.
+func (r *CoachRepository) ActiveGymClientsByClients(ctx context.Context, clientIDs []string) ([]db.GymClient, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cursor, err := r.gymClients.Find(ctx, bson.M{"client_id": bson.M{"$in": clientIDs}, "status": db.GymClientStatusActive})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	rows := []db.GymClient{}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// LinkedClientIDsWithGym returns the subset of clientIDs the coach reaches through a personal coach_clients row or
+// an active gym_clients row assigned to him, in one aggregation ($unionWith). Gym rows are matched on coach_id only:
+// a coach holds the gym link only while the client is assigned to him.
+func (r *CoachRepository) LinkedClientIDsWithGym(ctx context.Context, coachID string, clientIDs []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.M{"coach_id": coachID, "client_id": bson.M{"$in": clientIDs}}}},
+		bson.D{{Key: "$project", Value: bson.M{"client_id": 1, "_id": 0}}},
+		bson.D{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: r.gymClients.Name()},
+			{Key: "pipeline", Value: bson.A{
+				bson.D{{Key: "$match", Value: bson.M{"coach_id": coachID, "status": db.GymClientStatusActive, "client_id": bson.M{"$in": clientIDs}}}},
+				bson.D{{Key: "$project", Value: bson.M{"client_id": 1, "_id": 0}}},
+			}},
+		}}},
+		bson.D{{Key: "$group", Value: bson.M{"_id": "$client_id"}}},
+	}
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var rows []struct {
+		ClientID string `bson:"_id"`
 	}
 	if err := cursor.All(ctx, &rows); err != nil {
 		return nil, err

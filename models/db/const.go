@@ -1,5 +1,7 @@
 package db
 
+import "github.com/spf13/viper"
+
 type UserStatus string
 
 const (
@@ -23,6 +25,16 @@ func (s UserStatus) IsInactive() bool {
 // signup, trial or invitation flows and is created only by an admin.
 const RoleGymOwner = "gym_owner"
 
+// GymOwnerAsCoachFlag is the Viper key that lets a gym_owner use coaching functionality (default false).
+const GymOwnerAsCoachFlag = "GYM_OWNER_AS_COACH"
+
+// IsCoachingRole reports roles that may use coaching functionality for their own clients, plans, invitations
+// and entitlements: coach always, gym_owner only while GYM_OWNER_AS_COACH is on. It never grants access to other
+// people's data and must not gate gym membership or head-coach flows.
+func IsCoachingRole(role string) bool {
+	return role == "coach" || (role == RoleGymOwner && viper.GetBool(GymOwnerAsCoachFlag))
+}
+
 type UserGender string
 
 const (
@@ -38,3 +50,8 @@ const (
 	MatriculeFiscaleApproved MatriculeFiscaleStatus = "approved"
 	MatriculeFiscaleRejected MatriculeFiscaleStatus = "rejected"
 )
+
+// IsMatriculeRole reports roles that may hold a matricule fiscale: coaching roles and nutritionist.
+func IsMatriculeRole(role string) bool {
+	return IsCoachingRole(role) || role == "nutritionist"
+}

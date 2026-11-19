@@ -97,6 +97,8 @@ type teamServiceImpl struct {
 	teamRepo TeamStore
 	gyms     GymMembershipReleaser
 	chat     *GymChatProvisioner
+	members  GymMemberStore
+	depart   CoachDepartures
 	reads    *readCache
 }
 
@@ -111,6 +113,16 @@ func WithGymMembership(g GymMembershipReleaser) TeamOption {
 // WithGymChat opens an owner-to-coach chat when a coach is assigned to a head coach inside a gym.
 func WithGymChat(p *GymChatProvisioner) TeamOption {
 	return func(s *teamServiceImpl) { s.chat = p }
+}
+
+// WithGymMembers mirrors team assignments into gym_members (dual-write); nil disables it.
+func WithGymMembers(m GymMemberStore) TeamOption {
+	return func(s *teamServiceImpl) { s.members = m }
+}
+
+// WithCoachDepartures releases the gym clients of a coach removed from his head coach's team (GYM_DISPATCH_ENABLED).
+func WithCoachDepartures(d CoachDepartures) TeamOption {
+	return func(s *teamServiceImpl) { s.depart = d }
 }
 
 // WithReadCache caches the hot read endpoints (Me, MyHeadCoach) for ttl; mutations in this service purge it.
@@ -310,6 +322,14 @@ func (s *teamServiceImpl) Demote(ctx context.Context, adminID, headCoachID strin
 		}
 		if removed {
 			gymID = gid
+			mirrorHeadLeft(ctx, s.members, gid, headCoachID)
+			// His gym membership and his team's close with it, so their gym clients go to the pool.
+			if s.depart != nil {
+				s.depart.ReleaseCoachClients(ctx, CoachRelease{
+					GymID: gid, CoachIDs: append([]string{headCoachID}, ids...), ActorID: adminID,
+					ActorRole: db.TeamActorRoleAdmin, HeadCoachID: headCoachID,
+				})
+			}
 		}
 	}
 
@@ -415,6 +435,8 @@ func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoac
 		return nil, teamErr(http.StatusConflict, errTargetNotHead)
 	}
 
+	mirrorCoachAssigned(ctx, s.members, headCoachID, coachID, adminID, m.AssignedAt)
+
 	if prev == nil || prev.HeadCoachID != headCoachID {
 		s.chat.CoachAssigned(ctx, headCoachID, coachID)
 	}
@@ -434,6 +456,36 @@ func (s *teamServiceImpl) Assign(ctx context.Context, adminID, coachID, headCoac
 	return m, nil
 }
 
+// headGymID is the gym of a head coach (head or owner row), or "" when he is in none or it cannot be read.
+func (s *teamServiceImpl) headGymID(ctx context.Context, headID string) string {
+	if s.members == nil {
+		return ""
+	}
+	rows, err := s.members.ListByUser(ctx, headID)
+	if err != nil {
+		return ""
+	}
+	for i := range rows {
+		if rows[i].Status == db.GymMemberStatusActive && (rows[i].Role == db.GymMemberRoleHeadCoach || rows[i].Role == db.GymMemberRoleOwner) {
+			return rows[i].GymID
+		}
+	}
+	return ""
+}
+
+// releaseGymClients sends the gym clients of a coach removed from a team back to the pool. mirrorCoachUnassigned
+// closes the coach gym membership, and a coach is either a legacy team member (gym of his head) or a direct gym
+// member, never both (joining a gym directly refuses a team member), so the head gym is the coach gym; with no
+// determinable gym the release covers every gym of the coach, as the membership close does.
+func (s *teamServiceImpl) releaseGymClients(ctx context.Context, coachID, headID, actorID, actorRole string) {
+	if s.depart == nil {
+		return
+	}
+	s.depart.ReleaseCoachClients(ctx, CoachRelease{
+		GymID: s.headGymID(ctx, headID), CoachIDs: []string{coachID}, ActorID: actorID, ActorRole: actorRole, HeadCoachID: headID,
+	})
+}
+
 func (s *teamServiceImpl) Unassign(ctx context.Context, adminID, coachID string) *models.ApiError {
 	defer s.reads.purge()
 	prev, err := s.teamRepo.GetHeadOf(ctx, coachID)
@@ -450,6 +502,8 @@ func (s *teamServiceImpl) Unassign(ctx context.Context, adminID, coachID string)
 	if n == 0 {
 		return teamErr(http.StatusNotFound, errNoMembership)
 	}
+	mirrorCoachUnassigned(ctx, s.members, coachID)
+	s.releaseGymClients(ctx, coachID, prev.HeadCoachID, adminID, db.TeamActorRoleAdmin)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionUnassign, ActorID: adminID, ActorRole: db.TeamActorRoleAdmin,
 		HeadCoachID: prev.HeadCoachID, CoachID: coachID,
@@ -541,6 +595,8 @@ func (s *teamServiceImpl) RemoveMyCoach(ctx context.Context, callerID, coachID s
 	if n == 0 {
 		return teamErr(http.StatusNotFound, errCoachNotFound)
 	}
+	mirrorCoachUnassigned(ctx, s.members, coachID)
+	s.releaseGymClients(ctx, coachID, callerID, callerID, db.TeamActorRoleHead)
 	s.audit(ctx, &db.TeamAuditEntry{
 		Action: db.TeamActionUnassign, ActorID: callerID, ActorRole: db.TeamActorRoleHead,
 		HeadCoachID: callerID, CoachID: coachID,

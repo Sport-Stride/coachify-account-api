@@ -30,6 +30,7 @@ type TeamRepository struct {
 	gymHeads     *mongo.Collection
 	users        *mongo.Collection
 	clients      *mongo.Collection
+	gymClients   *mongo.Collection
 }
 
 func NewTeamRepository(database *mongo.Database, usersColl, coachClientsColl string) *TeamRepository {
@@ -42,6 +43,7 @@ func NewTeamRepository(database *mongo.Database, usersColl, coachClientsColl str
 		gymHeads:    database.Collection(gymHeadCoachesCollection),
 		users:       database.Collection(usersColl),
 		clients:     database.Collection(coachClientsColl),
+		gymClients:  database.Collection(gymClientsCollection),
 	}
 }
 
@@ -303,14 +305,15 @@ func (r *TeamRepository) teamRowStages(match bson.D) []bson.D {
 }
 
 // clientStatsStages adds client_count / active_client_count / new_clients_30d to each row.
-// A client counts as active when its user status is "Active"; new clients are links created after cutoff.
+// Counts come from gym_clients only (active rows of the coach); personal coach_clients are never counted here.
+// A client counts as active when its user status is "Active"; new clients joined the gym after cutoff.
 func (r *TeamRepository) clientStatsStages(cutoff time.Time) []bson.D {
 	return []bson.D{
 		{{Key: "$lookup", Value: bson.D{
-			{Key: "from", Value: r.clientsName},
+			{Key: "from", Value: gymClientsCollection},
 			{Key: "let", Value: bson.D{{Key: "cid", Value: "$externalid"}}},
 			{Key: "pipeline", Value: bson.A{
-				bson.D{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$coach_id", "$$cid"}}}}}}},
+				activeGymClientsOf("$$cid"),
 				bson.D{{Key: "$lookup", Value: bson.D{
 					{Key: "from", Value: r.usersName},
 					{Key: "let", Value: bson.D{{Key: "client", Value: "$client_id"}}},
@@ -326,7 +329,7 @@ func (r *TeamRepository) clientStatsStages(cutoff time.Time) []bson.D {
 					{Key: "active_client_count", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
 						bson.D{{Key: "$in", Value: bson.A{"Active", "$cu.status"}}}, 1, 0}}}}}},
 					{Key: "new_clients_30d", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
-						bson.D{{Key: "$gte", Value: bson.A{"$created_at", cutoff}}}, 1, 0}}}}}},
+						bson.D{{Key: "$gte", Value: bson.A{"$joined_at", cutoff}}}, 1, 0}}}}}},
 				}}},
 			}},
 			{Key: "as", Value: "cstats"},
