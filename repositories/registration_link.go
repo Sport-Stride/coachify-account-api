@@ -50,3 +50,22 @@ func (r *RegistrationLinkRepository) Create(ctx context.Context, link *db.Regist
 	_, err := r.collection.InsertOne(ctx, link)
 	return err
 }
+
+// ForEach streams every registration link to fn (migrations). It stops at the first error of fn.
+func (r *RegistrationLinkRepository) ForEach(ctx context.Context, fn func(db.RegistrationLink) error) error {
+	cur, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return err
+	}
+	defer cur.Close(ctx)
+	for cur.Next(ctx) {
+		var l db.RegistrationLink
+		if err := cur.Decode(&l); err != nil {
+			return err
+		}
+		if err := fn(l); err != nil {
+			return err
+		}
+	}
+	return cur.Err()
+}

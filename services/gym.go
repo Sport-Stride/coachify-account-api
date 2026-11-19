@@ -135,6 +135,8 @@ type JoinLinkResult struct {
 type JoinLookup struct {
 	GymName string `json:"gym_name"`
 	Email   string `json:"email"`
+	// Role is the role the link grants (db.GymInviteRoleCoach, or "" for head coach). Internal: never serialized.
+	Role string `json:"-"`
 }
 
 // GymOwnerMe is the answer of GET /gym-owner/me.

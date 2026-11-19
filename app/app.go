@@ -133,6 +133,7 @@ func (app *App) setup() {
 	gymMemberRepo := repositories.NewGymMemberRepository(db)
 	gymPolicyRepo := repositories.NewGymPolicyRepository(db)
 	gymClientRepo := repositories.NewGymClientRepository(db, "users")
+	inviteLinkRepo := repositories.NewInviteLinkRepository(db)
 
 	// The flat hierarchy reads memberships from gym_members only: refuse to start before the P0 backfill ran.
 	if config.Gym.FlatHierarchy {
@@ -209,6 +210,7 @@ func (app *App) setup() {
 		gymMemberRepo,
 		gymPolicyRepo,
 		gymClientRepo,
+		inviteLinkRepo,
 	)
 
 	// Initialize Router

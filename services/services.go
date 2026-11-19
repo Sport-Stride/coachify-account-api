@@ -33,6 +33,7 @@ type Services struct {
 	GymPolicy               GymPolicyService
 	GymMembers              GymMembersService
 	GymClients              GymClientService
+	InviteLinks             InviteLinkService
 	Quota                   QuotaGuard
 }
 
@@ -58,6 +59,7 @@ func InitServices(config utils.AppConfig,
 	gymMemberRepo *repositories.GymMemberRepository,
 	gymPolicyRepo *repositories.GymPolicyRepository,
 	gymClientRepo *repositories.GymClientRepository,
+	inviteLinkRepo *repositories.InviteLinkRepository,
 ) *Services {
 	coachService := NewCoachService(
 		coachRepo,
@@ -147,6 +149,34 @@ func InitServices(config utils.AppConfig,
 		coachService.WithGymRelations(coachRepo, membership)
 	}
 	quota := NewQuotaGuard(entitlementService, gymClientRepo, nil)
+	gymClients := NewGymClientService(GymClientDeps{
+		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
+		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
+	}, config.Gym.ClientGymRelations)
+
+	// Unified invite links: always built (404 while INVITE_LINKS_V2 is off); only the flag wires them into signup.
+	var asyncObs []RedeemObserver
+	if chatClient != nil {
+		asyncObs = append(asyncObs, NewEnsureConversationObserver(chatClient))
+	}
+	var emailInvites emailInviteAcceptor
+	if invitation != nil {
+		emailInvites = invitation
+	}
+	inviteKinds := []InvitationKind{
+		NewClientPersonalKind(entitlementService, coachService),
+		NewClientGymKind(authz, membership, gymRepo, gymClients, gymClientRepo, config.Gym.ClientGymRelations),
+		NewLegacyEmailKind(emailInvites),
+	}
+	inviteKinds = append(inviteKinds, NewMemberKinds(gymService, gymService, nil, membership)...)
+	inviteLinks := NewInviteLinkService(InviteLinkDeps{
+		Store: inviteLinkRepo, RegLinks: registrationLinkRepo, Users: userRepo, Gyms: gymRepo, Members: membership,
+		Authz: authz, Joiner: gymService, Registry: NewInviteKindRegistry(inviteKinds...),
+		Observers: NewInviteObservers(nil, asyncObs), ClientURL: config.Gym.ClientAppURL,
+	}, config.Gym.InviteLinksV2)
+	if config.Gym.InviteLinksV2 {
+		authService.WithInviteLinks(inviteLinks)
+	}
 
 	return &Services{
 		AuthService:             authService,
@@ -161,10 +191,8 @@ func InitServices(config utils.AppConfig,
 		GymOwnerInviteService:   gymOwnerInviteService,
 		GymMembership:           membership,
 		GymMembers:              NewGymMembersService(authz, memberStore, teamRepo, config.Gym.FlatHierarchy),
-		GymClients: NewGymClientService(GymClientDeps{
-			Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
-			Quota: quota, Inval: authz, Bump: gymPolicyRepo,
-		}, config.Gym.ClientGymRelations),
+		GymClients:              gymClients,
+		InviteLinks:             inviteLinks,
 		Quota:                   quota,
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
 	}

@@ -65,6 +65,9 @@ type GymConfig struct {
 	// filter of GET /coach/clients and the gym leg of the link check. Off: legacy behavior. The privacy rule that gym
 	// and head coach views read gym_clients only applies regardless of this flag.
 	ClientGymRelations bool
+	// InviteLinksV2 (INVITE_LINKS_V2, default off) routes registration links, gym join links and email invites through
+	// the unified InviteLink aggregate and enables /invite-links and /me/invites. Off: legacy behavior.
+	InviteLinksV2 bool
 }
 
 type BaseURLConfig struct {
@@ -184,6 +187,7 @@ func LoadConfig() *AppConfig {
 			AuthzEnforce:        viper.GetBool("GYM_AUTHZ_ENFORCE"),
 			FlatHierarchy:       viper.GetBool("GYM_FLAT_HIERARCHY"),
 			ClientGymRelations:  viper.GetBool("CLIENT_GYM_RELATIONS"),
+			InviteLinksV2:       viper.GetBool("INVITE_LINKS_V2"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

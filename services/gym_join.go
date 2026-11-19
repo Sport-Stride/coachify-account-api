@@ -104,7 +104,7 @@ func (s *gymServiceImpl) LookupJoin(ctx context.Context, token string) (*JoinLoo
 	if g == nil || g.Status != db.GymStatusActive {
 		return nil, teamErr(http.StatusNotFound, errInviteNotFound)
 	}
-	return &JoinLookup{GymName: g.Name, Email: inv.Email}, nil
+	return &JoinLookup{GymName: g.Name, Email: inv.Email, Role: inv.Role}, nil
 }
 
 // AcceptByToken lets a coach join through a join link. An email-bound link only works for that email; an open link binds to the caller.

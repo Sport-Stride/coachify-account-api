@@ -399,6 +399,9 @@ func indexDefinitions() map[string][]mongo.IndexModel {
 			},
 		},
 
+		// Unified invite links (new collection: first declaration of these names).
+		inviteLinksCollection: inviteLinkIndexes(),
+
 		// Coaches collection indexes (if you have a separate coaches collection)
 		"coaches": {
 			{
@@ -587,6 +590,12 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"idx_gym_clients_client_status",
 			"idx_gym_clients_gym_coach_joined",
 			"idx_gym_clients_coach_status_joined",
+		},
+		inviteLinksCollection: {
+			"idx_invite_links_token_hash_unique",
+			"idx_invite_links_creator_status_created",
+			"idx_invite_links_gym_status_created",
+			"idx_invite_links_email_status",
 		},
 		EntitlementGrantsColl:   {"idx_ent_grants_subject_unique", "idx_ent_grants_coach"},
 		EntitlementDefaultsColl: {"idx_ent_defaults_plan_unique"},

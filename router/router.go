@@ -73,6 +73,10 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 	// Public gym join link lookup (no auth required)
 	r.GET("/gym-join/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupGymJoin(services.GymService))
 
+	// Unified invite links (INVITE_LINKS_V2): the service answers 404 while the flag is off.
+	r.GET("/invite-links/:token", RateLimit(120, time.Minute, clientIPKey), handlers.LookupInviteLink(services.InviteLinks))
+	r.GET("/invite-links/:token/lookup", RateLimit(120, time.Minute, clientIPKey), handlers.LookupInviteLink(services.InviteLinks))
+
 	// Public registration link routes (no auth required)
 	regLinkGroup := r.Group("/coach/registration-link")
 	regLinkGroup.GET("/:token", handlers.ValidateRegistrationLink(services.RegistrationLinkService))
@@ -166,6 +170,14 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		}
 
 		// Gym capabilities: the caller's gym context (any role) and owner-only policies and member overrides.
+		// Invite links. The :token wildcard of DELETE carries the link id (one wildcard name per path position).
+		protected.POST("/invite-links", handlers.CreateInviteLink(services.InviteLinks))
+		protected.GET("/invite-links", handlers.ListInviteLinks(services.InviteLinks))
+		protected.DELETE("/invite-links/:token", handlers.RevokeInviteLink(services.InviteLinks))
+		protected.POST("/invite-links/:token/redeem", RateLimit(30, time.Minute, userOrIPKey), handlers.RedeemInviteLink(services.InviteLinks))
+		protected.GET("/me/invites", handlers.ListMyInvites(services.InviteLinks))
+		protected.POST("/me/invites/:id/accept", handlers.AcceptMyInvite(services.InviteLinks))
+		protected.POST("/me/invites/:id/decline", handlers.DeclineMyInvite(services.InviteLinks))
 		protected.GET("/me/gym-context", handlers.GetMyGymContext(services.GymPolicy))
 		protected.GET("/gyms/:gym_id/policies/:role", handlers.GetGymRolePolicy(services.GymPolicy))
 		protected.PUT("/gyms/:gym_id/policies/:role", handlers.PutGymRolePolicy(services.GymPolicy))
