@@ -73,13 +73,17 @@ type GrantInput struct {
 
 // GymMembershipView is one membership with its resolved capabilities.
 type GymMembershipView struct {
-	GymID        string          `json:"gym_id"`
-	GymName      string          `json:"gym_name"`
-	Role         string          `json:"role"`
-	SupervisorID string          `json:"supervisor_id,omitempty"`
-	SeatAssigned bool            `json:"seat_assigned"`
-	Capabilities map[string]bool `json:"capabilities"`
-	Version      int64           `json:"version"`
+	GymID        string `json:"gym_id"`
+	GymName      string `json:"gym_name"`
+	Role         string `json:"role"`
+	SupervisorID string `json:"supervisor_id,omitempty"`
+	SeatAssigned bool   `json:"seat_assigned"`
+	// SeatState and SeatGraceUntil are set only for coach rows while GYM_SEATS_ENABLED; omitted for owners, when the
+	// flag is off and when the standing cannot be read.
+	SeatState      string          `json:"seat_state,omitempty"`
+	SeatGraceUntil *time.Time      `json:"seat_grace_until,omitempty"`
+	Capabilities   map[string]bool `json:"capabilities"`
+	Version        int64           `json:"version"`
 }
 
 // GymContextView is the answer of GET /me/gym-context. Personal context means no gym: empty memberships,
@@ -138,6 +142,15 @@ type gymPolicyService struct {
 	users   PolicyUserStore
 	inval   AuthzInvalidator
 	enforce bool
+	seats   GymSeatStanding
+}
+
+// GymPolicyOption configures optional collaborators of the policy service.
+type GymPolicyOption func(*gymPolicyService)
+
+// WithSeatStanding adds seat_state to the gym context memberships (GYM_SEATS_ENABLED); nil keeps them omitted.
+func WithSeatStanding(seats GymSeatStanding) GymPolicyOption {
+	return func(s *gymPolicyService) { s.seats = seats }
 }
 
 // PolicyUserStore is the part of the user repository the policy service needs.
@@ -147,8 +160,12 @@ type PolicyUserStore interface {
 
 // NewGymPolicyService wires the policy service. inval may be nil (no cache in front of the authorizer).
 func NewGymPolicyService(authz Authorizer, resolve CapabilityResolver, members GymMembershipReader, store GymPolicyStore,
-	gyms GymNameStore, users PolicyUserStore, inval AuthzInvalidator, enforce bool) GymPolicyService {
-	return &gymPolicyService{authz: authz, resolve: resolve, members: members, store: store, gyms: gyms, users: users, inval: inval, enforce: enforce}
+	gyms GymNameStore, users PolicyUserStore, inval AuthzInvalidator, enforce bool, opts ...GymPolicyOption) GymPolicyService {
+	s := &gymPolicyService{authz: authz, resolve: resolve, members: members, store: store, gyms: gyms, users: users, inval: inval, enforce: enforce}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // requireOwner first re-checks, like the legacy requireOwner, that the caller is an Active gym owner account (403).
@@ -362,6 +379,7 @@ func (s *gymPolicyService) GymContext(ctx context.Context, userID string) (*GymC
 		for c, v := range caps {
 			mv.Capabilities[string(c)] = v
 		}
+		s.addSeatState(ctx, userID, m, &mv)
 		if g, err := s.gyms.GetGym(ctx, m.GymID); err != nil {
 			return nil, authzInternal("GymContext.gym", err)
 		} else if g != nil {
@@ -373,6 +391,21 @@ func (s *gymPolicyService) GymContext(ctx context.Context, userID string) (*GymC
 		view.Context, view.DefaultGym = ContextGym, best.GymID
 	}
 	return view, nil
+}
+
+// addSeatState fills the seat fields of a coach row from the reconciled standing; any failure leaves them omitted.
+func (s *gymPolicyService) addSeatState(ctx context.Context, userID string, m db.GymMember, mv *GymMembershipView) {
+	if s.seats == nil || !isSeatRole(m.Role) {
+		return
+	}
+	st, apiErr := s.seats.Standing(ctx, m.GymID, userID)
+	if apiErr != nil || st == nil {
+		return
+	}
+	mv.SeatState = string(st.State)
+	if st.State == db.SeatStateGrace && st.Member != nil {
+		mv.SeatGraceUntil = st.Member.SeatGraceUntil
+	}
 }
 
 func (s *gymPolicyService) Check(ctx context.Context, actor Actor, checks []AuthzCheck) (*AuthzCheckResult, *models.ApiError) {

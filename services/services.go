@@ -144,8 +144,10 @@ func InitServices(config utils.AppConfig,
 	var seatGuard SeatGuard
 	var planLimit GymClientLimit
 	var contextEnts ContextEntitlementResolver
+	var policyOpts []GymPolicyOption
 	if seatsOn {
 		joinSeats, seatGuard = seatSvc, seatSvc
+		policyOpts = append(policyOpts, WithSeatStanding(seatSvc))
 		planLimit = &gymPlanLimit{summaries: gymSummaries, grandfather: config.Gym.SeatGrandfather}
 		entitlementService.WithSeatOnlyCheck(seatSvc)
 		authService.WithSeatOnlySignup(true)
@@ -272,7 +274,7 @@ func InitServices(config utils.AppConfig,
 		GymLeaver:               gymLeaver,
 		Seats:                   seatSvc,
 		ContextEntitlements:     contextEnts,
-		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce),
+		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce, policyOpts...),
 	}
 }
 
