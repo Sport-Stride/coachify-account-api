@@ -870,8 +870,9 @@ func TestEnsureConversationObserver(t *testing.T) {
 }
 
 type fakeEnsurer struct {
-	calls [][2]string
-	err   *models.ApiError
+	calls    [][2]string
+	gymCalls [][3]string
+	err      *models.ApiError
 }
 
 func (f *fakeEnsurer) EnsureConversation(_ context.Context, adminID, peerID string) *models.ApiError {
@@ -972,3 +973,31 @@ func TestInviteBackfill(t *testing.T) {
 
 // compile-time check that the mock keeps satisfying the service interface.
 var _ services.InviteLinkService = (*mocks.InviteLinkService)(nil)
+
+func (f *fakeEnsurer) EnsureGymConversation(_ context.Context, adminID, peerID, gymID string) *models.ApiError {
+	f.gymCalls = append(f.gymCalls, [3]string{adminID, peerID, gymID})
+	return f.err
+}
+
+func TestEnsureConversationObserverGymLabelsConversation(t *testing.T) {
+	ens := &fakeEnsurer{}
+	ob := services.NewEnsureConversationObserver(ens)
+	require.NoError(t, ob.OnRedeemed(context.Background(), services.InviteRedeemed{Kind: db.InviteKindClientGym, GymID: gymA, CoachID: "c1", UserID: "n1"}))
+	assert.Equal(t, [][3]string{{"c1", "n1", gymA}}, ens.gymCalls)
+	assert.Empty(t, ens.calls)
+}
+
+func TestSignupWithEmailBoundInviteJoinsWhenVerified(t *testing.T) {
+	ctx := context.Background()
+	f := newInviteFixture(t, true)
+	l0 := f.seedLink("t", db.InviteLink{Kind: db.InviteKindClientGym, GymID: gymA, CreatorID: "c1", TargetCoachID: "c1", Email: "g@x.tn", MaxUses: 1, ExpiresAt: future()})
+	l, apiErr := f.svc.PrepareSignup(ctx, "t", "g@x.tn")
+	require.Nil(t, apiErr)
+	u := &db.User{ExternalID: "g1", UserEmail: "g@x.tn", UserRole: "client", UserStatus: db.Active} // OAuth signup
+	f.users["g1"] = u
+	require.Nil(t, f.svc.CompleteSignup(ctx, l, u))
+	row, _ := f.gym.store.Get(ctx, gymA, "g1")
+	require.NotNil(t, row, "verified account redeems the email-bound link at signup")
+	assert.Equal(t, "c1", row.CoachID)
+	assert.Equal(t, 1, f.store.rows[l0.ID.Hex()].Uses)
+}

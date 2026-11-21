@@ -125,6 +125,9 @@ type gymClientService struct {
 	inval   AuthzInvalidator
 	bump    AuthzVersionBumper
 	seats   GymSeatStanding // nil: no coach seat check on assign
+	chat    ChatOpener      // nil: no conversations on join
+	gyms    GymOwnerLookup
+	spawn   func(func())
 	enabled bool
 }
 
@@ -140,13 +143,17 @@ type GymClientDeps struct {
 	Inval   AuthzInvalidator   // optional
 	Bump    AuthzVersionBumper // optional
 	Seats   GymSeatStanding    // optional (GYM_SEATS_ENABLED): refuses assigning to a coach without a seat
+	Chat    ChatOpener         // optional: Join opens the owner and coach conversations of the gym client
+	Gyms    GymOwnerLookup     // optional: gym owner id for the owner conversation (needs Chat)
+	Spawn   func(func())       // optional, defaults to a goroutine
 }
 
 // NewGymClientService wires the service; enabled=false (flag off) answers 404 everywhere.
 func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
 		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
-		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, enabled: enabled,
+		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, chat: d.Chat, gyms: d.Gyms, spawn: d.Spawn,
+		enabled: enabled,
 	}
 }
 
@@ -487,6 +494,7 @@ func (s *gymClientService) Join(ctx context.Context, in JoinGymClientInput) (*db
 		CoachID: in.CoachID, ClientID: in.ClientID, GymID: in.GymID,
 	})
 	s.changed(ctx, in.GymID)
+	s.openJoinChats(ctx, in)
 	return row, nil
 }
 
@@ -616,5 +624,48 @@ func (s *gymClientService) requireCoachSeat(ctx context.Context, gymID, coachID 
 	}
 	return models.NewEntitlementApiError(http.StatusConflict, &models.EntitlementError{
 		Code: models.CodeCoachSeatRequired, Message: "the coach needs a gym seat to receive clients", Limit: "seats",
+	})
+}
+
+// GymOwnerLookup reads a gym (for its owner id); *repositories.GymRepository satisfies it.
+type GymOwnerLookup interface {
+	GetGym(ctx context.Context, id string) (*db.Gym, error)
+}
+
+// openJoinChats opens, off the request path, the conversations of a client who joined a gym: gym owner <-> client
+// and, when a coach is set, coach <-> client, both labelled with the gym. Failures are only logged.
+func (s *gymClientService) openJoinChats(ctx context.Context, in JoinGymClientInput) {
+	if s.chat == nil || s.gyms == nil {
+		return
+	}
+	spawn := s.spawn
+	if spawn == nil {
+		spawn = func(f func()) { go f() }
+	}
+	detached := context.WithoutCancel(ctx)
+	spawn(func() {
+		ctx, cancel := context.WithTimeout(detached, gymChatTimeout)
+		defer cancel()
+		ensure := func(adminID string) {
+			if adminID == "" || adminID == in.ClientID {
+				return
+			}
+			if apiErr := s.chat.EnsureGymConversation(ctx, adminID, in.ClientID, in.GymID); apiErr != nil {
+				zap.L().Warn("gym client conversation failed", zap.String("component", "gym_client"),
+					zap.String("gym_id", in.GymID), zap.Error(apiErr.Error))
+			}
+		}
+		ownerID := ""
+		g, err := s.gyms.GetGym(ctx, in.GymID)
+		if err != nil || g == nil {
+			zap.L().Warn("gym client conversation: gym lookup failed", zap.String("component", "gym_client"),
+				zap.String("gym_id", in.GymID), zap.Error(err))
+		} else {
+			ownerID = g.OwnerID
+			ensure(ownerID)
+		}
+		if in.CoachID != ownerID {
+			ensure(in.CoachID)
+		}
 	})
 }

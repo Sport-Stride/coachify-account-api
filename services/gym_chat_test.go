@@ -248,3 +248,7 @@ func TestTeamAssignOpensOwnerChat(t *testing.T) {
 		assert.Empty(t, chat.calls)
 	})
 }
+
+func (f *fakeChat) EnsureGymConversation(ctx context.Context, adminID, peerID, _ string) *models.ApiError {
+	return f.EnsureConversation(ctx, adminID, peerID)
+}

@@ -184,6 +184,9 @@ func InitServices(config utils.AppConfig,
 	if seatsOn {
 		gymClientDeps.Seats = seatSvc
 	}
+	if chatClient != nil && gymRepo != nil {
+		gymClientDeps.Chat, gymClientDeps.Gyms = chatClient, gymRepo
+	}
 	gymClients := NewGymClientService(gymClientDeps, config.Gym.ClientGymRelations)
 	// Dispatch (P6): the transactional service replaces the P4 one behind the same routes. Off: nothing changes.
 	var gymLeaver GymClientLeaver

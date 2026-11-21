@@ -475,3 +475,7 @@ func TestDispatchReleaseWithSeveralCoachesAndActor(t *testing.T) {
 		assert.Equal(t, "head", e.HeadCoachID)
 	}
 }
+
+func (f *fakeDispatchChat) EnsureGymConversation(ctx context.Context, adminID, peerID, _ string) *models.ApiError {
+	return f.EnsureConversation(ctx, adminID, peerID)
+}

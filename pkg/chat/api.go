@@ -25,6 +25,7 @@ type ChatClient struct {
 type createConversationRequest struct {
 	AdminID   string   `json:"admin_id"`
 	ClientIDs []string `json:"client_ids"`
+	GymID     string   `json:"gym_id,omitempty"`
 }
 
 // NewChatClient creates a ChatClient using the ChatAPIConfig from the app config.
@@ -83,11 +84,21 @@ func (c *ChatClient) CreateConversation(ctx context.Context, coachID, clientID, 
 // EnsureConversation get-or-creates the conversation between adminID (the admin side, e.g. a gym owner)
 // and peerID through chat-api's internal endpoint, authenticated by the shared internal API key.
 func (c *ChatClient) EnsureConversation(ctx context.Context, adminID, peerID string) *models.ApiError {
+	return c.ensureConversation(ctx, adminID, peerID, "")
+}
+
+// EnsureGymConversation is EnsureConversation for a gym: chat-api labels the conversation with gymID.
+func (c *ChatClient) EnsureGymConversation(ctx context.Context, adminID, peerID, gymID string) *models.ApiError {
+	return c.ensureConversation(ctx, adminID, peerID, gymID)
+}
+
+func (c *ChatClient) ensureConversation(ctx context.Context, adminID, peerID, gymID string) *models.ApiError {
 	url := c.baseURL + "/internal/conversations"
 
 	body, err := json.Marshal(createConversationRequest{
 		AdminID:   adminID,
 		ClientIDs: []string{peerID},
+		GymID:     gymID,
 	})
 	if err != nil {
 		return models.NewApiError(http.StatusInternalServerError, models.ErrFailedToUnmarshalResponse)

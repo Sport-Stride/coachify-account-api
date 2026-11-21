@@ -617,10 +617,11 @@ func (s *inviteLinkService) AbortSignup(ctx context.Context, l *db.InviteLink) {
 }
 
 // CompleteSignup settles the reservation of PrepareSignup. An open link joins the new account at once (signing up
-// with it is the consent). An email-bound link is not redeemed at signup: the mailbox is not verified yet, so the
-// reservation is released and the invite stays pending for /me/invites once the account is confirmed.
+// with it is the consent). An email-bound link is redeemed at signup only when the account is already verified (e.g.
+// OAuth); otherwise the mailbox is not verified yet, so the reservation is released and the invite stays pending for
+// /me/invites once the account is confirmed.
 func (s *inviteLinkService) CompleteSignup(ctx context.Context, l *db.InviteLink, u *db.User) *models.ApiError {
-	if l.Email != "" {
+	if l.Email != "" && !accountVerified(u) {
 		s.AbortSignup(ctx, l)
 		return nil
 	}
