@@ -111,6 +111,9 @@ func (f *fakeGymStore) UpdateGym(_ context.Context, id string, u db.GymUpdate) (
 	if u.Status != nil {
 		g.Status = *u.Status
 	}
+	if u.PlanManageLocked != nil {
+		g.PlanManageLocked = *u.PlanManageLocked
+	}
 	return true, nil
 }
 func (f *fakeGymStore) ListGymsByOwner(_ context.Context, owner string) ([]db.GymSummary, error) {

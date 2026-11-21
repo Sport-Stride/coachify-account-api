@@ -19,6 +19,7 @@ type GymPolicyReader interface {
 	GetRolePolicy(ctx context.Context, gymID string, role db.GymMemberRole) (*db.GymRolePolicy, error)
 	ListGrants(ctx context.Context, gymID, userID string) ([]db.PermissionGrant, error)
 	GetAuthzVersion(ctx context.Context, gymID string) (int64, error)
+	PlanManageLocked(ctx context.Context, gymID string) (bool, error)
 }
 
 // AuthzQuery is what the links of the chain share for one decision. Policy and grants load lazily, once.
@@ -32,7 +33,8 @@ type AuthzQuery struct {
 	policies GymPolicyReader
 	policy   *db.GymRolePolicy
 	grants   map[Capability]db.GrantEffect
-	loaded   struct{ policy, grants bool }
+	locked   bool
+	loaded   struct{ policy, grants, locked bool }
 	// Err is set by a link whose read failed; the chain stops and answers 500.
 	Err error
 }
@@ -47,6 +49,18 @@ func (q *AuthzQuery) rolePolicy(ctx context.Context) *db.GymRolePolicy {
 		q.policy = p
 	}
 	return q.policy
+}
+
+func (q *AuthzQuery) planLocked(ctx context.Context) bool {
+	if !q.loaded.locked {
+		q.loaded.locked = true
+		l, err := q.policies.PlanManageLocked(ctx, q.GymID)
+		if err != nil {
+			q.Err = err
+		}
+		q.locked = l
+	}
+	return q.locked
 }
 
 func (q *AuthzQuery) memberGrants(ctx context.Context) map[Capability]db.GrantEffect {
@@ -67,6 +81,17 @@ func (q *AuthzQuery) memberGrants(ctx context.Context) map[Capability]db.GrantEf
 // CapabilityLink is one handler of the Chain of Responsibility. handled=false passes the query on.
 type CapabilityLink interface {
 	Resolve(ctx context.Context, q *AuthzQuery) (Decision, bool)
+}
+
+// platformLockLink denies plan.manage to everyone, owner included, while the platform admin locked it on the gym.
+// It runs before ownerLink; every other capability is untouched.
+type platformLockLink struct{}
+
+func (platformLockLink) Resolve(ctx context.Context, q *AuthzQuery) (Decision, bool) {
+	if q.Cap == db.CapPlanManage && q.planLocked(ctx) {
+		return Decision{Reason: ReasonPlatformLocked}, true
+	}
+	return Decision{}, false
 }
 
 // ownerLink grants everything inside the gym to its owner. It can never be revoked: it runs before every deny.
@@ -125,7 +150,7 @@ type chainAuthorizer struct {
 	links    []CapabilityLink
 }
 
-// NewChainAuthorizer builds the chain: owner > member deny > member allow > role policy > platform preset > deny.
+// NewChainAuthorizer builds the chain: platform lock > owner > member deny > member allow > role policy > platform preset > deny.
 // A nil resolver registers the default one (no client relationships).
 func NewChainAuthorizer(members GymMembershipReader, policies GymPolicyReader, resolver ResourceResolver) *chainAuthorizer {
 	if resolver == nil {
@@ -133,7 +158,7 @@ func NewChainAuthorizer(members GymMembershipReader, policies GymPolicyReader, r
 	}
 	return &chainAuthorizer{
 		members: members, policies: policies, resolver: resolver,
-		links: []CapabilityLink{ownerLink{}, memberDenyLink{}, memberAllowLink{}, rolePolicyLink{}, platformPresetLink{}},
+		links: []CapabilityLink{platformLockLink{}, ownerLink{}, memberDenyLink{}, memberAllowLink{}, rolePolicyLink{}, platformPresetLink{}},
 	}
 }
 

@@ -41,6 +41,7 @@ const (
 // Decision reasons.
 const (
 	ReasonOwner           = "owner"
+	ReasonPlatformLocked  = "platform_locked"
 	ReasonMemberDeny      = "member_deny"
 	ReasonMemberAllow     = "member_allow"
 	ReasonRolePolicy      = "role_policy"
