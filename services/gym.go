@@ -278,6 +278,9 @@ type GymService interface {
 	AdminAddHeadCoach(ctx context.Context, adminID, gymID, headID string) *models.ApiError
 	AdminRemoveHeadCoach(ctx context.Context, adminID, gymID, headID string) *models.ApiError
 	AdminAudit(ctx context.Context, gymID string, page, size int) ([]db.TeamAuditEntry, int, *models.ApiError)
+
+	// Internal (x-api-key) lookup used by other services.
+	GetGymInternal(ctx context.Context, gymID string) (*db.Gym, *models.ApiError)
 }
 
 type gymServiceImpl struct {
@@ -1019,6 +1022,18 @@ func (s *gymServiceImpl) AdminListGymHeadCoaches(ctx context.Context, gymID stri
 		return nil, s.internal("AdminListGymHeadCoaches", err)
 	}
 	return rows, nil
+}
+
+// GetGymInternal returns a gym for service-to-service callers; 404 when it does not exist.
+func (s *gymServiceImpl) GetGymInternal(ctx context.Context, gymID string) (*db.Gym, *models.ApiError) {
+	g, err := s.gyms.GetGym(ctx, gymID)
+	if err != nil {
+		return nil, s.internal("GetGymInternal", err)
+	}
+	if g == nil {
+		return nil, teamErr(http.StatusNotFound, errGymNotFound)
+	}
+	return g, nil
 }
 
 // activeOwner loads a user and verifies it is an Active gym owner.

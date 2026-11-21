@@ -7,6 +7,7 @@ import (
 	"coachify-account-api/services"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // roleCaller returns the caller id when the token role matches. The services re-check role, status and ownership in the database.
@@ -433,5 +434,22 @@ func ListAdminGymAudit(svc services.GymService) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"entries": entries, "total": total, "page": page, "size": size})
+	}
+}
+
+// GetInternalGym serves GET /internal/gyms/:gym_id (x-api-key group) for other services.
+func GetInternalGym(svc services.GymService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		gymID := c.Param("gym_id")
+		if !primitive.IsValidObjectID(gymID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gym id"})
+			return
+		}
+		g, apiErr := svc.GetGymInternal(c.Request.Context(), gymID)
+		if apiErr != nil {
+			respondAdminError(c, apiErr)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"gym_id": g.ID.Hex(), "name": g.Name, "owner_id": g.OwnerID, "status": g.Status})
 	}
 }
