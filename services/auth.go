@@ -1114,6 +1114,11 @@ func (s AuthServiceImpl) Confirm(ctx context.Context, req *api.ConfirmUserReques
 		return err
 	}
 
+	// A first-time client who signed up through an email-bound gym invite joins now: no accept step.
+	if s.invites != nil && u.UserRole == "client" {
+		s.invites.AcceptAfterConfirm(ctx, u.UserExternalID)
+	}
+
 	// After updating confirmation code and user status, send welcome email
 	user, err := s.userRepository.GetByEmail(ctx, u.UserEmail)
 	if err != nil {

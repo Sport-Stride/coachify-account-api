@@ -92,6 +92,10 @@ func (_m *InviteLinkService) CompleteSignup(ctx context.Context, l *db.InviteLin
 	return apiErrAt(_m.Called(ctx, l, u), 0)
 }
 
+func (_m *InviteLinkService) AcceptAfterConfirm(ctx context.Context, userID string) {
+	_m.Called(ctx, userID)
+}
+
 func (_m *InviteLinkService) AbortSignup(ctx context.Context, l *db.InviteLink) {
 	_m.Called(ctx, l)
 }

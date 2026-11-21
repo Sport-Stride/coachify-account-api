@@ -52,6 +52,8 @@ type InviteLinkStore interface {
 	List(ctx context.Context, f repositories.InviteLinkFilter, limit int64) ([]db.InviteLink, error)
 	ListPendingByEmail(ctx context.Context, email, kind string, now time.Time) ([]db.InviteLink, error)
 	SetStatus(ctx context.Context, id, from, to string) (bool, error)
+	SetSignupUser(ctx context.Context, id, userID string) error
+	RevokeActiveByEmailGym(ctx context.Context, email, kind, gymID, exceptID string) (int64, error)
 	ConsumeUse(ctx context.Context, id string, now time.Time) (bool, error)
 	ReleaseUse(ctx context.Context, id string) error
 }
@@ -118,6 +120,8 @@ type InviteLinkService interface {
 	CompleteSignup(ctx context.Context, l *db.InviteLink, u *db.User) *models.ApiError
 	// AbortSignup releases the use reserved by PrepareSignup when the signup fails.
 	AbortSignup(ctx context.Context, l *db.InviteLink)
+	// AcceptAfterConfirm accepts the invites the account signed up with once it confirmed its email.
+	AcceptAfterConfirm(ctx context.Context, userID string)
 }
 
 // InviteLinkDeps groups the collaborators of the service (constructor injection).
@@ -239,6 +243,10 @@ func (s *inviteLinkService) Create(ctx context.Context, a Actor, req CreateInvit
 	}
 	link := strings.TrimRight(s.ClientURL, "/") + "/invite/" + raw
 	if email != "" && kind.Name() == db.InviteKindClientGym {
+		// A newer invite to the same email for the same gym replaces the older pending ones (no duplicates to accept).
+		if _, err := s.Store.RevokeActiveByEmailGym(ctx, email, kind.Name(), scope.GymID, l.ID.Hex()); err != nil {
+			zap.L().Warn("invite supersede failed", zap.String("component", "invite"), zap.Error(err))
+		}
 		s.mailInvite(ctx, a.ID, scope.GymID, email, link)
 	}
 	return &InviteCreated{ID: l.ID.Hex(), Link: link, ExpiresAt: l.ExpiresAt}, nil
@@ -543,10 +551,30 @@ func (s *inviteLinkService) ListMine(ctx context.Context, userID string) ([]MyIn
 		return nil, s.internal("ListMine", err)
 	}
 	out := make([]MyInvite, 0, len(rows))
+	// One invite per gym and coach: the newest wins (older duplicates, if any, are not shown).
+	newest := map[string]time.Time{}
+	for i := range rows {
+		k := rows[i].GymID + "|" + rows[i].TargetCoachID
+		if rows[i].CreatedAt.After(newest[k]) {
+			newest[k] = rows[i].CreatedAt
+		}
+	}
+	seen := map[string]bool{}
 	for i := range rows {
 		l := &rows[i]
 		if !usableLink(l, time.Now()) {
 			continue
+		}
+		key := l.GymID + "|" + l.TargetCoachID
+		if seen[key] || !l.CreatedAt.Equal(newest[key]) {
+			continue
+		}
+		seen[key] = true
+		// Already in the gym: nothing to accept.
+		if s.Members != nil {
+			if m, mErr := s.Members.MembershipOf(ctx, u.ExternalID, l.GymID); mErr == nil && m != nil {
+				continue
+			}
 		}
 		inv := MyInvite{ID: l.ID.Hex(), Kind: l.Kind, GymID: l.GymID, CoachID: l.TargetCoachID, ExpiresAt: l.ExpiresAt, CreatedAt: l.CreatedAt}
 		if g, gErr := s.Gyms.GetGym(ctx, l.GymID); gErr == nil && g != nil && g.Status == db.GymStatusActive {
@@ -665,10 +693,46 @@ func (s *inviteLinkService) AbortSignup(ctx context.Context, l *db.InviteLink) {
 func (s *inviteLinkService) CompleteSignup(ctx context.Context, l *db.InviteLink, u *db.User) *models.ApiError {
 	if l.Email != "" && !accountVerified(u) {
 		s.AbortSignup(ctx, l)
+		// The invite is accepted for this account once it confirms its email (see AcceptAfterConfirm).
+		if !l.ID.IsZero() {
+			rctx, cancel := detachedContext(ctx)
+			defer cancel()
+			if err := s.Store.SetSignupUser(rctx, l.ID.Hex(), u.ExternalID); err != nil {
+				zap.L().Error("invite signup mark failed", zap.String("component", "invite"), zap.Error(err))
+			}
+		}
 		return nil
 	}
 	_, apiErr := s.redeem(ctx, RedeemInput{Link: l, User: u, NewUser: true, Reserved: true})
 	return apiErr
+}
+
+// AcceptAfterConfirm accepts, for an account that just confirmed its email, the invites it signed up with: the client
+// is new, so signing up through the link is the consent. Failures are logged; the invite stays pending to accept by hand.
+func (s *inviteLinkService) AcceptAfterConfirm(ctx context.Context, userID string) {
+	if s.off() != nil {
+		return
+	}
+	u, apiErr := s.Users.GetUserByExternalIdUpdate(ctx, userID)
+	if apiErr != nil || u == nil || !accountVerified(u) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(u.UserEmail))
+	rows, err := s.Store.ListPendingByEmail(ctx, email, db.InviteKindClientGym, time.Now())
+	if err != nil {
+		zap.L().Error("invite accept-after-confirm list failed", zap.String("component", "invite"), zap.Error(err))
+		return
+	}
+	for i := range rows {
+		l := &rows[i]
+		if l.SignupUserID != u.ExternalID || !usableLink(l, time.Now()) {
+			continue
+		}
+		if _, apiErr := s.redeem(ctx, RedeemInput{Link: l, User: u, NewUser: true, Accepted: true}); apiErr != nil {
+			zap.L().Warn("invite accept-after-confirm failed", zap.String("component", "invite"),
+				zap.String("user_id", u.ExternalID), zap.Int("status", apiErr.Code))
+		}
+	}
 }
 
 // accountVerified reports whether the account confirmed its email (status Active).

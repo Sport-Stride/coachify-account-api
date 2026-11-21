@@ -46,4 +46,7 @@ type InviteLink struct {
 	CreatedAt time.Time  `bson:"created_at" json:"created_at"`
 	// LegacyRef is "registration_links:<id>" for rows copied from a legacy collection.
 	LegacyRef string `bson:"legacy_ref,omitempty" json:"-"`
+	// SignupUserID is the account that signed up with this email-bound link before confirming its email: the invite is
+	// accepted for that account once it confirms (a first-time client is not asked to accept).
+	SignupUserID string `bson:"signup_user_id,omitempty" json:"-"`
 }

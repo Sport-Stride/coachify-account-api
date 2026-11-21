@@ -105,6 +105,28 @@ func (f *fakeInviteStore) ListPendingByEmail(_ context.Context, email, kind stri
 	return out, nil
 }
 
+func (f *fakeInviteStore) SetSignupUser(_ context.Context, id, userID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if l, ok := f.rows[id]; ok {
+		l.SignupUserID = userID
+	}
+	return nil
+}
+
+func (f *fakeInviteStore) RevokeActiveByEmailGym(_ context.Context, email, kind, gymID, exceptID string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for id, l := range f.rows {
+		if id != exceptID && l.Email == email && l.Kind == kind && l.GymID == gymID && l.Status == db.InviteStatusActive {
+			l.Status = db.InviteStatusRevoked
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeInviteStore) SetStatus(_ context.Context, id, from, to string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -589,17 +611,46 @@ func TestSignupWithEmailBoundInviteStaysPendingUntilConfirmed(t *testing.T) {
 	row, _ = f.gym.store.Get(ctx, gymA, "new1")
 	assert.Nil(t, row)
 
-	// Confirmed: the invite shows up and needs an explicit accept.
+	// Confirmed: a first-time client who signed up through the link joins at once, without an accept step.
 	u.UserStatus = db.Active
-	mine, apiErr = f.svc.ListMine(ctx, "new1")
-	require.Nil(t, apiErr)
-	require.Len(t, mine, 1)
-	res, apiErr := f.svc.Accept(ctx, "new1", l0.ID.Hex())
-	require.Nil(t, apiErr)
-	assert.Equal(t, services.RedeemJoined, res.Status)
+	f.svc.AcceptAfterConfirm(ctx, "new1")
 	row, _ = f.gym.store.Get(ctx, gymA, "new1")
 	require.NotNil(t, row)
 	assert.Equal(t, "c1", row.CoachID)
+	assert.Equal(t, db.InviteStatusExhausted, f.store.rows[l0.ID.Hex()].Status)
+	mine, apiErr = f.svc.ListMine(ctx, "new1")
+	require.Nil(t, apiErr)
+	assert.Empty(t, mine, "nothing left to accept")
+}
+
+func TestAcceptAfterConfirmOnlyForTheSignupAccount(t *testing.T) {
+	ctx := context.Background()
+	f := newInviteFixture(t, true)
+	// An invite the account did not sign up with (existing account, invited by the owner) still needs its consent.
+	f.seedLink("t", db.InviteLink{Kind: db.InviteKindClientGym, GymID: gymA, CreatorID: "owner", Email: "n1@x.tn", MaxUses: 1, ExpiresAt: future()})
+	f.svc.AcceptAfterConfirm(ctx, "n1")
+	row, _ := f.gym.store.Get(ctx, gymA, "n1")
+	assert.Nil(t, row)
+	mine, apiErr := f.svc.ListMine(ctx, "n1")
+	require.Nil(t, apiErr)
+	assert.Len(t, mine, 1)
+}
+
+func TestNewInviteSupersedesOlderPendingAndListShowsOne(t *testing.T) {
+	ctx := context.Background()
+	f := newInviteFixture(t, true)
+	old := f.seedLink("old", db.InviteLink{Kind: db.InviteKindClientGym, GymID: gymA, CreatorID: "owner", Email: "n1@x.tn", MaxUses: 1, ExpiresAt: future(), CreatedAt: time.Now().Add(-2 * time.Hour)})
+	f.seedLink("new", db.InviteLink{Kind: db.InviteKindClientGym, GymID: gymA, CreatorID: "owner", Email: "n1@x.tn", MaxUses: 1, ExpiresAt: future(), CreatedAt: time.Now().Add(-time.Hour)})
+	mine, apiErr := f.svc.ListMine(ctx, "n1")
+	require.Nil(t, apiErr)
+	require.Len(t, mine, 1, "duplicate invites for one gym show once")
+	assert.NotEqual(t, old.ID.Hex(), mine[0].ID, "the newest is shown")
+
+	n, err := f.store.RevokeActiveByEmailGym(ctx, "n1@x.tn", db.InviteKindClientGym, gymA, mine[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+	assert.Equal(t, db.InviteStatusRevoked, f.store.rows[old.ID.Hex()].Status)
+	assert.Equal(t, db.InviteStatusActive, f.store.rows[mine[0].ID].Status)
 }
 
 func TestSignupWithOpenLinkJoinsOnceAndReleasesOnAbort(t *testing.T) {

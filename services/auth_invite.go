@@ -17,6 +17,8 @@ type inviteSignupRedeemer interface {
 	CompleteSignup(ctx context.Context, l *db.InviteLink, u *db.User) *models.ApiError
 	// AbortSignup releases the use reserved by PrepareSignup when the signup fails.
 	AbortSignup(ctx context.Context, l *db.InviteLink)
+	// AcceptAfterConfirm accepts the invites the account signed up with once it confirmed its email.
+	AcceptAfterConfirm(ctx context.Context, userID string)
 }
 
 // WithInviteLinks sets the invite link redeemer used by the client signup paths; nil keeps the legacy paths.

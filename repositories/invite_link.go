@@ -243,3 +243,31 @@ func (r *InviteLinkRepository) UpsertByHash(ctx context.Context, l *db.InviteLin
 	}
 	return res.UpsertedCount > 0, nil
 }
+
+// SetSignupUser marks the account that signed up with a link, to accept the invite once it confirms its email.
+func (r *InviteLinkRepository) SetSignupUser(ctx context.Context, id, userID string) error {
+	oid, ok := inviteOID(id)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	_, err := r.links.UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{"signup_user_id": userID}})
+	return err
+}
+
+// RevokeActiveByEmailGym revokes the other active links of a kind bound to an email for a gym (a newer invite
+// supersedes them), keeping exceptID. It returns how many were revoked.
+func (r *InviteLinkRepository) RevokeActiveByEmailGym(ctx context.Context, email, kind, gymID, exceptID string) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	filter := bson.M{"email": email, "kind": kind, "gym_id": gymID, "status": db.InviteStatusActive}
+	if oid, ok := inviteOID(exceptID); ok {
+		filter["_id"] = bson.M{"$ne": oid}
+	}
+	res, err := r.links.UpdateMany(ctx, filter, bson.M{"$set": bson.M{"status": db.InviteStatusRevoked}})
+	if err != nil {
+		return 0, err
+	}
+	return res.ModifiedCount, nil
+}
