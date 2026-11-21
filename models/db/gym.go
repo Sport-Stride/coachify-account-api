@@ -164,6 +164,9 @@ type MyGymRow struct {
 	GymName   string     `bson:"gym_name" json:"gym_name"`
 	CoachID   string     `bson:"coach_id,omitempty" json:"coach_id,omitempty"`
 	CoachName string     `bson:"coach_name,omitempty" json:"coach_name,omitempty"`
+	OwnerID   string     `bson:"owner_id,omitempty" json:"owner_id,omitempty"`
+	OwnerName string     `bson:"owner_name,omitempty" json:"owner_name,omitempty"`
+	JoinedAt  *time.Time `bson:"joined_at,omitempty" json:"joined_at,omitempty"`
 	ConsentAt *time.Time `bson:"consent_at,omitempty" json:"consent_at,omitempty"`
 }
 

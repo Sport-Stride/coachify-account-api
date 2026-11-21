@@ -27,3 +27,11 @@ func mustMarshal(t *testing.T, d bson.D) []byte {
 	assert.NoError(t, err)
 	return b
 }
+
+func TestMyGymsPipelineProjectsOwnerAndJoinDate(t *testing.T) {
+	p := myGymsPipeline("users", "cl1")
+	raw := bson.Raw(mustMarshal(t, p[len(p)-2])).String()
+	for _, f := range []string{"owner_id", "owner_name", "joined_at"} {
+		assert.Contains(t, raw, f)
+	}
+}

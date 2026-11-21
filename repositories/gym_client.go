@@ -209,6 +209,15 @@ func gymClientRowPipeline(usersName, gymID string, q db.GymClientQuery) []bson.D
 		{{Key: "$unwind", Value: "$u"}},
 		{{Key: "$lookup", Value: bd(
 			"from", usersName,
+			"let", bd("oid", "$g.owner_id"),
+			"pipeline", bson.A{
+				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$oid"}))),
+				bd("$project", bd("firstname", 1, "lastname", 1)),
+			},
+			"as", "ow",
+		)}},
+		{{Key: "$lookup", Value: bd(
+			"from", usersName,
 			"let", bd("cid", "$coach_id"),
 			"pipeline", bson.A{
 				bd("$match", bd("$expr", bd("$eq", bson.A{"$externalid", "$$cid"}))),
@@ -281,7 +290,7 @@ func myGymsPipeline(usersName, clientID string) []bson.D {
 					bd("$eq", bson.A{"$_id", bd("$convert", bd("input", "$$gid", "to", "objectId", "onError", nil))}),
 					bd("$eq", bson.A{"$status", db.GymStatusActive}),
 				}))),
-				bd("$project", bd("name", 1)),
+				bd("$project", bd("name", 1, "owner_id", 1)),
 			},
 			"as", "g",
 		)}},
@@ -301,6 +310,9 @@ func myGymsPipeline(usersName, clientID string) []bson.D {
 			"gym_name", "$g.name",
 			"coach_id", bd("$cond", bson.A{bd("$eq", bson.A{bd("$ifNull", bson.A{"$coach_id", ""}), ""}), "$$REMOVE", "$coach_id"}),
 			"coach_name", bd("$cond", bson.A{bd("$gt", bson.A{bd("$size", "$co"), 0}), fullName("$co.firstname", "$co.lastname"), "$$REMOVE"}),
+			"owner_id", "$g.owner_id",
+			"owner_name", bd("$cond", bson.A{bd("$gt", bson.A{bd("$size", "$ow"), 0}), fullName("$ow.firstname", "$ow.lastname"), "$REMOVE"}),
+			"joined_at", 1,
 			"consent_at", 1,
 		)}},
 		{{Key: "$sort", Value: bd("gym_id", 1)}},
