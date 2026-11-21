@@ -31,6 +31,12 @@ func mustMarshal(t *testing.T, d bson.D) []byte {
 func TestMyGymsPipelineProjectsOwnerAndJoinDate(t *testing.T) {
 	p := myGymsPipeline("users", "cl1")
 	raw := bson.Raw(mustMarshal(t, p[len(p)-2])).String()
+	all := ""
+	for _, st := range p {
+		all += bson.Raw(mustMarshal(t, st)).String()
+	}
+	assert.Contains(t, all, `"as": "ow"`, "owner lookup feeds $ow used by the projection")
+	assert.NotContains(t, all, `"$REMOVE"`)
 	for _, f := range []string{"owner_id", "owner_name", "joined_at"} {
 		assert.Contains(t, raw, f)
 	}
