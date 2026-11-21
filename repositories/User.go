@@ -314,6 +314,26 @@ func (r *UserRepository) GetStatusAndResetPasswordCode(ctx context.Context, emai
 	return result.UserStatus, result.UserResetPasswordCode, nil
 }
 
+// UpdatePasswordByExternalID stores a new password hash for the user with the given external id.
+func (r *UserRepository) UpdatePasswordByExternalID(ctx context.Context, externalID, encryptedPassword string) *models.ApiError {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	res, err := r.collection.UpdateOne(ctx, bson.M{"externalid": externalID}, bson.M{
+		"$set": bson.M{
+			"password":   encryptedPassword,
+			"updated_at": time.Now(),
+		},
+	})
+	if err != nil {
+		return &models.ApiError{Code: http.StatusInternalServerError, Error: models.ErrInternalError}
+	}
+	if res.MatchedCount == 0 {
+		return &models.ApiError{Code: http.StatusNotFound, Error: models.ErrUserNotFound}
+	}
+	return nil
+}
+
 func (r *UserRepository) UpdatePasswordAndClearResetCode(ctx context.Context, email, encryptedPassword string) *models.ApiError {
 	// Define a filter to find the user by email
 	filter := bson.M{"email": email}

@@ -105,6 +105,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			// Admin-only user listing (handler enforces role)
 			userProtectedGroup.GET("", handlers.GetAllUsersPag(services.AuthService))
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
+			// Change own password: 403 on wrong current password; rate limited per user against brute force
+			userProtectedGroup.POST("/change-password", RateLimit(5, 15*time.Minute, userOrIPKey), handlers.ChangePassword(services.AuthService))
 			// Delete authenticated user account
 			userProtectedGroup.DELETE("", handlers.DeleteAuthenticatedUser(services.AuthService))
 			// Tax registration (coach/nutritionist only)

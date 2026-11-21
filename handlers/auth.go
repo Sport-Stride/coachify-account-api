@@ -288,6 +288,30 @@ func ConfirmResetPassword(wrapper services.AuthService) gin.HandlerFunc {
 	}
 }
 
+// ChangePassword changes the authenticated user's password. The caller comes from the JWT claims only.
+func ChangePassword(wrapper services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		externalID := ctx.GetString("userID")
+		if externalID == "" {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		req := new(api.ChangePasswordRequest)
+		if err := ctx.ShouldBindJSON(req); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+			return
+		}
+
+		if apiErr := wrapper.ChangePassword(ctx.Request.Context(), externalID, req); apiErr != nil {
+			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{"success": true})
+	}
+}
+
 func RefreshToken(wrapper services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		request := new(api.RequestRefreshtoken)

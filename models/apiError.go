@@ -88,6 +88,9 @@ var (
 	ErrInviteEmailMismatch       = errors.New("this invitation was sent to a different email address")
 	ErrInviteNotUsable           = errors.New("invitation can no longer be used")
 	ErrOwnerInvitePending        = errors.New("a pending invitation already exists for this email")
+	ErrCurrentPasswordIncorrect  = errors.New("current password is incorrect")
+	ErrNoLocalPassword           = errors.New("this account has no password; sign in with your social provider or use password reset to set one")
+	ErrNewPasswordSameAsCurrent  = errors.New("new password must be different from the current password")
 )
 
 // Error implements the error interface for ApiError.

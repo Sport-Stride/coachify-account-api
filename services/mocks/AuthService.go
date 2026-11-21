@@ -83,6 +83,10 @@ func (_m *AuthService) ConfirmResetPassword(ctx *gin.Context, request *api.Confi
 	return apiErrAt(_m.Called(ctx, request), 0)
 }
 
+func (_m *AuthService) ChangePassword(ctx context.Context, externalID string, request *api.ChangePasswordRequest) *models.ApiError {
+	return apiErrAt(_m.Called(ctx, externalID, request), 0)
+}
+
 func (_m *AuthService) GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError) {
 	ret := _m.Called(ctx, userId)
 	var r0 *api.PublicUser

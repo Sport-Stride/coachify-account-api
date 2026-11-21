@@ -42,6 +42,7 @@ type AuthService interface {
 	InitResetPassword(ctx context.Context, request *api.ResetPasswordRequest) *models.ApiError
 	VerifyResetPasswordCode(ctx context.Context, request *api.VerifyResetPasswordCodeRequest) *models.ApiError
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
+	ChangePassword(ctx context.Context, externalID string, request *api.ChangePasswordRequest) *models.ApiError
 	GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
 	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError)
@@ -85,6 +86,20 @@ type AuthServiceImpl struct {
 	seatOnlySignup       bool // GYM_SEATS_ENABLED: member-invite signups start seat-only (no default plan)
 	ownerUsers          invitedOwnerStore // nil: the user repository
 	ownerIDs             ownerIDGenerator  // nil: the identifier client
+	passwordUsers        passwordChangeStore // nil: the user repository
+}
+
+// passwordChangeStore is the user persistence ChangePassword needs; *repositories.UserRepository satisfies it.
+type passwordChangeStore interface {
+	GetUserByExternalIdUpdate(ctx context.Context, userId string) (*db.User, *models.ApiError)
+	UpdatePasswordByExternalID(ctx context.Context, externalID, encryptedPassword string) *models.ApiError
+}
+
+func (s AuthServiceImpl) passwordStore() passwordChangeStore {
+	if s.passwordUsers != nil {
+		return s.passwordUsers
+	}
+	return &s.userRepository
 }
 
 func NewAuthService(
@@ -1255,6 +1270,48 @@ func (s AuthServiceImpl) ConfirmResetPassword(ctx *gin.Context, request *api.Con
 	}
 
 	return nil
+}
+
+// ChangePassword sets a new password for the authenticated user after checking the current one.
+// A wrong current password answers 403 (not 401, which clients treat as an expired session).
+func (s AuthServiceImpl) ChangePassword(ctx context.Context, externalID string, request *api.ChangePasswordRequest) *models.ApiError {
+	if externalID == "" || request == nil {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidInputInUpdateMask}
+	}
+	if !core.ValidatePassword(request.NewPassword) {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidPassword}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	store := s.passwordStore()
+	user, apiErr := store.GetUserByExternalIdUpdate(ctx, externalID)
+	if apiErr != nil {
+		return apiErr
+	}
+	if user == nil {
+		return &models.ApiError{Code: http.StatusNotFound, Error: models.ErrUserNotFound}
+	}
+	if user.UserPassword == "" {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrNoLocalPassword}
+	}
+
+	if verr := s.passwordChecker.VerifyPassword(request.CurrentPassword, user.UserPassword); verr != nil {
+		if verr.Code == http.StatusUnauthorized {
+			return &models.ApiError{Code: http.StatusForbidden, Error: models.ErrCurrentPasswordIncorrect}
+		}
+		return verr
+	}
+	if request.CurrentPassword == request.NewPassword {
+		return &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrNewPasswordSameAsCurrent}
+	}
+
+	encrypted, hashErr := s.passwordChecker.HashPassword(request.NewPassword)
+	if hashErr != nil {
+		return hashErr
+	}
+	return store.UpdatePasswordByExternalID(ctx, externalID, encrypted)
 }
 
 func (s AuthServiceImpl) GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError) {

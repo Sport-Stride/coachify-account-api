@@ -21,6 +21,12 @@ type ConfirmResetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+// ChangePasswordRequest is the body of POST /user/change-password; the caller comes from the JWT, never the body.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+}
+
 type VerifyResetPasswordCodeRequest struct {
 	Email string `json:"email" binding:"required"`
 	Code  string `json:"code" binding:"required"`
