@@ -201,7 +201,7 @@ func policyRole(role string) (db.GymMemberRole, bool) {
 	return r, r == db.GymMemberRoleHeadCoach || r == db.GymMemberRoleCoach
 }
 
-// effectiveCaps overlays the stored map on the platform preset for the nine configurable capabilities.
+// effectiveCaps overlays the stored map on the platform preset for the fourteen configurable capabilities.
 func effectiveCaps(role db.GymMemberRole, stored map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(db.GymCapabilities))
 	for _, c := range db.GymCapabilities {
