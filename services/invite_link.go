@@ -64,6 +64,11 @@ type inviteUsers interface {
 	GetUserNameByExternalID(ctx context.Context, externalID string) (string, *models.ApiError)
 }
 
+// InviteMailer emails an email-bound client gym invite; *notification.NotificationClient satisfies it.
+type InviteMailer interface {
+	SendGymClientInviteEmail(ctx context.Context, email, gymName, inviterName, link string) error
+}
+
 // InviteLookup is what the public lookup may learn about a token.
 type InviteLookup struct {
 	Kind       string `json:"kind"`
@@ -128,6 +133,8 @@ type InviteLinkDeps struct {
 	Observers  *InviteObservers
 	ClientURL  string
 	DefaultTTL time.Duration
+	Mailer     InviteMailer // optional: nil skips the invite email
+	Spawn      func(func()) // optional, defaults to a goroutine
 }
 
 type inviteLinkService struct {
@@ -230,7 +237,42 @@ func (s *inviteLinkService) Create(ctx context.Context, a Actor, req CreateInvit
 	if err := s.Store.Insert(ctx, l); err != nil {
 		return nil, s.internal("Create.insert", err)
 	}
-	return &InviteCreated{ID: l.ID.Hex(), Link: strings.TrimRight(s.ClientURL, "/") + "/invite/" + raw, ExpiresAt: l.ExpiresAt}, nil
+	link := strings.TrimRight(s.ClientURL, "/") + "/invite/" + raw
+	if email != "" && kind.Name() == db.InviteKindClientGym {
+		s.mailInvite(ctx, a.ID, scope.GymID, email, link)
+	}
+	return &InviteCreated{ID: l.ID.Hex(), Link: link, ExpiresAt: l.ExpiresAt}, nil
+}
+
+// mailInvite emails the link to the invitee off the request path. It never fails Create; a failure is logged without
+// the address or the link (a credential).
+func (s *inviteLinkService) mailInvite(ctx context.Context, inviterID, gymID, email, link string) {
+	if s.Mailer == nil {
+		return
+	}
+	spawn := s.Spawn
+	if spawn == nil {
+		spawn = func(f func()) { go f() }
+	}
+	detached := context.WithoutCancel(ctx)
+	spawn(func() {
+		ctx, cancel := context.WithTimeout(detached, gymChatTimeout)
+		defer cancel()
+		gymName, inviter := "", ""
+		if s.Gyms != nil && gymID != "" {
+			if g, err := s.Gyms.GetGym(ctx, gymID); err == nil && g != nil {
+				gymName = g.Name
+			}
+		}
+		if s.Users != nil {
+			if n, apiErr := s.Users.GetUserNameByExternalID(ctx, inviterID); apiErr == nil {
+				inviter = strings.TrimSpace(n)
+			}
+		}
+		if err := s.Mailer.SendGymClientInviteEmail(ctx, email, gymName, inviter, link); err != nil {
+			zap.L().Warn("client gym invite email failed", zap.String("component", "invite"), zap.String("gym_id", gymID), zap.Error(err))
+		}
+	})
 }
 
 // canManageGym reports whether the actor holds member.invite in the gym (404 for a non-member).

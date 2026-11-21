@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -130,6 +131,8 @@ type gymClientService struct {
 	gyms    GymOwnerLookup
 	billing GymMembershipBilling // nil: no default plan subscribe on join
 	premium PremiumAnnotator     // nil: no premium fields in the client list
+	mailer  DispatchMailer // nil: no welcome email on join
+	users   DispatchUsers  // nil: no welcome email on join
 	spawn   func(func())
 	enabled bool
 }
@@ -150,6 +153,8 @@ type GymClientDeps struct {
 	Gyms    GymOwnerLookup     // optional: gym owner id for the owner conversation (needs Chat)
 	Billing GymMembershipBilling // optional (GYM_MEMBERSHIP_PLANS_ENABLED): Join subscribes the client to the free default plan
 	Premium PremiumAnnotator   // optional (GYM_MEMBERSHIP_PLANS_ENABLED): marks clients with a live coaching add-on in the list
+	Mailer  DispatchMailer     // optional (needs Users and Gyms): Join emails the client a welcome
+	Users   DispatchUsers      // optional: resolves the emails and names of the welcome
 	Spawn   func(func())       // optional, defaults to a goroutine
 }
 
@@ -158,7 +163,7 @@ func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
 		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
 		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, chat: d.Chat, gyms: d.Gyms, billing: d.Billing,
-		premium: d.Premium, spawn: d.Spawn, enabled: enabled,
+		premium: d.Premium, mailer: d.Mailer, users: d.Users, spawn: d.Spawn, enabled: enabled,
 	}
 }
 
@@ -501,6 +506,7 @@ func (s *gymClientService) Join(ctx context.Context, in JoinGymClientInput) (*db
 	})
 	s.changed(ctx, in.GymID)
 	s.openJoinChats(ctx, in)
+	s.welcomeClient(ctx, in)
 	s.subscribeDefaultPlan(ctx, in, row.JoinedAt)
 	return row, nil
 }
@@ -680,6 +686,54 @@ func (s *gymClientService) subscribeDefaultPlan(ctx context.Context, in JoinGymC
 
 // openJoinChats opens, off the request path, the conversations of a client who joined a gym: gym owner <-> client
 // and, when a coach is set, coach <-> client, both labelled with the gym. Failures are only logged.
+// welcomeClient emails the new gym client, off the request path. It never fails Join; the address is looked up here
+// and never logged.
+func (s *gymClientService) welcomeClient(ctx context.Context, in JoinGymClientInput) {
+	if s.mailer == nil || s.users == nil || s.gyms == nil {
+		return
+	}
+	spawn := s.spawn
+	if spawn == nil {
+		spawn = func(f func()) { go f() }
+	}
+	detached := context.WithoutCancel(ctx)
+	spawn(func() {
+		ctx, cancel := context.WithTimeout(detached, gymChatTimeout)
+		defer cancel()
+		g, err := s.gyms.GetGym(ctx, in.GymID)
+		if err != nil || g == nil {
+			zap.L().Warn("gym welcome email: gym lookup failed", zap.String("component", "gym_client"),
+				zap.String("gym_id", in.GymID), zap.Error(err))
+			return
+		}
+		client, apiErr := s.users.GetUserByExternalIdUpdate(ctx, in.ClientID)
+		if apiErr != nil || client == nil || client.UserEmail == "" {
+			return
+		}
+		name := func(id string) string {
+			if id == "" {
+				return ""
+			}
+			if u, apiErr := s.users.GetUserByExternalIdUpdate(ctx, id); apiErr == nil && u != nil {
+				return strings.TrimSpace(u.UserFirstname + " " + u.UserLastname)
+			}
+			return ""
+		}
+		msg := "You are now a client of " + g.Name + " on Coachify."
+		if owner := name(g.OwnerID); owner != "" {
+			msg += " The gym owner is " + owner + "."
+		}
+		if coach := name(in.CoachID); coach != "" {
+			msg += " Your coach is " + coach + "."
+		}
+		msg += " Open Coachify > Memberships to see your gym, or chat with your gym team."
+		if err := s.mailer.SendGymAssignmentEmail(ctx, client.UserEmail, "Welcome to "+g.Name, msg); err != nil {
+			zap.L().Warn("gym welcome email failed", zap.String("component", "gym_client"),
+				zap.String("gym_id", in.GymID), zap.Error(err))
+		}
+	})
+}
+
 func (s *gymClientService) openJoinChats(ctx context.Context, in JoinGymClientInput) {
 	if s.chat == nil || s.gyms == nil {
 		return

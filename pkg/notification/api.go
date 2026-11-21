@@ -200,6 +200,26 @@ func (c *NotificationClient) SendGymJoinInviteEmail(ctx context.Context, email, 
 	return c.sendEmail(ctx, email, template, dynamicData)
 }
 
+// SendGymClientInviteEmail emails a client the link of an email-bound gym invite. The link is a credential: never log it.
+func (c *NotificationClient) SendGymClientInviteEmail(ctx context.Context, email, gymName, inviterName, link string) error {
+	if email == "" {
+		return fmt.Errorf("no email recipient provided")
+	}
+	message := "You have been invited to join " + gymName + " on Coachify"
+	if inviterName != "" {
+		message += " by " + inviterName
+	}
+	message += ". Accept your invitation: " + link
+	template := utils.LoadConfig().GymAssignmentTemplate
+	dynamicData := map[string]string{
+		"message":  message,
+		"subject":  "You are invited to join " + gymName + " on Coachify",
+		"username": "",
+		"link":     link,
+	}
+	return c.sendEmail(ctx, email, template, dynamicData)
+}
+
 // SendGymAssignmentEmail tells a coach or client about a gym client assignment change.
 func (c *NotificationClient) SendGymAssignmentEmail(ctx context.Context, email, subject, message string) error {
 	if email == "" {

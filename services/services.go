@@ -190,6 +190,9 @@ func InitServices(config utils.AppConfig,
 		premium = NewPremiumAnnotator(payment, userRepo)
 		gymClientDeps.Premium = premium
 	}
+	if notification != nil {
+		gymClientDeps.Mailer, gymClientDeps.Users = notification, userRepo
+	}
 	if seatsOn {
 		gymClientDeps.Seats = seatSvc
 	}
@@ -289,7 +292,12 @@ func InitServices(config utils.AppConfig,
 		NewLegacyEmailKind(emailInvites),
 	}
 	inviteKinds = append(inviteKinds, NewMemberKinds(gymService, gymService, seatGuard, membership)...)
+	var inviteMailer InviteMailer
+	if notification != nil {
+		inviteMailer = notification
+	}
 	inviteLinks := NewInviteLinkService(InviteLinkDeps{
+		Mailer: inviteMailer,
 		Store: inviteLinkRepo, RegLinks: registrationLinkRepo, Users: userRepo, Gyms: gymRepo, Members: membership,
 		Authz: authz, Joiner: gymService, Registry: NewInviteKindRegistry(inviteKinds...),
 		Observers: NewInviteObservers(nil, asyncObs), ClientURL: config.Gym.ClientAppURL,

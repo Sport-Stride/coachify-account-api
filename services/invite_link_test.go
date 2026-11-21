@@ -236,6 +236,7 @@ type inviteFixture struct {
 	regs    fakeRegLinks
 	users   fakeInviteUsers
 	ent     *fakeEnt
+	mailer  *fakeInviteMailer
 }
 
 // newInviteFixture wires the real client_gym kind over the real GymClientService (gym_clients store fake) and the
@@ -248,7 +249,7 @@ func newInviteFixture(t *testing.T, enabled bool) *inviteFixture {
 	f := &inviteFixture{
 		store: newFakeInviteStore(), adder: &fakeCoachAdder{rows: map[string]string{"cl9": "personalCoach"}}, gym: gym,
 		obs: &recObserver{name: "sync"}, async: &recObserver{name: "async"}, joiner: &fakeMemberJoiner{},
-		regs: fakeRegLinks{}, ent: &fakeEnt{},
+		regs: fakeRegLinks{}, ent: &fakeEnt{}, mailer: &fakeInviteMailer{},
 		users: fakeInviteUsers{
 			"n1":  {ExternalID: "n1", UserEmail: "n1@x.tn", UserRole: "client", UserStatus: db.Active},
 			"n2":  {ExternalID: "n2", UserEmail: "n2@x.tn", UserRole: "client", UserStatus: db.Active},
@@ -267,7 +268,7 @@ func newInviteFixture(t *testing.T, enabled bool) *inviteFixture {
 	f.svc = services.NewInviteLinkService(services.InviteLinkDeps{
 		Store: f.store, RegLinks: f.regs, Users: f.users, Gyms: gyms, Members: gym.members, Authz: authz,
 		Joiner: f.joiner, Registry: services.NewInviteKindRegistry(kinds...), Observers: f.observe,
-		ClientURL: "https://app.test",
+		ClientURL: "https://app.test", Mailer: f.mailer, Spawn: func(fn func()) { fn() },
 	}, enabled)
 	return f
 }
