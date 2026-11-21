@@ -261,6 +261,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
 		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
+		internal.POST("/gym-access", handlers.InternalGymAccess(services.GymClients))
 		internal.GET("/gyms/:gym_id", handlers.GetInternalGym(services.GymService))
 		// Coaching add-ons (GYM_MEMBERSHIP_PLANS_ENABLED): called by payments-api.
 		if services.GymAddons != nil {

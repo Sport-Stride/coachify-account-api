@@ -105,3 +105,42 @@ func TestRelationships(t *testing.T) {
 		requireCode(t, apiErr, http.StatusInternalServerError)
 	})
 }
+
+func TestAccess(t *testing.T) {
+	ctx := context.Background()
+	svc := newRelFixture(fakeLinks{}, relStore(), true)
+
+	t.Run("staff roles", func(t *testing.T) {
+		for role, id := range map[string]string{"owner": "owner", "head_coach": "head", "coach": "c1"} {
+			a, apiErr := svc.Access(ctx, id, gymA)
+			require.Nil(t, apiErr)
+			assert.Equal(t, role, a.StaffRole)
+			assert.False(t, a.ClientActive)
+		}
+	})
+	t.Run("client", func(t *testing.T) {
+		a, apiErr := svc.Access(ctx, "cl1", gymA)
+		require.Nil(t, apiErr)
+		assert.Equal(t, services.GymAccess{ClientActive: true}, *a)
+	})
+	t.Run("none", func(t *testing.T) {
+		a, apiErr := svc.Access(ctx, "stranger", gymA)
+		require.Nil(t, apiErr)
+		assert.Equal(t, services.GymAccess{}, *a)
+		a, _ = svc.Access(ctx, "cl1", "other-gym")
+		assert.Equal(t, services.GymAccess{}, *a)
+	})
+	t.Run("bad input is 400", func(t *testing.T) {
+		_, apiErr := svc.Access(ctx, "", gymA)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+		_, apiErr = svc.Access(ctx, "c1", "")
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+	})
+	t.Run("client check off", func(t *testing.T) {
+		a, apiErr := newRelFixture(fakeLinks{}, relStore(), false).Access(ctx, "cl1", gymA)
+		require.Nil(t, apiErr)
+		assert.False(t, a.ClientActive)
+	})
+}
