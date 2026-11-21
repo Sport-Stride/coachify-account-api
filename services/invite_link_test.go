@@ -856,11 +856,12 @@ func TestEnsureConversationObserver(t *testing.T) {
 	ctx := context.Background()
 	ens := &fakeEnsurer{}
 	ob := services.NewEnsureConversationObserver(ens)
-	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindClientGym, CoachID: "c1", UserID: "n1"}))
+	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindClientPersonal, CoachID: "c1", UserID: "n1"}))
 	assert.Equal(t, [][2]string{{"c1", "n1"}}, ens.calls)
 
-	// Pool clients and member kinds have no conversation to open.
-	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindClientGym, UserID: "n1"}))
+	// Gym clients (opened by Join), pool clients and member kinds are not opened by the observer.
+	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindClientGym, CoachID: "c1", UserID: "n1"}))
+	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindClientPersonal, UserID: "n1"}))
 	require.NoError(t, ob.OnRedeemed(ctx, services.InviteRedeemed{Kind: db.InviteKindMemberCoach, CoachID: "c1", UserID: "x"}))
 	assert.Len(t, ens.calls, 1)
 
@@ -979,11 +980,11 @@ func (f *fakeEnsurer) EnsureGymConversation(_ context.Context, adminID, peerID, 
 	return f.err
 }
 
-func TestEnsureConversationObserverGymLabelsConversation(t *testing.T) {
+func TestEnsureConversationObserverGymIsNoOp(t *testing.T) {
 	ens := &fakeEnsurer{}
 	ob := services.NewEnsureConversationObserver(ens)
 	require.NoError(t, ob.OnRedeemed(context.Background(), services.InviteRedeemed{Kind: db.InviteKindClientGym, GymID: gymA, CoachID: "c1", UserID: "n1"}))
-	assert.Equal(t, [][3]string{{"c1", "n1", gymA}}, ens.gymCalls)
+	assert.Empty(t, ens.gymCalls, "Join/openJoinChats opens gym conversations")
 	assert.Empty(t, ens.calls)
 }
 

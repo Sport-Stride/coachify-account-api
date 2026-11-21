@@ -109,13 +109,8 @@ func (o *ensureConversationObserver) OnRedeemed(ctx context.Context, e InviteRed
 	if o.chat == nil || e.CoachID == "" || e.UserID == "" {
 		return nil
 	}
-	if e.Kind != db.InviteKindClientPersonal && e.Kind != db.InviteKindClientGym {
-		return nil
-	}
-	if e.Kind == db.InviteKindClientGym && e.GymID != "" {
-		if apiErr := o.chat.EnsureGymConversation(ctx, e.CoachID, e.UserID, e.GymID); apiErr != nil {
-			return apiErr.Error
-		}
+	// client_gym conversations are opened by gymClientService.Join (openJoinChats); opening them here would race it.
+	if e.Kind != db.InviteKindClientPersonal {
 		return nil
 	}
 	if apiErr := o.chat.EnsureConversation(ctx, e.CoachID, e.UserID); apiErr != nil {
