@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"coachify-account-api/models"
@@ -120,6 +121,11 @@ func TestInternalAuthzCheckPlanManage(t *testing.T) {
 		d := res.Decisions[0]
 		assert.False(t, d.Allowed && !d.WouldDeny, "%s must not pass plan.manage by default", u)
 	}
+}
+
+func (f *fakeCanceller) GymAddonCoachDeparted(_ context.Context, gymID string, coachIDs []string) (*payments.GymAddonCoachDepartedResult, error) {
+	f.calls = append(f.calls, "departed:"+gymID+"/"+strings.Join(coachIDs, ","))
+	return &payments.GymAddonCoachDepartedResult{}, f.err
 }
 
 func (f *fakeCanceller) SubscribeGymDefault(context.Context, string, string, string) (*payments.GymDefaultSubscribeResult, error) {

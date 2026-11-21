@@ -56,6 +56,7 @@ type CoachServiceImpl struct {
 	list               CoachListStore
 	gym                CoachGymStore // nil while CLIENT_GYM_RELATIONS is off
 	members            GymMembershipReader
+	premium            PremiumAnnotator // nil: no premium fields
 	notificationClient *notification.NotificationClient
 	identifier         *identifier.IdentifierClient
 	activationManager  core.ActivationManager
@@ -130,7 +131,49 @@ func (s *CoachServiceImpl) ListCoachClients(ctx context.Context, query db.CoachC
 	if err := s.annotateRelationships(ctx, query, rows); err != nil {
 		return nil, 0, err
 	}
+	if query.Kind == ClientKindGym {
+		s.annotatePremium(ctx, rows)
+	}
 	return rows, total, nil
+}
+
+// WithPremium marks the gym rows of the coach client list with the live coaching add-ons of their clients; nil skips it.
+func (s *CoachServiceImpl) WithPremium(p PremiumAnnotator) *CoachServiceImpl {
+	s.premium = p
+	return s
+}
+
+// annotatePremium sets row["premium"], row["premium_since"] and row["premium_addons"] on the gym rows whose client
+// holds a live coaching add-on: one lookup per gym of the page, fail-open (the fields are then left out).
+func (s *CoachServiceImpl) annotatePremium(ctx context.Context, rows []map[string]interface{}) {
+	if s.premium == nil || len(rows) == 0 {
+		return
+	}
+	byGym := map[string][]string{}
+	for _, row := range rows {
+		gymID, _ := row["gym_id"].(string)
+		id, _ := row["externalid"].(string)
+		if gymID != "" && id != "" {
+			byGym[gymID] = append(byGym[gymID], id)
+		}
+	}
+	info := map[string]map[string]PremiumInfo{}
+	for gymID, ids := range byGym {
+		info[gymID] = s.premium.Lookup(ctx, gymID, ids)
+	}
+	for _, row := range rows {
+		gymID, _ := row["gym_id"].(string)
+		id, _ := row["externalid"].(string)
+		pi, ok := info[gymID][id]
+		if !ok {
+			continue
+		}
+		row["premium"] = true
+		if pi.Since != nil {
+			row["premium_since"] = pi.Since
+		}
+		row["premium_addons"] = pi.Addons
+	}
 }
 
 // annotateRelationships sets row["relationships"] for the page. Personal rows are personal by construction; gym rows

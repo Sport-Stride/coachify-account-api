@@ -71,6 +71,8 @@ type fakeDefaultBilling struct {
 
 func (f *fakeDefaultBilling) CancelAtPeriodEnd(context.Context, string, string) error { return nil }
 
+func (f *fakeDefaultBilling) CoachDeparted(context.Context, string, []string) error { return nil }
+
 func (f *fakeDefaultBilling) SubscribeDefault(_ context.Context, gymID, clientID, joinRef string) error {
 	f.calls = append(f.calls, gymID+"/"+clientID+"/"+joinRef)
 	if len(f.calls) <= f.errs {

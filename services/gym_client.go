@@ -129,6 +129,7 @@ type gymClientService struct {
 	chat    ChatOpener      // nil: no conversations on join
 	gyms    GymOwnerLookup
 	billing GymMembershipBilling // nil: no default plan subscribe on join
+	premium PremiumAnnotator     // nil: no premium fields in the client list
 	spawn   func(func())
 	enabled bool
 }
@@ -148,6 +149,7 @@ type GymClientDeps struct {
 	Chat    ChatOpener         // optional: Join opens the owner and coach conversations of the gym client
 	Gyms    GymOwnerLookup     // optional: gym owner id for the owner conversation (needs Chat)
 	Billing GymMembershipBilling // optional (GYM_MEMBERSHIP_PLANS_ENABLED): Join subscribes the client to the free default plan
+	Premium PremiumAnnotator   // optional (GYM_MEMBERSHIP_PLANS_ENABLED): marks clients with a live coaching add-on in the list
 	Spawn   func(func())       // optional, defaults to a goroutine
 }
 
@@ -156,7 +158,7 @@ func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
 		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
 		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, chat: d.Chat, gyms: d.Gyms, billing: d.Billing,
-		spawn: d.Spawn, enabled: enabled,
+		premium: d.Premium, spawn: d.Spawn, enabled: enabled,
 	}
 }
 
@@ -291,6 +293,7 @@ func (s *gymClientService) ListClients(ctx context.Context, callerID, gymID stri
 	if err != nil {
 		return nil, 0, s.internal("ListClients", err)
 	}
+	annotateGymClientRows(ctx, s.premium, gymID, rows)
 	return rows, total, nil
 }
 
@@ -611,10 +614,15 @@ func visibleGymRelations(actorID string, rows []db.GymClient, memberships []db.G
 // read_only or none, while the gym enforces seats (not a grandfathered unlimited gym). The owner has no seat and is
 // skipped. It fails open: a lookup error or an unknown standing never blocks the assignment.
 func (s *gymClientService) requireCoachSeat(ctx context.Context, gymID, coachID string) *models.ApiError {
-	if s.seats == nil {
+	return requireCoachSeatOf(ctx, s.seats, gymID, coachID)
+}
+
+// requireCoachSeatOf is requireCoachSeat over any seat standing source (nil: no check).
+func requireCoachSeatOf(ctx context.Context, seats GymSeatStanding, gymID, coachID string) *models.ApiError {
+	if seats == nil {
 		return nil
 	}
-	st, apiErr := s.seats.Standing(ctx, gymID, coachID)
+	st, apiErr := seats.Standing(ctx, gymID, coachID)
 	if apiErr != nil {
 		zap.L().Warn("gym client assign: seat lookup failed, allowing", zap.String("component", "gym_client"),
 			zap.String("gym_id", gymID), zap.Int("status", apiErr.Code))

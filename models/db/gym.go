@@ -156,6 +156,18 @@ type GymClientRow struct {
 	CoachName      string    `bson:"coach_name" json:"coach_name"`
 	HeadCoachID    string    `bson:"head_coach_id" json:"head_coach_id"`
 	LinkedAt       time.Time `bson:"linked_at" json:"linked_at"`
+	// Premium fields come from payments-api (live coaching add-ons), never from Mongo; absent when unknown.
+	Premium       bool                `bson:"-" json:"premium,omitempty"`
+	PremiumSince  *time.Time          `bson:"-" json:"premium_since,omitempty"`
+	PremiumAddons []GymPremiumAddon   `bson:"-" json:"premium_addons,omitempty"`
+}
+
+// GymPremiumAddon is one live coaching add-on of a gym client with the name of its coach.
+type GymPremiumAddon struct {
+	PlanID    string `json:"plan_id"`
+	PlanName  string `json:"plan_name"`
+	CoachID   string `json:"coach_id"`
+	CoachName string `json:"coach_name"`
 }
 
 // MyGymRow is one active gym relationship of the calling client, with the gym and coach names.

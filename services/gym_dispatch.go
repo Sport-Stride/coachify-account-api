@@ -23,6 +23,10 @@ const (
 	dispatchReasonReassign = "gym_reassign"
 	dispatchReasonUnassign = "gym_unassign"
 	dispatchReasonCoachGo  = "coach_left"
+	// dispatchReasonAddonPurchase is the transfer reason of the assignment made by a coaching add-on purchase; the
+	// audit actor of that assignment is dispatchActorAddon.
+	dispatchReasonAddonPurchase = "gym_addon_purchase"
+	dispatchActorAddon          = "system:gym_addon"
 )
 
 // Retry and budget settings of the best-effort side effects.
@@ -96,6 +100,12 @@ type GymMembershipBilling interface {
 	// is retried, then logged as "default plan subscribe failed, replay needed" with gym_id and client_id. Operator
 	// replay: POST {PAYMENTS}/internal/gym-memberships/default-subscribe (x-api-key) with {"gym_id","user_id","join_ref"}.
 	SubscribeDefault(ctx context.Context, gymID, clientID, joinRef string) error
+	// CoachDeparted tells payments that coaches left a gym (empty gymID: every gym of the coaches): their coaching
+	// add-on plans are deactivated and the live add-on subscriptions end at the period end. A failure never fails the
+	// departure: it is retried, then logged as "gym dispatch coach departed failed, replay needed" with the coach ids.
+	// Operator replay: POST {PAYMENTS}/internal/gym-addons/coach-departed (x-api-key) with {"gym_id","coach_ids"}; it
+	// is idempotent.
+	CoachDeparted(ctx context.Context, gymID string, coachIDs []string) error
 }
 
 type noopMembershipBilling struct{}
@@ -103,6 +113,8 @@ type noopMembershipBilling struct{}
 func (noopMembershipBilling) CancelAtPeriodEnd(context.Context, string, string) error { return nil }
 
 func (noopMembershipBilling) SubscribeDefault(context.Context, string, string, string) error { return nil }
+
+func (noopMembershipBilling) CoachDeparted(context.Context, string, []string) error { return nil }
 
 // DispatchMailer sends the assignment notice; *notification.NotificationClient satisfies it.
 type DispatchMailer interface {
@@ -300,6 +312,36 @@ func (s *GymDispatch) Assign(ctx context.Context, callerID, gymID, clientID, coa
 	if apiErr := s.authorize(ctx, "assign", callerID, gymID, clientID); apiErr != nil {
 		return nil, apiErr
 	}
+	return s.assign(ctx, callerID, gymID, clientID, coachID, assignModeManual)
+}
+
+// assignMode tells how an assignment was triggered: the owner side (manual, with notices) or a coaching add-on
+// purchase (system actor, the purchase flow sends its own notices).
+type assignMode int
+
+const (
+	assignModeManual assignMode = iota
+	assignModePurchase
+)
+
+// AssignByPurchase assigns the coach chosen in a coaching add-on purchase to the client (system actor, no capability
+// check: the payment is the authorization). It runs the same checks and transaction as Assign (coach in the gym,
+// coaching role, seat); the same coach is a no-op.
+func (s *GymDispatch) AssignByPurchase(ctx context.Context, gymID, clientID, coachID string) (*DispatchResult, *models.ApiError) {
+	if gymID == "" {
+		return nil, teamErr(http.StatusBadRequest, errGymNotFound)
+	}
+	if clientID == "" {
+		return nil, teamErr(http.StatusBadRequest, errClientRequired)
+	}
+	if coachID == "" {
+		return nil, teamErr(http.StatusBadRequest, errCoachRequired)
+	}
+	return s.assign(ctx, dispatchActorAddon, gymID, clientID, coachID, assignModePurchase)
+}
+
+// assign is the part of Assign after the authorization.
+func (s *GymDispatch) assign(ctx context.Context, callerID, gymID, clientID, coachID string, mode assignMode) (*DispatchResult, *models.ApiError) {
 	ctx, cancel := context.WithTimeout(ctx, authzTimeout)
 	defer cancel()
 	row, err := s.store.Get(ctx, gymID, clientID)
@@ -327,6 +369,9 @@ func (s *GymDispatch) Assign(ctx context.Context, callerID, gymID, clientID, coa
 	reason := dispatchReasonAssign
 	if prev != "" {
 		action, reason = db.TeamActionClientReassign, dispatchReasonReassign
+	}
+	if mode == assignModePurchase {
+		reason = dispatchReasonAddonPurchase
 	}
 	now := time.Now()
 	ok, err := s.repo.AssignTx(ctx, gymID, clientID, prev, coachID, now,
@@ -359,6 +404,9 @@ func (s *GymDispatch) Assign(ctx context.Context, callerID, gymID, clientID, coa
 			}
 		}
 		_ = s.transfer(ctx, gymID, clientID, prev, coachID, reason)
+		if mode == assignModePurchase {
+			return
+		}
 		s.notify(ctx, coachID, "New gym client", "A client of your gym has been assigned to you on Coachify.")
 		s.notify(ctx, clientID, "Your coach changed", "Your coach in your gym has changed on Coachify.")
 	})
@@ -474,6 +522,14 @@ func (s *GymDispatch) ReleaseCoachClients(ctx context.Context, rel CoachRelease)
 	if len(rel.CoachIDs) == 0 {
 		return
 	}
+	// The add-on plans of the coaches end whether or not they held gym clients.
+	s.background(ctx, 1, func(ctx context.Context) {
+		err := s.retry(ctx, func() error { return s.billing.CoachDeparted(ctx, rel.GymID, rel.CoachIDs) })
+		if err != nil {
+			zap.L().Error("gym dispatch coach departed failed, replay needed", zap.String("component", "gym_dispatch"),
+				zap.String("gym_id", rel.GymID), zap.Strings("coach_ids", rel.CoachIDs), zap.Error(err))
+		}
+	})
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authzTimeout)
 	defer cancel()
 	var rows []db.GymClient

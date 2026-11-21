@@ -10,6 +10,7 @@ import (
 type MembershipCanceller interface {
 	CancelGymMembership(ctx context.Context, gymID, userID string) (*payments.GymMembershipCancelResult, error)
 	SubscribeGymDefault(ctx context.Context, gymID, userID, joinRef string) (*payments.GymDefaultSubscribeResult, error)
+	GymAddonCoachDeparted(ctx context.Context, gymID string, coachIDs []string) (*payments.GymAddonCoachDepartedResult, error)
 }
 
 var _ MembershipCanceller = (*payments.PaymentClient)(nil)
@@ -33,5 +34,10 @@ func (b paymentsMembershipBilling) CancelAtPeriodEnd(ctx context.Context, gymID,
 
 func (b paymentsMembershipBilling) SubscribeDefault(ctx context.Context, gymID, clientID, joinRef string) error {
 	_, err := b.payments.SubscribeGymDefault(ctx, gymID, clientID, joinRef)
+	return err
+}
+
+func (b paymentsMembershipBilling) CoachDeparted(ctx context.Context, gymID string, coachIDs []string) error {
+	_, err := b.payments.GymAddonCoachDeparted(ctx, gymID, coachIDs)
 	return err
 }

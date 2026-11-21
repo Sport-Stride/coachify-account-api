@@ -119,6 +119,8 @@ type GymSettings struct {
 	Projector SupervisionTeamStore
 	// Departures releases the gym clients of a head coach who leaves or is removed (GYM_DISPATCH_ENABLED); nil skips it.
 	Departures CoachDepartures
+	// Premium marks the gym clients with a live coaching add-on in the owner's client list (GYM_MEMBERSHIP_PLANS_ENABLED); nil skips it.
+	Premium PremiumAnnotator
 	// Seats checks a free seat before a coach or head coach joins and assigns it afterwards (GYM_SEATS_ENABLED); nil skips it.
 	Seats JoinSeats
 	// Inval and Bump drop the cached decisions and move authz_version when the plan.manage lock changes; nil skips it.
@@ -537,6 +539,7 @@ func (s *gymServiceImpl) ListClients(ctx context.Context, callerID, gymID string
 	if err != nil {
 		return nil, 0, s.internal("ListClients", err)
 	}
+	annotateGymClientRows(ctx, s.set.Premium, g.ID.Hex(), rows)
 	return rows, total, nil
 }
 

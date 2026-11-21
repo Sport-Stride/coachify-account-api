@@ -302,3 +302,101 @@ func (c *PaymentClient) SubscribeGymDefault(ctx context.Context, gymID, userID, 
 	}
 	return &out, nil
 }
+
+// MaxGymAddonPremiumIDs is the payments-api limit of client ids per premium request.
+const MaxGymAddonPremiumIDs = 100
+
+// GymAddonPremiumAddon is one live coaching add-on of a client.
+type GymAddonPremiumAddon struct {
+	PlanID   string `json:"plan_id"`
+	PlanName string `json:"plan_name"`
+	CoachID  string `json:"coach_id"`
+}
+
+// GymAddonPremiumClient is the live coaching add-ons of one client of a gym; Since is the earliest live add-on start.
+type GymAddonPremiumClient struct {
+	ClientID string                 `json:"client_id"`
+	Since    *time.Time             `json:"since,omitempty"`
+	Addons   []GymAddonPremiumAddon `json:"addons"`
+}
+
+// GymAddonCoachDepartedResult is the answer of the coach-departed call.
+type GymAddonCoachDepartedResult struct {
+	PlansDeactivated       int `json:"plans_deactivated"`
+	SubscriptionsScheduled int `json:"subscriptions_scheduled"`
+}
+
+// postInternal posts a JSON body to a strict x-api-key payments-api route and decodes the 200 answer into out.
+func (c *PaymentClient) postInternal(ctx context.Context, path, what string, payload, out interface{}) error {
+	if c.apiKey == "" {
+		return fmt.Errorf("payments-api key is not configured")
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return fmt.Errorf("payments-api %s failed: status=%d", what, resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("error decoding %s response: %w", what, err)
+	}
+	return nil
+}
+
+// GymAddonPremium returns the live coaching add-ons of up to MaxGymAddonPremiumIDs clients of a gym (service-to-service,
+// strict x-api-key). Clients without a live add-on are absent from the answer. Any failure returns an error.
+func (c *PaymentClient) GymAddonPremium(ctx context.Context, gymID string, clientIDs []string) ([]GymAddonPremiumClient, error) {
+	if gymID == "" {
+		return nil, fmt.Errorf("gym id is required")
+	}
+	if len(clientIDs) == 0 {
+		return nil, nil
+	}
+	if len(clientIDs) > MaxGymAddonPremiumIDs {
+		return nil, fmt.Errorf("too many client ids: %d", len(clientIDs))
+	}
+	var out struct {
+		Clients []GymAddonPremiumClient `json:"clients"`
+	}
+	req := map[string]interface{}{"gym_id": gymID, "client_ids": clientIDs}
+	if err := c.postInternal(ctx, "/internal/gym-addons/premium", "gym addon premium", req, &out); err != nil {
+		return nil, err
+	}
+	return out.Clients, nil
+}
+
+// GymAddonCoachDeparted asks payments-api to deactivate the coaching add-on plans of departed coaches and to end their
+// live add-on subscriptions at the period end (service-to-service, strict x-api-key). An empty gymID covers every gym of
+// the coaches. Idempotent on the payments side. Any failure returns an error.
+func (c *PaymentClient) GymAddonCoachDeparted(ctx context.Context, gymID string, coachIDs []string) (*GymAddonCoachDepartedResult, error) {
+	if len(coachIDs) == 0 {
+		return nil, fmt.Errorf("coach ids are required")
+	}
+	var out GymAddonCoachDepartedResult
+	req := map[string]interface{}{"coach_ids": coachIDs}
+	if gymID != "" {
+		req["gym_id"] = gymID
+	}
+	if err := c.postInternal(ctx, "/internal/gym-addons/coach-departed", "gym addon coach departed", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

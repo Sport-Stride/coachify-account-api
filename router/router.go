@@ -259,6 +259,11 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
 		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
+		// Coaching add-ons (GYM_MEMBERSHIP_PLANS_ENABLED): called by payments-api.
+		if services.GymAddons != nil {
+			internal.POST("/gyms/:gym_id/coaches/resolve", handlers.ResolveInternalGymCoaches(services.GymAddons))
+			internal.POST("/gym-addons/purchased", handlers.InternalGymAddonPurchased(services.GymAddons))
+		}
 	}
 
 	// fallback

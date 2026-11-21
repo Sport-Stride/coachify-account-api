@@ -92,8 +92,33 @@ func (c *TrackerClient) post(ctx context.Context, path string, payload interface
 		return nil, fmt.Errorf("tracker-api returned %d", resp.StatusCode)
 	}
 	var out BulkResult
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return &out, nil
+	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return &out, nil
+}
+
+type notifyRequest struct {
+	UserID   string                 `json:"user_id"`
+	Type     string                 `json:"type,omitempty"`
+	Title    string                 `json:"title"`
+	Message  string                 `json:"message"`
+	EntityID string                 `json:"entity_id,omitempty"`
+	URL      string                 `json:"url,omitempty"`
+	Data     map[string]interface{} `json:"data,omitempty"`
+}
+
+// Notify creates an in-app notification for a user (tracker POST /notification/external). The tracker ignores the
+// top-level type, so callers put the notification type in data["type"].
+func (c *TrackerClient) Notify(ctx context.Context, userID, title, message, entityID, url string, data map[string]any) error {
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+	_, err := c.post(ctx, "/notification/external", notifyRequest{
+		UserID: userID, Title: title, Message: message, EntityID: entityID, URL: url, Data: data,
+	})
+	return err
 }

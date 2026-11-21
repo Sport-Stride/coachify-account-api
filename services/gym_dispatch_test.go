@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -128,8 +129,10 @@ func (f *fakeDispatchChat) EnsureConversation(_ context.Context, adminID, peerID
 }
 
 type fakeDispatchBilling struct {
-	calls []string
-	err   error
+	calls       []string
+	err         error
+	departed    []string
+	departedErr error
 }
 
 func (f *fakeDispatchBilling) CancelAtPeriodEnd(_ context.Context, gymID, clientID string) error {
@@ -481,3 +484,8 @@ func (f *fakeDispatchChat) EnsureGymConversation(ctx context.Context, adminID, p
 }
 
 func (f *fakeDispatchBilling) SubscribeDefault(context.Context, string, string, string) error { return nil }
+
+func (f *fakeDispatchBilling) CoachDeparted(_ context.Context, gymID string, coachIDs []string) error {
+	f.departed = append(f.departed, gymID+"/"+strings.Join(coachIDs, ","))
+	return f.departedErr
+}

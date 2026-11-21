@@ -43,6 +43,8 @@ type Services struct {
 	Seats SeatService
 	// ContextEntitlements serves GET /internal/users/:id/entitlements; nil (a 404) unless GYM_SEATS_ENABLED.
 	ContextEntitlements ContextEntitlementResolver
+	// GymAddons serves the internal coaching add-on endpoints; nil unless GYM_MEMBERSHIP_PLANS_ENABLED (and a payments key).
+	GymAddons GymAddonService
 }
 
 // DispatchWiring carries the P6 collaborators; nil while GYM_DISPATCH_ENABLED is off.
@@ -181,8 +183,12 @@ func InitServices(config utils.AppConfig,
 		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
 		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
 	}
-	if config.Gym.MembershipPlansEnabled && payment != nil && config.PaymentAPI.APIKey != "" {
+	plansOn := config.Gym.MembershipPlansEnabled && payment != nil && config.PaymentAPI.APIKey != ""
+	var premium PremiumAnnotator
+	if plansOn {
 		gymClientDeps.Billing = NewPaymentsMembershipBilling(payment)
+		premium = NewPremiumAnnotator(payment, userRepo)
+		gymClientDeps.Premium = premium
 	}
 	if seatsOn {
 		gymClientDeps.Seats = seatSvc
@@ -194,6 +200,7 @@ func InitServices(config utils.AppConfig,
 	// Dispatch (P6): the transactional service replaces the P4 one behind the same routes. Off: nothing changes.
 	var gymLeaver GymClientLeaver
 	var departures CoachDepartures
+	var addonAssigner AddonAssigner
 	if config.Gym.DispatchEnabled && config.Gym.ClientGymRelations && dispatch != nil && dispatch.Repo != nil {
 		dd := GymDispatchDeps{Repo: dispatch.Repo, Users: userRepo}
 		if dispatch.Tracker != nil {
@@ -205,11 +212,11 @@ func InitServices(config utils.AppConfig,
 		if notification != nil {
 			dd.Mailer = notification
 		}
-		if config.Gym.MembershipPlansEnabled && payment != nil && config.PaymentAPI.APIKey != "" {
+		if plansOn {
 			dd.Billing = NewPaymentsMembershipBilling(payment)
 		}
 		d := NewGymDispatch(gymClientDeps, dd)
-		gymClients, gymLeaver, departures = d, d, d
+		gymClients, gymLeaver, departures, addonAssigner = d, d, d, d
 		authService.WithCoachDepartures(d)
 	}
 	// Owner chats need the chat client; a nil client (tests) disables them.
@@ -231,6 +238,7 @@ func InitServices(config utils.AppConfig,
 		FlatHierarchy: config.Gym.FlatHierarchy,
 		Projector:     teamRepo,
 		Departures:    departures,
+		Premium:       premium,
 		Seats:         joinSeats,
 		Inval:         authz,
 		Bump:          gymPolicyRepo,
@@ -243,6 +251,27 @@ func InitServices(config utils.AppConfig,
 
 	if config.Gym.ClientGymRelations {
 		coachService.WithGymRelations(coachRepo, membership)
+		if premium != nil {
+			coachService.WithPremium(premium)
+		}
+	}
+	// Coaching add-ons: the internal endpoints payments-api calls (resolve a coach, a purchase happened).
+	var gymAddons GymAddonService
+	if plansOn {
+		ad := GymAddonDeps{Members: membership, Users: userRepo, Assigner: addonAssigner}
+		if seatsOn {
+			ad.Seats = seatSvc
+		}
+		if gymRepo != nil {
+			ad.Gyms = gymRepo
+		}
+		if notification != nil {
+			ad.Mailer = notification
+		}
+		if tc, err := tracker.NewTrackerClient(config.TrackerAPI); err == nil {
+			ad.Notifier = tc
+		}
+		gymAddons = NewGymAddonService(ad)
 	}
 
 	// Unified invite links: always built (404 while INVITE_LINKS_V2 is off); only the flag wires them into signup.
@@ -288,6 +317,7 @@ func InitServices(config utils.AppConfig,
 		GymLeaver:               gymLeaver,
 		Seats:                   seatSvc,
 		ContextEntitlements:     contextEnts,
+		GymAddons:               gymAddons,
 		GymPolicy:               NewGymPolicyService(authz, chain, membership, gymPolicyRepo, gymRepo, userRepo, authz, config.Gym.AuthzEnforce, policyOpts...),
 	}
 }
