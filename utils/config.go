@@ -26,6 +26,7 @@ type AppConfig struct {
 	GymOwnerWelcomeTemplate         string
 	GymOwnerInviteTemplate          string
 	GymJoinInviteTemplate           string
+	GymClientInviteTemplate         string
 	GymAssignmentTemplate           string
 	ConfirmResetPasswordTemplate    string
 	ChatAPI                         ChatAPIConfig
@@ -167,6 +168,7 @@ func LoadConfig() *AppConfig {
 			GymOwnerWelcomeTemplate:         getStringWithDefault("GYM_OWNER_WELCOME_TEMPLATE", "gym_owner_welcome"),
 			GymOwnerInviteTemplate:          getStringWithDefault("GYM_OWNER_INVITE_TEMPLATE", "gym_owner_invite"),
 			GymJoinInviteTemplate:           getStringWithDefault("GYM_JOIN_INVITE_TEMPLATE", "gym_join_invite"),
+			GymClientInviteTemplate:         getStringWithDefault("GYM_CLIENT_INVITE_TEMPLATE", "gym_client_invite"),
 			GymAssignmentTemplate:           getStringWithDefault("GYM_ASSIGNMENT_TEMPLATE", "gym_assignment"),
 			ConfirmResetPasswordTemplate:    getStringWithDefault("CONFIRM_RESET_PASSWORD_TEMPLATE", "confirm_reset_password"),
 			NotificationAPI: NotificationAPIConfig{
