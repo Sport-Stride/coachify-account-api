@@ -479,3 +479,5 @@ func TestDispatchReleaseWithSeveralCoachesAndActor(t *testing.T) {
 func (f *fakeDispatchChat) EnsureGymConversation(ctx context.Context, adminID, peerID, _ string) *models.ApiError {
 	return f.EnsureConversation(ctx, adminID, peerID)
 }
+
+func (f *fakeDispatchBilling) SubscribeDefault(context.Context, string, string, string) error { return nil }

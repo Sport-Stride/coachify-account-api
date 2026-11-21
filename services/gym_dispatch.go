@@ -91,11 +91,18 @@ type AssignmentTransferer interface {
 // idempotent. Until replayed the client keeps paying the gym plan to the next renewal.
 type GymMembershipBilling interface {
 	CancelAtPeriodEnd(ctx context.Context, gymID, clientID string) error
+	// SubscribeDefault subscribes a client who just joined the gym to its free default plan (payments decides; a
+	// paid or missing default is a success). joinRef makes a replay idempotent. A failure never fails the join: it
+	// is retried, then logged as "default plan subscribe failed, replay needed" with gym_id and client_id. Operator
+	// replay: POST {PAYMENTS}/internal/gym-memberships/default-subscribe (x-api-key) with {"gym_id","user_id","join_ref"}.
+	SubscribeDefault(ctx context.Context, gymID, clientID, joinRef string) error
 }
 
 type noopMembershipBilling struct{}
 
 func (noopMembershipBilling) CancelAtPeriodEnd(context.Context, string, string) error { return nil }
+
+func (noopMembershipBilling) SubscribeDefault(context.Context, string, string, string) error { return nil }
 
 // DispatchMailer sends the assignment notice; *notification.NotificationClient satisfies it.
 type DispatchMailer interface {

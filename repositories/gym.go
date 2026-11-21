@@ -197,6 +197,9 @@ func (r *GymRepository) UpdateGym(ctx context.Context, id string, u db.GymUpdate
 	if u.OwnerID != nil {
 		set["owner_id"] = *u.OwnerID
 	}
+	if u.PlanManageLocked != nil {
+		set["plan_manage_locked"] = *u.PlanManageLocked
+	}
 	update := bson.M{"$set": set}
 	if u.Status != nil {
 		set["status"] = *u.Status
@@ -288,6 +291,7 @@ func (r *GymRepository) ListGymsAdmin(ctx context.Context, page, size int, q, st
 			"owner_email", bd("$ifNull", bson.A{bd("$first", "$o.email"), ""}),
 			"owner_profile_picture", bd("$first", "$o.profile_picture"),
 			"head_coach_count", 1, "created_at", 1, "archived_at", 1,
+			"plan_manage_locked", bd("$ifNull", bson.A{"$plan_manage_locked", false}),
 		)),
 	)
 	pipeline = append(pipeline, facetPage(data))

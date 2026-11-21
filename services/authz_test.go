@@ -43,6 +43,7 @@ func (f *fakeAuthzMembers) MembershipOf(_ context.Context, userID, gymID string)
 // fakePolicyStore is an in-memory services.GymPolicyStore that counts reads.
 type fakePolicyStore struct {
 	policies              map[string]*db.GymRolePolicy // gym|role
+	locked                map[string]bool              // gym -> plan.manage locked
 	grants                map[string][]db.PermissionGrant
 	versions              map[string]int64
 	reads                 atomic.Int64
@@ -65,6 +66,10 @@ func (f *fakePolicyStore) ListGrants(_ context.Context, gymID, userID string) ([
 
 func (f *fakePolicyStore) GetAuthzVersion(_ context.Context, gymID string) (int64, error) {
 	return f.versions[gymID], nil
+}
+
+func (f *fakePolicyStore) PlanManageLocked(_ context.Context, gymID string) (bool, error) {
+	return f.locked[gymID], nil
 }
 
 func (f *fakePolicyStore) UpsertRolePolicy(_ context.Context, p *db.GymRolePolicy, expected int64) (*db.GymRolePolicy, error) {

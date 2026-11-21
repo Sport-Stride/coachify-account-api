@@ -252,3 +252,53 @@ func (c *PaymentClient) CancelGymMembership(ctx context.Context, gymID, userID s
 	}
 	return &out, nil
 }
+
+// GymDefaultSubscribeResult is the answer of the gym default plan subscribe: Status is one of "subscribed",
+// "already_subscribed", "no_default", "gym_inactive" or "payment_required" (the default plan is paid, so the client
+// chooses and pays it themselves).
+type GymDefaultSubscribeResult struct {
+	Status         string `json:"status"`
+	SubscriptionID string `json:"subscription_id,omitempty"`
+}
+
+// SubscribeGymDefault asks payments-api to subscribe a client who joined a gym to the gym's default plan when it is
+// free (service-to-service, strict x-api-key). joinRef makes a replay of the same join idempotent. Any failure
+// returns an error.
+func (c *PaymentClient) SubscribeGymDefault(ctx context.Context, gymID, userID, joinRef string) (*GymDefaultSubscribeResult, error) {
+	if gymID == "" || userID == "" {
+		return nil, fmt.Errorf("gym id and user id are required")
+	}
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("payments-api key is not configured")
+	}
+	body, err := json.Marshal(map[string]string{"gym_id": gymID, "user_id": userID, "join_ref": joinRef})
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/internal/gym-memberships/default-subscribe", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	resp, err := utils.InstrumentedDo(ctx, c.httpClient, req, c.target, c.breaker, 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		utils.LogDownstreamBody("payments-api", resp.StatusCode, b)
+		return nil, fmt.Errorf("payments-api gym default subscribe failed: status=%d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var out GymDefaultSubscribeResult
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("error decoding gym default subscribe response: %w", err)
+	}
+	return &out, nil
+}

@@ -181,6 +181,9 @@ func InitServices(config utils.AppConfig,
 		Authz: authz, Members: membership, Store: gymClientRepo, Team: teamRepo, Links: coachRepo, Audit: teamRepo,
 		Quota: quota, Inval: authz, Bump: gymPolicyRepo,
 	}
+	if config.Gym.MembershipPlansEnabled && payment != nil && config.PaymentAPI.APIKey != "" {
+		gymClientDeps.Billing = NewPaymentsMembershipBilling(payment)
+	}
 	if seatsOn {
 		gymClientDeps.Seats = seatSvc
 	}
@@ -229,6 +232,8 @@ func InitServices(config utils.AppConfig,
 		Projector:     teamRepo,
 		Departures:    departures,
 		Seats:         joinSeats,
+		Inval:         authz,
+		Bump:          gymPolicyRepo,
 	})
 	authService.WithGymJoins(gymService)
 	registrationLinkService := NewRegistrationLinkService(

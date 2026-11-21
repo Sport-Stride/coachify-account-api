@@ -121,3 +121,7 @@ func TestInternalAuthzCheckPlanManage(t *testing.T) {
 		assert.False(t, d.Allowed && !d.WouldDeny, "%s must not pass plan.manage by default", u)
 	}
 }
+
+func (f *fakeCanceller) SubscribeGymDefault(context.Context, string, string, string) (*payments.GymDefaultSubscribeResult, error) {
+	return &payments.GymDefaultSubscribeResult{Status: "subscribed"}, nil
+}

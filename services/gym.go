@@ -121,6 +121,9 @@ type GymSettings struct {
 	Departures CoachDepartures
 	// Seats checks a free seat before a coach or head coach joins and assigns it afterwards (GYM_SEATS_ENABLED); nil skips it.
 	Seats JoinSeats
+	// Inval and Bump drop the cached decisions and move authz_version when the plan.manage lock changes; nil skips it.
+	Inval AuthzInvalidator
+	Bump  AuthzVersionBumper
 }
 
 // JoinSeats is the seat seam of the join paths; SeatService satisfies it.
@@ -157,21 +160,22 @@ type GymOwnerMe struct {
 
 // GymView is a gym as returned by the owner and admin write endpoints.
 type GymView struct {
-	GymID           string     `json:"gym_id"`
-	Name            string     `json:"name"`
-	Status          string     `json:"status"`
-	OwnerID         string     `json:"owner_id"`
-	DefaultCurrency string     `json:"default_currency"`
-	Timezone        string     `json:"timezone"`
-	CreatedAt       time.Time  `json:"created_at"`
-	ArchivedAt      *time.Time `json:"archived_at,omitempty"`
+	GymID            string     `json:"gym_id"`
+	Name             string     `json:"name"`
+	Status           string     `json:"status"`
+	OwnerID          string     `json:"owner_id"`
+	DefaultCurrency  string     `json:"default_currency"`
+	Timezone         string     `json:"timezone"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
+	PlanManageLocked bool       `json:"plan_manage_locked"`
 }
 
 func gymView(g *db.Gym) *GymView {
 	return &GymView{
 		GymID: g.ID.Hex(), Name: g.Name, Status: g.Status, OwnerID: g.OwnerID,
 		DefaultCurrency: g.DefaultCurrency, Timezone: g.Timezone,
-		CreatedAt: g.CreatedAt, ArchivedAt: g.ArchivedAt,
+		CreatedAt: g.CreatedAt, ArchivedAt: g.ArchivedAt, PlanManageLocked: g.PlanManageLocked,
 	}
 }
 
@@ -212,9 +216,10 @@ type MyGymInfo struct {
 
 // GymAdminUpdate lists the admin-patchable gym fields; nil means unchanged.
 type GymAdminUpdate struct {
-	Name    *string
-	Status  *string
-	OwnerID *string
+	Name             *string
+	Status           *string
+	OwnerID          *string
+	PlanManageLocked *bool
 }
 
 // GymMembershipReleaser removes the gym membership of a head coach (used when a head coach is demoted).
@@ -288,6 +293,21 @@ func NewGymService(users GymUserStore, gyms GymStore, set GymSettings) GymServic
 	}
 	set.ClientURL = strings.TrimRight(set.ClientURL, "/")
 	return &gymServiceImpl{users: users, gyms: gyms, set: set}
+}
+
+// authzChanged drops the cached decisions of the gym and bumps its authz_version; a bump failure is only logged
+// because the gym row is already updated.
+func (s *gymServiceImpl) authzChanged(ctx context.Context, gymID string) {
+	if s.set.Inval != nil {
+		s.set.Inval.Invalidate(gymID)
+	}
+	if s.set.Bump != nil {
+		bctx, cancel := detachedContext(ctx)
+		defer cancel()
+		if _, err := s.set.Bump.BumpAuthzVersion(bctx, gymID); err != nil {
+			zap.L().Error("authz version bump failed", zap.String("component", "gym"), zap.String("gym_id", gymID), zap.Error(err))
+		}
+	}
 }
 
 // internal logs the real error (ids only, no PII) and returns a generic 500.
@@ -1039,7 +1059,7 @@ func (s *gymServiceImpl) AdminCreateGym(ctx context.Context, adminID, name, owne
 }
 
 func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID string, in GymAdminUpdate) (*GymView, *models.ApiError) {
-	if in.Name == nil && in.Status == nil && in.OwnerID == nil {
+	if in.Name == nil && in.Status == nil && in.OwnerID == nil && in.PlanManageLocked == nil {
 		return nil, teamErr(http.StatusBadRequest, errNothingToUpdate)
 	}
 	g, err := s.gyms.GetGym(ctx, gymID)
@@ -1079,8 +1099,12 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 		oid := *in.OwnerID
 		upd.OwnerID = &oid
 	}
+	if in.PlanManageLocked != nil && *in.PlanManageLocked != g.PlanManageLocked {
+		l := *in.PlanManageLocked
+		upd.PlanManageLocked = &l
+	}
 
-	if upd.Name != nil || upd.Status != nil || upd.OwnerID != nil {
+	if upd.Name != nil || upd.Status != nil || upd.OwnerID != nil || upd.PlanManageLocked != nil {
 		found, err := s.gyms.UpdateGym(ctx, gid, upd)
 		if err != nil {
 			return nil, s.internal("AdminUpdateGym.update", err)
@@ -1088,6 +1112,10 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 		if !found {
 			return nil, teamErr(http.StatusNotFound, errGymNotFound)
 		}
+	}
+
+	if upd.PlanManageLocked != nil {
+		s.authzChanged(ctx, gid)
 	}
 
 	if upd.Status != nil || upd.OwnerID != nil {
@@ -1149,6 +1177,9 @@ func (s *gymServiceImpl) AdminUpdateGym(ctx context.Context, adminID, gymID stri
 	}
 	if upd.OwnerID != nil {
 		g.OwnerID = *upd.OwnerID
+	}
+	if upd.PlanManageLocked != nil {
+		g.PlanManageLocked = *upd.PlanManageLocked
 	}
 	if upd.Status != nil {
 		g.Status = *upd.Status

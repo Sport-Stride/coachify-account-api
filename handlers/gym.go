@@ -369,9 +369,10 @@ func CreateAdminGym(svc services.GymService) gin.HandlerFunc {
 }
 
 type updateGymRequest struct {
-	Name    *string `json:"name"`
-	Status  *string `json:"status"`
-	OwnerID *string `json:"owner_id"`
+	Name             *string `json:"name"`
+	Status           *string `json:"status"`
+	OwnerID          *string `json:"owner_id"`
+	PlanManageLocked *bool   `json:"plan_manage_locked"`
 }
 
 func UpdateAdminGym(svc services.GymService) gin.HandlerFunc {
@@ -385,7 +386,7 @@ func UpdateAdminGym(svc services.GymService) gin.HandlerFunc {
 			return
 		}
 		g, apiErr := svc.AdminUpdateGym(c.Request.Context(), c.GetString("userID"), c.Param("id"),
-			services.GymAdminUpdate{Name: req.Name, Status: req.Status, OwnerID: req.OwnerID})
+			services.GymAdminUpdate{Name: req.Name, Status: req.Status, OwnerID: req.OwnerID, PlanManageLocked: req.PlanManageLocked})
 		if apiErr != nil {
 			respondAdminError(c, apiErr)
 			return

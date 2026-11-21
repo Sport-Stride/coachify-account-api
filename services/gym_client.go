@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -127,6 +128,7 @@ type gymClientService struct {
 	seats   GymSeatStanding // nil: no coach seat check on assign
 	chat    ChatOpener      // nil: no conversations on join
 	gyms    GymOwnerLookup
+	billing GymMembershipBilling // nil: no default plan subscribe on join
 	spawn   func(func())
 	enabled bool
 }
@@ -145,6 +147,7 @@ type GymClientDeps struct {
 	Seats   GymSeatStanding    // optional (GYM_SEATS_ENABLED): refuses assigning to a coach without a seat
 	Chat    ChatOpener         // optional: Join opens the owner and coach conversations of the gym client
 	Gyms    GymOwnerLookup     // optional: gym owner id for the owner conversation (needs Chat)
+	Billing GymMembershipBilling // optional (GYM_MEMBERSHIP_PLANS_ENABLED): Join subscribes the client to the free default plan
 	Spawn   func(func())       // optional, defaults to a goroutine
 }
 
@@ -152,8 +155,8 @@ type GymClientDeps struct {
 func NewGymClientService(d GymClientDeps, enabled bool) GymClientService {
 	return &gymClientService{
 		authz: d.Authz, members: d.Members, store: d.Store, team: d.Team, links: d.Links, audit: d.Audit,
-		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, chat: d.Chat, gyms: d.Gyms, spawn: d.Spawn,
-		enabled: enabled,
+		quota: d.Quota, inval: d.Inval, bump: d.Bump, seats: d.Seats, chat: d.Chat, gyms: d.Gyms, billing: d.Billing,
+		spawn: d.Spawn, enabled: enabled,
 	}
 }
 
@@ -495,6 +498,7 @@ func (s *gymClientService) Join(ctx context.Context, in JoinGymClientInput) (*db
 	})
 	s.changed(ctx, in.GymID)
 	s.openJoinChats(ctx, in)
+	s.subscribeDefaultPlan(ctx, in, row.JoinedAt)
 	return row, nil
 }
 
@@ -630,6 +634,40 @@ func (s *gymClientService) requireCoachSeat(ctx context.Context, gymID, coachID 
 // GymOwnerLookup reads a gym (for its owner id); *repositories.GymRepository satisfies it.
 type GymOwnerLookup interface {
 	GetGym(ctx context.Context, id string) (*db.Gym, error)
+}
+
+// subscribeDefaultPlan subscribes, off the request path, a client who joined a gym to the gym's free default plan
+// (payments decides). The join never fails because of it: a failure is retried, then logged for replay.
+func (s *gymClientService) subscribeDefaultPlan(ctx context.Context, in JoinGymClientInput, joinedAt time.Time) {
+	if s.billing == nil {
+		return
+	}
+	spawn := s.spawn
+	if spawn == nil {
+		spawn = func(f func()) { go f() }
+	}
+	detached := context.WithoutCancel(ctx)
+	joinRef := strconv.FormatInt(joinedAt.UnixNano(), 10)
+	spawn(func() {
+		defer recoverLog("subscribeDefaultPlan")
+		ctx, cancel := context.WithTimeout(detached, dispatchBudgetBase)
+		defer cancel()
+		var err error
+		for i := 0; i < dispatchAttempts; i++ {
+			if err = s.billing.SubscribeDefault(ctx, in.GymID, in.ClientID, joinRef); err == nil {
+				return
+			}
+			if i < dispatchAttempts-1 {
+				select {
+				case <-time.After(dispatchBackoff[i]):
+				case <-ctx.Done():
+					i = dispatchAttempts
+				}
+			}
+		}
+		zap.L().Error("default plan subscribe failed, replay needed", zap.String("component", "gym_client"),
+			zap.String("gym_id", in.GymID), zap.String("client_id", in.ClientID), zap.Error(err))
+	})
 }
 
 // openJoinChats opens, off the request path, the conversations of a client who joined a gym: gym owner <-> client

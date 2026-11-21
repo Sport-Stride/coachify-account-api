@@ -163,6 +163,27 @@ func (r *GymPolicyRepository) GetAuthzVersion(ctx context.Context, gymID string)
 	return g.Version, nil
 }
 
+// PlanManageLocked reports gyms.plan_manage_locked (false when unset or the gym is unknown).
+func (r *GymPolicyRepository) PlanManageLocked(ctx context.Context, gymID string) (bool, error) {
+	oid, ok := gymOID(gymID)
+	if !ok {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, repoOpTimeout)
+	defer cancel()
+	var g struct {
+		Locked bool `bson:"plan_manage_locked"`
+	}
+	err := r.gyms.FindOne(ctx, bson.M{"_id": oid}, options.FindOne().SetProjection(bson.M{"plan_manage_locked": 1})).Decode(&g)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
+		}
+		return false, err
+	}
+	return g.Locked, nil
+}
+
 // BumpAuthzVersion increments gyms.authz_version and returns the new value.
 func (r *GymPolicyRepository) BumpAuthzVersion(ctx context.Context, gymID string) (int64, error) {
 	oid, ok := gymOID(gymID)

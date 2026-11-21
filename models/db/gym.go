@@ -40,13 +40,16 @@ type Gym struct {
 	ArchivedAt      *time.Time         `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
 	// MaxGymClientsOverride is the admin-set cap on active gym clients; nil means the plan decides.
 	MaxGymClientsOverride *int `bson:"max_gym_clients_override,omitempty" json:"-"`
+	// PlanManageLocked is the admin lock on the owner's right to manage client plans (plan.manage), default false.
+	PlanManageLocked bool `bson:"plan_manage_locked,omitempty" json:"plan_manage_locked,omitempty"`
 }
 
 // GymUpdate lists the fields to change; nil means unchanged.
 type GymUpdate struct {
-	Name    *string
-	OwnerID *string
-	Status  *string
+	Name             *string
+	OwnerID          *string
+	Status           *string
+	PlanManageLocked *bool
 }
 
 // GymHeadCoach links a head coach to exactly one gym (head_coach_id is unique).
@@ -98,6 +101,8 @@ type AdminGymRow struct {
 	HeadCoachCount int        `bson:"head_coach_count" json:"head_coach_count"`
 	CreatedAt      time.Time  `bson:"created_at" json:"created_at"`
 	ArchivedAt     *time.Time `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
+	// PlanManageLocked is true when the platform admin locked the owner's client plan management.
+	PlanManageLocked bool `bson:"plan_manage_locked" json:"plan_manage_locked"`
 }
 
 // GymOverview aggregates a whole gym.
