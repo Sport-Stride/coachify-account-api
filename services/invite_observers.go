@@ -90,6 +90,7 @@ func (o *InviteObservers) Wait() {
 // conversationEnsurer opens (get-or-create) the coach-client conversation; *chat.ChatClient satisfies it.
 type conversationEnsurer interface {
 	EnsureConversation(ctx context.Context, adminID, peerID string) *models.ApiError
+	EnsureGymConversation(ctx context.Context, adminID, peerID, gymID string) *models.ApiError
 }
 
 // ensureConversationObserver replaces the stored coach token chat calls: it authenticates with the internal API key.
@@ -109,6 +110,12 @@ func (o *ensureConversationObserver) OnRedeemed(ctx context.Context, e InviteRed
 		return nil
 	}
 	if e.Kind != db.InviteKindClientPersonal && e.Kind != db.InviteKindClientGym {
+		return nil
+	}
+	if e.Kind == db.InviteKindClientGym && e.GymID != "" {
+		if apiErr := o.chat.EnsureGymConversation(ctx, e.CoachID, e.UserID, e.GymID); apiErr != nil {
+			return apiErr.Error
+		}
 		return nil
 	}
 	if apiErr := o.chat.EnsureConversation(ctx, e.CoachID, e.UserID); apiErr != nil {

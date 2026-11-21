@@ -346,7 +346,7 @@ func (s *GymDispatch) Assign(ctx context.Context, callerID, gymID, clientID, coa
 	s.changed(ctx, gymID)
 	s.background(ctx, 1, func(ctx context.Context) {
 		if s.chat != nil {
-			if apiErr := s.chat.EnsureConversation(ctx, coachID, clientID); apiErr != nil {
+			if apiErr := s.chat.EnsureGymConversation(ctx, coachID, clientID, gymID); apiErr != nil {
 				zap.L().Warn("gym dispatch conversation failed", zap.String("component", "gym_dispatch"),
 					zap.String("gym_id", gymID), zap.Error(apiErr.Error))
 			}

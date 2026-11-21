@@ -16,6 +16,7 @@ const gymChatTimeout = 60 * time.Second
 // ChatOpener get-or-creates a conversation with adminID as the admin side; *chat.ChatClient satisfies it.
 type ChatOpener interface {
 	EnsureConversation(ctx context.Context, adminID, peerID string) *models.ApiError
+	EnsureGymConversation(ctx context.Context, adminID, peerID, gymID string) *models.ApiError
 }
 
 // GymChatStore reads the gym relations the provisioner needs.

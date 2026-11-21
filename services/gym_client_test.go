@@ -496,3 +496,30 @@ func TestGymClientAssignTargetEligibility(t *testing.T) {
 		requireCode(t, apiErr, http.StatusBadRequest)
 	})
 }
+
+type fakeGymOwnerLookup struct{ owner string }
+
+func (f fakeGymOwnerLookup) GetGym(_ context.Context, _ string) (*db.Gym, error) {
+	return &db.Gym{OwnerID: f.owner}, nil
+}
+
+func TestGymClientJoinOpensGymConversations(t *testing.T) {
+	ctx := context.Background()
+	members := &fakeAuthzMembers{rows: []db.GymMember{member("owner", db.GymMemberRoleOwner), member("c1", db.GymMemberRoleCoach)}}
+	store := &fakeGymClientStore{}
+	quota := &mocks.QuotaGuard{}
+	quota.On("Check", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	join := func(coach string) []string {
+		chat := &fakeChat{}
+		svc := services.NewGymClientService(services.GymClientDeps{
+			Members: members, Store: store, Audit: &fakeClientAudit{}, Quota: quota,
+			Chat: chat, Gyms: fakeGymOwnerLookup{owner: "owner"}, Spawn: func(f func()) { f() },
+		}, true)
+		_, apiErr := svc.Join(ctx, services.JoinGymClientInput{GymID: gymA, ClientID: "cl-" + coach, CoachID: coach, Consent: true})
+		require.Nil(t, apiErr)
+		return chat.calls
+	}
+	assert.Equal(t, []string{"owner:cl-c1", "c1:cl-c1"}, join("c1"))
+	assert.Equal(t, []string{"owner:cl-owner"}, join("owner"), "owner acting as coach opens one conversation")
+	assert.Equal(t, []string{"owner:cl-"}, join(""), "pool client talks to the owner only")
+}

@@ -105,3 +105,14 @@ func TestEnsureConversation_Errors(t *testing.T) {
 		assert.ErrorIs(t, apiErr.Error, models.ErrUnexpectedStatusCode)
 	}
 }
+
+func TestEnsureGymConversation_SendsGymID(t *testing.T) {
+	c := newClientWithKey(t, "k-1", func(w http.ResponseWriter, r *http.Request) {
+		var body createConversationRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "gym-1", body.GymID)
+		assert.Equal(t, []string{"peer-1"}, body.ClientIDs)
+		w.WriteHeader(http.StatusOK)
+	})
+	assert.Nil(t, c.EnsureGymConversation(context.Background(), "owner-1", "peer-1", "gym-1"))
+}
