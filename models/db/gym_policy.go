@@ -17,6 +17,11 @@ const (
 	CapProgramWrite   = "program.write"
 	CapLibraryRead    = "library.read"
 	CapPlanManage     = "plan.manage"
+	CapEventWrite     = "event.write"
+	CapEventCopy      = "event.copy"
+	CapEventDelete    = "event.delete"
+	CapEventCapacity  = "event.capacity"
+	CapEventFee       = "event.fee"
 )
 
 // Structural checks the authorizer answers but no policy or grant can change: owner-only and head-coach-only.
@@ -25,10 +30,11 @@ const (
 	CapGymHead   = "gym.head"
 )
 
-// GymCapabilities lists the nine configurable capabilities.
+// GymCapabilities lists the fourteen configurable capabilities.
 var GymCapabilities = []string{
 	CapClientAssign, CapClientUnassign, CapClientViewAll, CapMemberInvite,
 	CapExerciseWrite, CapWorkoutWrite, CapProgramWrite, CapLibraryRead, CapPlanManage,
+	CapEventWrite, CapEventCopy, CapEventDelete, CapEventCapacity, CapEventFee,
 }
 
 // GrantEffect is the effect of a per-member override.

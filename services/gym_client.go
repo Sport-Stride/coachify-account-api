@@ -101,6 +101,15 @@ type GymClientService interface {
 	// Relationships answers how the actor reaches a client (internal, tracker/WMS data context): the personal link
 	// and every gym where the actor may see the client as gym context. No relation is an empty answer, not an error.
 	Relationships(ctx context.Context, actorID, clientID string) (*ClientRelationships, *models.ApiError)
+	// Access answers a user's standing in one gym (internal, schedule-api): the active staff role ("" when none)
+	// and whether he is an active gym client. Neither is an empty answer, not an error.
+	Access(ctx context.Context, userID, gymID string) (*GymAccess, *models.ApiError)
+}
+
+// GymAccess is the answer of Access.
+type GymAccess struct {
+	StaffRole    string `json:"staff_role"`
+	ClientActive bool   `json:"client_active"`
 }
 
 // GymRelation is one gym through which the actor reaches the client.
@@ -571,6 +580,31 @@ func (s *gymClientService) Relationships(ctx context.Context, actorID, clientID 
 		return nil, s.internal("Relationships.members", err)
 	}
 	out.Gyms = append(out.Gyms, visibleGymRelations(actorID, rows, memberships)...)
+	return out, nil
+}
+
+func (s *gymClientService) Access(ctx context.Context, userID, gymID string) (*GymAccess, *models.ApiError) {
+	if userID == "" || gymID == "" {
+		return nil, teamErr(http.StatusBadRequest, errClientRequired)
+	}
+	out := &GymAccess{}
+	ctx, cancel := context.WithTimeout(ctx, authzTimeout)
+	defer cancel()
+	m, err := s.members.MembershipOf(ctx, userID, gymID)
+	if err != nil {
+		return nil, s.internal("Access.member", err)
+	}
+	if canCoach(m) {
+		out.StaffRole = string(m.Role)
+	}
+	if !s.enabled {
+		return out, nil
+	}
+	row, err := s.store.Get(ctx, gymID, userID)
+	if err != nil {
+		return nil, s.internal("Access.client", err)
+	}
+	out.ClientActive = row != nil && row.Status == db.GymClientStatusActive
 	return out, nil
 }
 

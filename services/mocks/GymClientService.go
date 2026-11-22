@@ -67,6 +67,15 @@ func (_m *GymClientService) Relationships(ctx context.Context, actorID, clientID
 	return r0, apiErrAt(ret, 1)
 }
 
+func (_m *GymClientService) Access(ctx context.Context, userID, gymID string) (*services.GymAccess, *models.ApiError) {
+	ret := _m.Called(ctx, userID, gymID)
+	var r0 *services.GymAccess
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*services.GymAccess)
+	}
+	return r0, apiErrAt(ret, 1)
+}
+
 func (_m *GymClientService) MyGyms(ctx context.Context, clientID string) ([]db.MyGymRow, *models.ApiError) {
 	ret := _m.Called(ctx, clientID)
 	var r0 []db.MyGymRow

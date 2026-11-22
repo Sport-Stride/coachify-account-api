@@ -340,7 +340,7 @@ func TestPolicyServiceRolePolicyVersioningAndInvalidation(t *testing.T) {
 	assert.True(t, v.Capabilities["workout.write"])
 	assert.False(t, v.Preset["workout.write"], "preset stays the platform value, not the override")
 	assert.True(t, v.Preset["library.read"])
-	assert.Len(t, v.Preset, 9)
+	assert.Len(t, v.Preset, 14)
 	assert.True(t, can(t, authz, "coach", services.CapWorkoutWrite).Allowed)
 
 	_, apiErr = svc.PutRolePolicy(ctx, "owner", gymA, "coach", map[string]bool{}, 0)
@@ -408,7 +408,7 @@ func TestGymContextPersonalVersusGym(t *testing.T) {
 	assert.Equal(t, "Gym "+gymA, v.Memberships[0].GymName)
 	assert.True(t, v.Memberships[0].Capabilities["client.assign"])
 	assert.False(t, v.Memberships[0].Capabilities["plan.manage"])
-	assert.Len(t, v.Memberships[0].Capabilities, 9)
+	assert.Len(t, v.Memberships[0].Capabilities, 14)
 }
 
 func TestInternalCheckEnforceAndReportModes(t *testing.T) {

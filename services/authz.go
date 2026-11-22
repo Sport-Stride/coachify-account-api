@@ -20,6 +20,11 @@ const (
 	CapProgramWrite   Capability = db.CapProgramWrite
 	CapLibraryRead    Capability = db.CapLibraryRead
 	CapPlanManage     Capability = db.CapPlanManage
+	CapEventWrite     Capability = db.CapEventWrite
+	CapEventCopy      Capability = db.CapEventCopy
+	CapEventDelete    Capability = db.CapEventDelete
+	CapEventCapacity  Capability = db.CapEventCapacity
+	CapEventFee       Capability = db.CapEventFee
 
 	// CapGymManage is owner-only and CapGymHead head-coach-only: structural checks that no policy or grant changes.
 	CapGymManage Capability = db.CapGymManage
@@ -108,11 +113,13 @@ var platformPreset = map[db.GymMemberRole]map[Capability]bool{
 	db.GymMemberRoleHeadCoach: {
 		CapClientAssign: true, CapClientUnassign: true, CapClientViewAll: true, CapMemberInvite: true, CapLibraryRead: true,
 		CapExerciseWrite: false, CapWorkoutWrite: false, CapProgramWrite: false, CapPlanManage: false,
+		CapEventWrite: true, CapEventCopy: true, CapEventDelete: false, CapEventCapacity: false, CapEventFee: false,
 		CapGymHead: true,
 	},
 	db.GymMemberRoleCoach: {
 		CapLibraryRead:  true,
 		CapClientAssign: false, CapClientUnassign: false, CapClientViewAll: false, CapMemberInvite: false,
 		CapExerciseWrite: false, CapWorkoutWrite: false, CapProgramWrite: false, CapPlanManage: false,
+		CapEventWrite: false, CapEventCopy: false, CapEventDelete: false, CapEventCapacity: false, CapEventFee: false,
 	},
 }
