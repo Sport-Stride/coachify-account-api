@@ -17,10 +17,21 @@ import (
 type GoogleProvider struct {
 	config        *oauth2.Config
 	encryptionKey string
+	// audiences are the client IDs accepted in an ID token sent by a client (web first, then mobile).
+	audiences []string
 }
 
-func NewGoogleProvider(clientID, clientSecret, redirectURL, encryptionKey string) *GoogleProvider {
+// NewGoogleProvider builds the Google provider. extraAudiences are the mobile (Android, iOS) client IDs
+// accepted by ValidateToken on top of clientID; the web code-exchange flow keeps clientID only.
+func NewGoogleProvider(clientID, clientSecret, redirectURL, encryptionKey string, extraAudiences ...string) *GoogleProvider {
+	audiences := []string{clientID}
+	for _, a := range extraAudiences {
+		if a != "" && a != clientID {
+			audiences = append(audiences, a)
+		}
+	}
 	return &GoogleProvider{
+		audiences: audiences,
 		config: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -49,8 +60,9 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2
 
 func (p *GoogleProvider) ValidateToken(ctx context.Context, idToken string) (*TokenClaims, *models.ApiError) {
 
-	// Validate the ID token with Google's certificates
-	payload, err := idtoken.Validate(ctx, idToken, p.config.ClientID)
+	// Validate signature and expiry with Google's certificates. No audience is passed here: it is
+	// checked below against every accepted client ID (web, Android, iOS), then the issuer.
+	payload, err := idtoken.Validate(ctx, idToken, "")
 	if err != nil {
 		return nil, &models.ApiError{
 			Code:  http.StatusUnauthorized,
@@ -58,15 +70,38 @@ func (p *GoogleProvider) ValidateToken(ctx context.Context, idToken string) (*To
 		}
 	}
 
-	// Validate audience
-	if aud, _ := payload.Claims["aud"].(string); aud != p.config.ClientID {
+	if !p.acceptsAudience(payload.Audience) {
 		return nil, &models.ApiError{
 			Code:  http.StatusUnauthorized,
 			Error: models.ErrInvalidAudience,
 		}
-
+	}
+	// idtoken.Validate does not check the issuer: only Google's own may sign in users.
+	if !googleIssuer(payload.Issuer) {
+		return nil, &models.ApiError{
+			Code:  http.StatusUnauthorized,
+			Error: models.ErrInvalidIDToken,
+		}
 	}
 	return claimsFromPayload(payload.Claims), nil
+}
+
+// googleIssuer reports whether iss is one of the two issuers Google uses for ID tokens.
+func googleIssuer(iss string) bool {
+	return iss == "accounts.google.com" || iss == "https://accounts.google.com"
+}
+
+// acceptsAudience reports whether aud is one of the configured client IDs.
+func (p *GoogleProvider) acceptsAudience(aud string) bool {
+	if aud == "" {
+		return false
+	}
+	for _, a := range p.audiences {
+		if a == aud {
+			return true
+		}
+	}
+	return false
 }
 
 // claimsFromPayload extracts the identity claims; email_verified may arrive as a bool or a string.

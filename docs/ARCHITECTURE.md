@@ -583,6 +583,7 @@ Decode into struct with CoachID field
 | `COACHIFY_ENCRYPTION_KEY` | (32-char key) | AES-GCM token encryption |
 | `COACHIFY_SECRET_KEY` | (hex key) | HMAC JWT signing |
 | `GOOGLE_APP_ID` / `GOOGLE_APP_SECRET` | — | Google OAuth2 credentials |
+| `GOOGLE_MOBILE_CLIENT_IDS` | (empty) | Android and iOS client IDs, comma-separated, also accepted as ID token audience by `POST /oauth/google/auth/me` |
 | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | — | Facebook OAuth2 credentials |
 | `MAILGUN_API_KEY` / `MAILGUN_DOMAIN` | — | Email sending config |
 | `CONFIRMATION_CODE_TEMPLATE_PENDING` | confirmation_code_pending | Mailgun template name |

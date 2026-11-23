@@ -64,3 +64,14 @@ func TestValidateOK(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestGetStringListWithDefault(t *testing.T) {
+	const key = "TEST_STRING_LIST_KEY"
+	t.Cleanup(func() { viper.Set(key, "") })
+
+	viper.Set(key, " android-id , ,ios-id,")
+	assert.Equal(t, []string{"android-id", "ios-id"}, getStringList(key))
+
+	viper.Set(key, "")
+	assert.Nil(t, getStringList(key))
+}
