@@ -232,6 +232,7 @@ func (app *App) setup() {
 		inviteLinkRepo,
 		dispatch,
 	)
+	servicesWrapper.NotificationPrefs = services.NewNotificationPrefsService(repositories.NewNotificationPrefsRepository(db))
 
 	// Initialize Router
 	r := router.InitializeRouter(servicesWrapper)
