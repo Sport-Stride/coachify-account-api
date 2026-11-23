@@ -95,6 +95,7 @@ The Coachify Account API is a user and account management microservice that hand
 | GET | `/coach/clients` | ListCoachClients | List coach's assigned clients |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
+| POST | `/uploads/sign` | SignUpload | Signed direct image upload to Cloudinary (own folder, 30/min) |
 
 ---
 
@@ -996,3 +997,20 @@ Codes: `FEATURE_DISABLED`, `CLIENT_FEATURE_DISABLED` (set by consumers), `QUOTA_
 | `INTERNAL_API_KEY` | (empty) | Shared secret for `/internal/*` (also sent to identifier, invitation, notification) |
 | `INTERNAL_API_KEY_REQUIRED` | `false` | `false`: a missing or wrong key is logged (`internal_key_missing`) and allowed; `true`: 401 |
 | `PAYMENT_API_KEY` | `INTERNAL_API_KEY` | `x-api-key` sent to payments `/internal/subscriptions/summary` (payments must run with the same key) |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | (empty) | Cloudinary account that signs `POST /uploads/sign`; uploads answer 503 while any is empty. Same account as the web upload route |
+| `UPLOADS_QUOTA_ENFORCE` | false | Refuse a signature when the `file_manager` quota denies it or is unreadable. Off: logged and allowed, like the web route's report mode |
+
+
+## Signed image uploads (`POST /uploads/sign`)
+
+For clients without a NextAuth session (the mobile app). JWT-protected, rate limited to 30 per minute per user.
+
+Request: `{"purpose": "profile" | "progress" | "meals" | "library", "size": <bytes, 1 to 20 MB>}`.
+
+Response: `{"upload_url": "https://api.cloudinary.com/v1_1/<cloud>/image/upload", "fields": {...}, "expires_at": <unix>}`. The client posts `fields` plus `file` as multipart to `upload_url` and keeps `secure_url` from Cloudinary's answer.
+
+- The folder is `users/<external_id>/<purpose>`, the same layout as the web upload route; the identity comes from the JWT only.
+- `folder`, `allowed_formats` (jpg, jpeg, png, webp, heic, heif) and `transformation` (`c_limit,h_2048,w_2048`) are signed, so the client cannot change them. Cloudinary generates the public id, so nothing is overwritten.
+- Signatures are Cloudinary SHA-1 signatures; Cloudinary accepts them for one hour.
+- One upload of `size` bytes is consumed from the `file_manager` quota before signing (`UPLOADS_QUOTA_ENFORCE`). The size is declared by the client.
+- The API secret never leaves the server.

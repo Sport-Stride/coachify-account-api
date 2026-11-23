@@ -26,6 +26,7 @@ type Services struct {
 	AdminService            AdminService
 	TeamService             TeamService
 	GymService              GymService
+	Uploads                 UploadService
 	AnalyticsScopeService   AnalyticsScopeService
 	RegistrationLinkService RegistrationLinkService
 	UserStatus              UserStatusLookup
@@ -312,6 +313,7 @@ func InitServices(config utils.AppConfig,
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
 		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(memberStore), WithReadCache(15*time.Second), WithCoachDepartures(departures)),
 		GymService:              gymService,
+		Uploads:                 NewUploadService(config.Uploads, entitlementService),
 		AnalyticsScopeService:   NewAnalyticsScopeService(userRepo, repositories.NewAnalyticsRepository(teamRepo, gymRepo), config.Analytics.ScopeMaxCoaches),
 		RegistrationLinkService: registrationLinkService,
 		UserStatus:              userRepo,

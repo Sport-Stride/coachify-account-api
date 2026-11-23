@@ -200,6 +200,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		protected.POST("/gyms/:gym_id/clients/:client_id/assign", handlers.AssignGymClient(services.GymClients))
 		protected.POST("/gyms/:gym_id/clients/:client_id/unassign", handlers.UnassignGymClient(services.GymClients))
 		protected.DELETE("/gyms/:gym_id/clients/:client_id", handlers.RemoveGymClient(services.GymClients))
+		// Signed direct image upload to Cloudinary, into the caller's own folder
+		protected.POST("/uploads/sign", RateLimit(30, time.Minute, userOrIPKey), handlers.SignUpload(services.Uploads))
 		protected.GET("/me/gyms", handlers.ListMyGyms(services.GymClients))
 		// Client leaves a gym (GYM_DISPATCH_ENABLED); not registered while the flag is off.
 		if services.GymLeaver != nil {
