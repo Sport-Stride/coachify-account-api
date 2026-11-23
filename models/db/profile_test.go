@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -60,4 +61,30 @@ func TestValidHeightCm(t *testing.T) {
 	for _, bad := range []int{-1, 1, MinHeightCm - 1, MaxHeightCm + 1} {
 		assert.False(t, ValidHeightCm(bad), bad)
 	}
+}
+
+func TestValidExperienceYears(t *testing.T) {
+	for _, ok := range []int{0, 1, 8, MaxExperienceYears} {
+		assert.True(t, ValidExperienceYears(ok), ok)
+	}
+	for _, bad := range []int{-1, MaxExperienceYears + 1} {
+		assert.False(t, ValidExperienceYears(bad), bad)
+	}
+}
+
+func TestNormalizeCertification(t *testing.T) {
+	got, ok := NormalizeCertification("  Diplôme d'État  ")
+	assert.True(t, ok)
+	assert.Equal(t, "Diplôme d'État", got)
+
+	got, ok = NormalizeCertification("")
+	assert.True(t, ok)
+	assert.Empty(t, got)
+
+	_, ok = NormalizeCertification(strings.Repeat("é", MaxCertificationLen+1))
+	assert.False(t, ok, "counted in characters, too long")
+	_, ok = NormalizeCertification(strings.Repeat("é", MaxCertificationLen))
+	assert.True(t, ok)
+	_, ok = NormalizeCertification("line\nbreak")
+	assert.False(t, ok)
 }

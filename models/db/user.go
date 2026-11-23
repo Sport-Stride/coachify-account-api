@@ -85,6 +85,9 @@ type UserMetadata struct {
 	Specialties []string `bson:"specialties,omitempty" json:"specialties,omitempty"`
 	Goal        string   `bson:"goal,omitempty" json:"goal,omitempty"`
 	Level       string   `bson:"level,omitempty" json:"level,omitempty"`
+	// Shown on the coach's public profile.
+	ExperienceYears int    `bson:"experience_years,omitempty" json:"experience_years,omitempty"`
+	Certification   string `bson:"certification,omitempty" json:"certification,omitempty"`
 }
 
 // PersonalInfo holds the private body details of a user. Zero values mean "not set".

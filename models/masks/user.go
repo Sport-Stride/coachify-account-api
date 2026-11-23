@@ -34,6 +34,8 @@ const (
 	UserUpdateMaskUserMetadataSpecialties = "metadata.specialties"
 	UserUpdateMaskUserMetadataGoal        = "metadata.goal"
 	UserUpdateMaskUserMetadataLevel       = "metadata.level"
+	UserUpdateMaskUserMetadataExperience  = "metadata.experience_years"
+	UserUpdateMaskUserMetadataCertif      = "metadata.certification"
 
 	// Masks for the private personal details
 	UserUpdateMaskUserPersonalBirthDate = "personal.birth_date"
@@ -163,6 +165,23 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidLevel}
 				}
 				updateFields["metadata.level"] = req.User.Metadata.Level
+			}
+
+		case UserUpdateMaskUserMetadataExperience:
+			if req.User.Metadata != nil {
+				if !db.ValidExperienceYears(req.User.Metadata.ExperienceYears) {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidExperienceYears}
+				}
+				updateFields["metadata.experience_years"] = req.User.Metadata.ExperienceYears
+			}
+
+		case UserUpdateMaskUserMetadataCertif:
+			if req.User.Metadata != nil {
+				certification, ok := db.NormalizeCertification(req.User.Metadata.Certification)
+				if !ok {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidCertification}
+				}
+				updateFields["metadata.certification"] = certification
 			}
 
 		case UserUpdateMaskUserPersonalBirthDate:
