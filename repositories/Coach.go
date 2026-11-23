@@ -308,6 +308,30 @@ func (r *CoachRepository) ListCoachClientsSummary(ctx context.Context, coachID s
 	return out, int(total), nil
 }
 
+// CountFollowedClients counts the distinct clients a coach follows: personal links (coach_clients), plus, when
+// withGym, the active gym clients assigned to them (gym_clients). A client linked both ways counts once.
+// Both lookups use the coach_id indexes.
+func (r *CoachRepository) CountFollowedClients(ctx context.Context, coachID string, withGym bool) (int, error) {
+	ids := map[interface{}]struct{}{}
+	personal, err := r.collection.Distinct(ctx, "client_id", bson.M{"coach_id": coachID})
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range personal {
+		ids[id] = struct{}{}
+	}
+	if withGym {
+		gym, err := r.gymClients.Distinct(ctx, "client_id", bson.M{"coach_id": coachID, "status": db.GymClientStatusActive})
+		if err != nil {
+			return 0, err
+		}
+		for _, id := range gym {
+			ids[id] = struct{}{}
+		}
+	}
+	return len(ids), nil
+}
+
 // DissociateCoachClient removes a coach-client relationship
 func (r *CoachRepository) DissociateCoachClient(ctx context.Context, coachID, clientID string) error {
 	filter := bson.M{"coach_id": coachID, "client_id": clientID}

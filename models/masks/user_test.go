@@ -259,3 +259,24 @@ func TestUpdateUserMasks_PersonalFieldsRejectInvalid(t *testing.T) {
 		assert.ErrorIs(t, apiErr.Error, c.err, c.mask)
 	}
 }
+
+func TestUpdateUserMasks_CoachPublicFields(t *testing.T) {
+	req := &api.RequestUpdateUser{
+		User:        api.UserRequest{Metadata: &db.UserMetadata{ExperienceYears: 8, Certification: "  Diplôme d'État "}},
+		UpdateMasks: []string{"metadata.experience_years", "metadata.certification"},
+	}
+	f, apiErr := UpdateUserMasks(req)
+	require.Nil(t, apiErr)
+	assert.Equal(t, bson.M{"metadata.experience_years": 8, "metadata.certification": "Diplôme d'État"}, f)
+
+	for mask, meta := range map[string]db.UserMetadata{
+		"metadata.experience_years": {ExperienceYears: 61},
+		"metadata.certification":    {Certification: strings.Repeat("x", 101)},
+	} {
+		m := meta
+		f, apiErr := UpdateUserMasks(&api.RequestUpdateUser{User: api.UserRequest{Metadata: &m}, UpdateMasks: []string{mask}})
+		assert.Nil(t, f, mask)
+		require.NotNil(t, apiErr, mask)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, mask)
+	}
+}

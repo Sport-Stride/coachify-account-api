@@ -1,6 +1,10 @@
 package db
 
-import "time"
+import (
+	"strings"
+	"time"
+	"unicode/utf8"
+)
 
 // Onboarding answers are stored as stable keys, never as display text or list indexes:
 // the apps translate them, so renaming a label never touches stored data.
@@ -83,3 +87,27 @@ const (
 
 // ValidHeightCm accepts 0 (clear) or a height between MinHeightCm and MaxHeightCm.
 func ValidHeightCm(h int) bool { return h == 0 || (h >= MinHeightCm && h <= MaxHeightCm) }
+
+// MaxExperienceYears bounds metadata.experience_years.
+const MaxExperienceYears = 60
+
+// ValidExperienceYears accepts 0 (clear) up to MaxExperienceYears.
+func ValidExperienceYears(y int) bool { return y >= 0 && y <= MaxExperienceYears }
+
+// MaxCertificationLen bounds metadata.certification, in characters.
+const MaxCertificationLen = 100
+
+// NormalizeCertification trims the certification and reports false when it is too long
+// or holds control characters. "" clears it.
+func NormalizeCertification(c string) (string, bool) {
+	c = strings.TrimSpace(c)
+	if utf8.RuneCountInString(c) > MaxCertificationLen || !utf8.ValidString(c) {
+		return "", false
+	}
+	for _, r := range c {
+		if r < 0x20 || r == 0x7f {
+			return "", false
+		}
+	}
+	return c, true
+}
