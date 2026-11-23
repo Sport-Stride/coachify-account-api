@@ -79,6 +79,10 @@ type UserMetadata struct {
 	WorkPlace       string   `bson:"work_place,omitempty" json:"work_place,omitempty"`
 	ClientRange     string   `bson:"client_range,omitempty" json:"client_range,omitempty"`
 	Offerings       []string `bson:"offerings,omitempty" json:"offerings,omitempty"`
+	// Onboarding answers, as keys from profile.go: specialties for coaches and nutritionists, goal and level for clients.
+	Specialties []string `bson:"specialties,omitempty" json:"specialties,omitempty"`
+	Goal        string   `bson:"goal,omitempty" json:"goal,omitempty"`
+	Level       string   `bson:"level,omitempty" json:"level,omitempty"`
 }
 
 type SearchUser struct {

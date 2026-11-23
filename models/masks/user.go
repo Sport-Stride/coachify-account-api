@@ -30,6 +30,9 @@ const (
 	UserUpdateMaskUserMetadataWorkPlace   = "metadata.work_place"
 	UserUpdateMaskUserMetadataClientRange = "metadata.client_range"
 	UserUpdateMaskUserMetadataOfferings   = "metadata.offerings"
+	UserUpdateMaskUserMetadataSpecialties = "metadata.specialties"
+	UserUpdateMaskUserMetadataGoal        = "metadata.goal"
+	UserUpdateMaskUserMetadataLevel       = "metadata.level"
 )
 
 func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
@@ -130,6 +133,31 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 		case UserUpdateMaskUserMetadataOfferings:
 			if req.User.Metadata != nil {
 				updateFields["metadata.offerings"] = req.User.Metadata.Offerings
+			}
+
+		case UserUpdateMaskUserMetadataSpecialties:
+			if req.User.Metadata != nil {
+				specialties, ok := db.NormalizeSpecialties(req.User.Metadata.Specialties)
+				if !ok {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidSpecialty}
+				}
+				updateFields["metadata.specialties"] = specialties
+			}
+
+		case UserUpdateMaskUserMetadataGoal:
+			if req.User.Metadata != nil {
+				if !db.ValidGoal(req.User.Metadata.Goal) {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidGoal}
+				}
+				updateFields["metadata.goal"] = req.User.Metadata.Goal
+			}
+
+		case UserUpdateMaskUserMetadataLevel:
+			if req.User.Metadata != nil {
+				if !db.ValidLevel(req.User.Metadata.Level) {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidLevel}
+				}
+				updateFields["metadata.level"] = req.User.Metadata.Level
 			}
 
 		}

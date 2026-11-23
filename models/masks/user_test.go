@@ -177,3 +177,55 @@ func TestUpdateUserMasks_IgnoresEmailAndVerificationStatus(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Equal(t, bson.M{"firstname": "A"}, f)
 }
+
+func TestUpdateUserMasks_OnboardingFields(t *testing.T) {
+	req := &api.RequestUpdateUser{
+		User: api.UserRequest{Metadata: &db.UserMetadata{
+			Specialties: []string{"running", "yoga", "running"}, Goal: "build_muscle", Level: "beginner",
+		}},
+		UpdateMasks: []string{"metadata.specialties", "metadata.goal", "metadata.level"},
+	}
+	f, apiErr := UpdateUserMasks(req)
+	require.Nil(t, apiErr)
+	assert.Equal(t, bson.M{
+		"metadata.specialties": []string{"running", "yoga"},
+		"metadata.goal":        "build_muscle",
+		"metadata.level":       "beginner",
+	}, f)
+}
+
+func TestUpdateUserMasks_OnboardingFieldsClear(t *testing.T) {
+	req := &api.RequestUpdateUser{
+		User:        api.UserRequest{Metadata: &db.UserMetadata{}},
+		UpdateMasks: []string{"metadata.specialties", "metadata.goal", "metadata.level"},
+	}
+	f, apiErr := UpdateUserMasks(req)
+	require.Nil(t, apiErr)
+	assert.Equal(t, bson.M{"metadata.specialties": []string{}, "metadata.goal": "", "metadata.level": ""}, f)
+}
+
+func TestUpdateUserMasks_OnboardingFieldsRejectUnknownValues(t *testing.T) {
+	cases := []struct {
+		mask string
+		meta db.UserMetadata
+		err  error
+	}{
+		{"metadata.specialties", db.UserMetadata{Specialties: []string{"strength", "crossfit"}}, models.ErrInvalidSpecialty},
+		{"metadata.goal", db.UserMetadata{Goal: "Perdre du poids"}, models.ErrInvalidGoal},
+		{"metadata.level", db.UserMetadata{Level: "2"}, models.ErrInvalidLevel},
+	}
+	for _, c := range cases {
+		meta := c.meta
+		f, apiErr := UpdateUserMasks(&api.RequestUpdateUser{User: api.UserRequest{Metadata: &meta}, UpdateMasks: []string{c.mask}})
+		assert.Nil(t, f, c.mask)
+		require.NotNil(t, apiErr, c.mask)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, c.mask)
+		assert.ErrorIs(t, apiErr.Error, c.err, c.mask)
+	}
+}
+
+func TestUpdateUserMasks_OnboardingFieldsWithoutMetadataIgnored(t *testing.T) {
+	f, apiErr := UpdateUserMasks(&api.RequestUpdateUser{UpdateMasks: []string{"metadata.specialties", "metadata.goal", "metadata.level"}})
+	require.Nil(t, apiErr)
+	assert.Empty(t, f)
+}
