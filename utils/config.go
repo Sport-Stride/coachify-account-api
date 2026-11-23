@@ -35,6 +35,7 @@ type AppConfig struct {
 	FacebookEncryptionKey           string
 	GoogleOAuth                     *oauth2.Config
 	GoogleEncryptionKey             string
+	GoogleMobileClientIDs           []string // Android and iOS client IDs (GOOGLE_MOBILE_CLIENT_IDS)
 	CoachifyEncryptionKey           string
 	CoachifySecretKey               string
 	WelcomeTemplate                 string
@@ -199,6 +200,7 @@ func LoadConfig() *AppConfig {
 				Endpoint:     google.Endpoint,
 			},
 			GoogleEncryptionKey:    getStringWithDefault("GOOGLE_ENCRYPTION_KEY", ""),
+			GoogleMobileClientIDs:  getStringList("GOOGLE_MOBILE_CLIENT_IDS"),
 			CoachifyEncryptionKey:  getStringWithDefault("COACHIFY_ENCRYPTION_KEY", ""),
 			CoachifySecretKey:      getStringWithDefault("COACHIFY_SECRET_KEY", ""),
 			WelcomeTemplate:        getStringWithDefault("WELCOME_TEMPLATE", "welcome_template"),
@@ -271,6 +273,17 @@ func getStringWithDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getStringList reads a comma-separated list; blanks are dropped and an unset key yields nil.
+func getStringList(key string) []string {
+	var out []string
+	for _, v := range strings.Split(viper.GetString(key), ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func getIntWithDefault(key string, defaultValue int) int {

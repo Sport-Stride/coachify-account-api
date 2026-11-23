@@ -193,6 +193,7 @@ func (app *App) setup() {
 		config.GoogleOAuth.ClientSecret,
 		config.GoogleOAuth.RedirectURL,
 		config.GoogleEncryptionKey,
+		config.GoogleMobileClientIDs...,
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize Google provider: %v", err)
