@@ -37,6 +37,8 @@ type Services struct {
 	GymClients              GymClientService
 	InviteLinks             InviteLinkService
 	Quota                   QuotaGuard
+	// NotificationPrefs is set by the app after InitServices (it needs its own repository).
+	NotificationPrefs NotificationPrefsService
 	// GymLeaver serves POST /me/gyms/:gym_id/leave; nil unless GYM_DISPATCH_ENABLED (and CLIENT_GYM_RELATIONS).
 	GymLeaver GymClientLeaver
 	// Seats serves the seat endpoints (404 while GYM_SEATS_ENABLED is off).

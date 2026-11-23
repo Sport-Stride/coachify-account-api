@@ -93,6 +93,8 @@ The Coachify Account API is a user and account management microservice that hand
 | PUT | `/user/update-user` | UpdateUser | Update own profile |
 | GET | `/user/me` | GetMe | Own profile, including private `personal` details |
 | GET | `/coach/clients` | ListCoachClients | List coach's assigned clients |
+| GET | `/user/notification-prefs` | GetNotificationPrefs | Own push preferences (defaults if never saved) |
+| PUT | `/user/notification-prefs` | UpdateNotificationPrefs | Save push preferences (30/min) |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
 
@@ -927,6 +929,16 @@ docker run -p 8080:8080 -e MONGODB_URI=mongodb://mongo:27017 coachify-account-ap
 >>>>>>> 1ac64bd0b63f018e0d5544c7fd1b6f50b50d4748
 
 ---
+
+## Notification preferences (`notification_prefs`)
+
+Push preferences per user, read by the notification senders. Collection `notification_prefs`: `{_id: user external ID, messages, reminders, reminder_time, timezone, updated_at}`; keyed by `_id`, so no extra index.
+
+- Defaults while a user never saved anything: `messages: true`, `reminders: true`, `reminder_time: "20:00"`, `timezone: "Africa/Tunis"`.
+- `messages` covers new chat messages. `reminders` covers session and meeting reminders and the coach's morning summary; session reminders go out at `reminder_time` (`HH:MM`, 24 h) in `timezone` (IANA name).
+- `GET /user/notification-prefs` → `{messages, reminders, reminder_time, timezone, updated_at?}`. The user always comes from the JWT.
+- `PUT /user/notification-prefs` with any of those fields → the saved result. Omitted fields keep their value (or default); one atomic upsert. Empty body, a bad `HH:MM` or an unknown zone → 400.
+- `POST /internal/notification-prefs` (x-api-key) `{"user_ids": [...1-500]}` → `{"prefs": {"<id>": {...}}}`, every requested id present (defaults when never saved). Used by notification-api to filter `/push` and by tracker-api for reminder times.
 
 ## 12. ENTITLEMENTS (FEATURE ACCESS)
 
