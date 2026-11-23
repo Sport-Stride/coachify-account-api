@@ -229,3 +229,33 @@ func TestUpdateUserMasks_OnboardingFieldsWithoutMetadataIgnored(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Empty(t, f)
 }
+
+func TestUpdateUserMasks_PersonalFields(t *testing.T) {
+	req := &api.RequestUpdateUser{
+		User:        api.UserRequest{Personal: &db.PersonalInfo{BirthDate: "1995-04-12", HeightCm: 172}},
+		UpdateMasks: []string{"personal.birth_date", "personal.height_cm"},
+	}
+	f, apiErr := UpdateUserMasks(req)
+	require.Nil(t, apiErr)
+	assert.Equal(t, bson.M{"personal.birth_date": "1995-04-12", "personal.height_cm": 172}, f)
+}
+
+func TestUpdateUserMasks_PersonalFieldsRejectInvalid(t *testing.T) {
+	cases := []struct {
+		mask     string
+		personal db.PersonalInfo
+		err      error
+	}{
+		{"personal.birth_date", db.PersonalInfo{BirthDate: "12/04/1995"}, models.ErrInvalidBirthDate},
+		{"personal.birth_date", db.PersonalInfo{BirthDate: "2999-01-01"}, models.ErrInvalidBirthDate},
+		{"personal.height_cm", db.PersonalInfo{HeightCm: 400}, models.ErrInvalidHeight},
+	}
+	for _, c := range cases {
+		p := c.personal
+		f, apiErr := UpdateUserMasks(&api.RequestUpdateUser{User: api.UserRequest{Personal: &p}, UpdateMasks: []string{c.mask}})
+		assert.Nil(t, f, c.mask)
+		require.NotNil(t, apiErr, c.mask)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, c.mask)
+		assert.ErrorIs(t, apiErr.Error, c.err, c.mask)
+	}
+}

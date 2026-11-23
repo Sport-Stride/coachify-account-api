@@ -146,6 +146,7 @@ func ToApiUser(dbUser *db.User) api.ApiUser {
 		RefreshToken:           dbUser.UserRefreshToken,
 		Token:                  dbUser.Token,
 		Metadata:               dbUser.Metadata,
+		Personal:               dbUser.Personal,
 		MatriculeFiscale:       dbUser.MatriculeFiscale,
 		MatriculeFiscaleStatus: string(dbUser.MatriculeFiscaleStatus),
 		IsHeadCoach:            dbUser.IsHeadCoach,
@@ -322,4 +323,9 @@ func ToPublicUserFromResponse(dbUser *db.UserResponse) api.PublicUser {
 		UpdatedAt:              dbUser.UpdatedAt,
 		LastLogin:              dbUser.LastLogin,
 	}
+}
+
+// ToMeUser maps the caller's own stored user: the public shape plus the private personal details.
+func ToMeUser(dbUser *db.User) api.MeUser {
+	return api.MeUser{PublicUser: ToPublicUser(dbUser), Personal: dbUser.Personal}
 }

@@ -2,6 +2,7 @@ package db
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -40,4 +41,23 @@ func TestOnboardingKeyCounts(t *testing.T) {
 	assert.Len(t, Specialties, 10)
 	assert.Len(t, Goals, 4)
 	assert.Len(t, Levels, 3)
+}
+
+func TestValidBirthDate(t *testing.T) {
+	now := time.Date(2026, 11, 23, 15, 0, 0, 0, time.UTC)
+	for _, ok := range []string{"", "1995-04-12", "1900-01-01", "2026-11-23"} {
+		assert.True(t, ValidBirthDate(ok, now), ok)
+	}
+	for _, bad := range []string{"12/04/1995", "1995-02-30", "2026-11-24", "1899-12-31", "1995-4-12"} {
+		assert.False(t, ValidBirthDate(bad, now), bad)
+	}
+}
+
+func TestValidHeightCm(t *testing.T) {
+	for _, ok := range []int{0, MinHeightCm, 172, MaxHeightCm} {
+		assert.True(t, ValidHeightCm(ok), ok)
+	}
+	for _, bad := range []int{-1, 1, MinHeightCm - 1, MaxHeightCm + 1} {
+		assert.False(t, ValidHeightCm(bad), bad)
+	}
 }

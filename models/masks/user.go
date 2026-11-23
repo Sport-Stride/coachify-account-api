@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -33,6 +34,10 @@ const (
 	UserUpdateMaskUserMetadataSpecialties = "metadata.specialties"
 	UserUpdateMaskUserMetadataGoal        = "metadata.goal"
 	UserUpdateMaskUserMetadataLevel       = "metadata.level"
+
+	// Masks for the private personal details
+	UserUpdateMaskUserPersonalBirthDate = "personal.birth_date"
+	UserUpdateMaskUserPersonalHeightCm  = "personal.height_cm"
 )
 
 func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
@@ -158,6 +163,22 @@ func UpdateUserMasks(req *api.RequestUpdateUser) (bson.M, *models.ApiError) {
 					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidLevel}
 				}
 				updateFields["metadata.level"] = req.User.Metadata.Level
+			}
+
+		case UserUpdateMaskUserPersonalBirthDate:
+			if req.User.Personal != nil {
+				if !db.ValidBirthDate(req.User.Personal.BirthDate, time.Now()) {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidBirthDate}
+				}
+				updateFields["personal.birth_date"] = req.User.Personal.BirthDate
+			}
+
+		case UserUpdateMaskUserPersonalHeightCm:
+			if req.User.Personal != nil {
+				if !db.ValidHeightCm(req.User.Personal.HeightCm) {
+					return nil, &models.ApiError{Code: http.StatusBadRequest, Error: models.ErrInvalidHeight}
+				}
+				updateFields["personal.height_cm"] = req.User.Personal.HeightCm
 			}
 
 		}

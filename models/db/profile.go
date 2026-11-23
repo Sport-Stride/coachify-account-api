@@ -1,5 +1,7 @@
 package db
 
+import "time"
+
 // Onboarding answers are stored as stable keys, never as display text or list indexes:
 // the apps translate them, so renaming a label never touches stored data.
 // Only add keys; never rename or remove one (existing users hold them).
@@ -56,3 +58,28 @@ func ValidGoal(g string) bool { return g == "" || Goals[g] }
 
 // ValidLevel accepts a known level, or "" to clear it.
 func ValidLevel(l string) bool { return l == "" || Levels[l] }
+
+// BirthDateLayout is the stored format of personal.birth_date.
+const BirthDateLayout = "2006-01-02"
+
+// ValidBirthDate accepts "" (clear) or a real YYYY-MM-DD date between 1900-01-01 and today.
+func ValidBirthDate(s string, now time.Time) bool {
+	if s == "" {
+		return true
+	}
+	d, err := time.Parse(BirthDateLayout, s)
+	if err != nil {
+		return false
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	return !d.Before(time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)) && !d.After(today)
+}
+
+// Height bounds in centimetres.
+const (
+	MinHeightCm = 50
+	MaxHeightCm = 272
+)
+
+// ValidHeightCm accepts 0 (clear) or a height between MinHeightCm and MaxHeightCm.
+func ValidHeightCm(h int) bool { return h == 0 || (h >= MinHeightCm && h <= MaxHeightCm) }
