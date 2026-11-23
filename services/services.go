@@ -45,6 +45,8 @@ type Services struct {
 	ContextEntitlements ContextEntitlementResolver
 	// GymAddons serves the internal coaching add-on endpoints; nil unless GYM_MEMBERSHIP_PLANS_ENABLED (and a payments key).
 	GymAddons GymAddonService
+	// PushDevices is set by the app after InitServices (it needs its own repository).
+	PushDevices PushDeviceService
 }
 
 // DispatchWiring carries the P6 collaborators; nil while GYM_DISPATCH_ENABLED is off.

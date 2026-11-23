@@ -114,6 +114,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			// Tax registration (coach/nutritionist only)
 			userProtectedGroup.PATCH("/matricule-fiscale", handlers.SubmitMatriculeFiscale(services.AuthService))
 			userProtectedGroup.DELETE("/tax-registration", handlers.WithdrawTaxRegistration(services.AuthService))
+			// Expo push tokens of the caller's devices
+			userProtectedGroup.POST("/devices", RateLimit(20, time.Minute, userOrIPKey), handlers.RegisterPushDevice(services.PushDevices))
+			userProtectedGroup.DELETE("/devices/:token", handlers.UnregisterPushDevice(services.PushDevices))
 
 		}
 		coachProtectedGroup := protected.Group("/coach")
@@ -261,6 +264,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
 		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
+		internal.GET("/users/:id/devices", handlers.ListInternalPushDevices(services.PushDevices))
 		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 		internal.POST("/gym-access", handlers.InternalGymAccess(services.GymClients))
