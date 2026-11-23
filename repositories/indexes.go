@@ -399,6 +399,18 @@ func indexDefinitions() map[string][]mongo.IndexModel {
 			},
 		},
 
+		// Expo push tokens: one owner per token, listed per user (new collection).
+		pushDevicesCollection: {
+			{
+				Keys:    bson.D{{Key: "token", Value: 1}},
+				Options: options.Index().SetUnique(true).SetName("idx_push_devices_token_unique"),
+			},
+			{
+				Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "updated_at", Value: -1}},
+				Options: options.Index().SetName("idx_push_devices_user_updated"),
+			},
+		},
+
 		// Unified invite links (new collection: first declaration of these names).
 		inviteLinksCollection: inviteLinkIndexes(),
 
@@ -586,6 +598,7 @@ func VerifyIndexes(ctx context.Context, db *mongo.Database) (bool, []string) {
 			"client_id_1",
 		},
 		"registration_links": {"token_1", "coach_id_1"},
+		pushDevicesCollection: {"idx_push_devices_token_unique", "idx_push_devices_user_updated"},
 		gymClientsCollection: {
 			"idx_gym_clients_gym_client_unique",
 			"idx_gym_clients_client_status",

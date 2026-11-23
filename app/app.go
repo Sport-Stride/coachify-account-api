@@ -235,6 +235,8 @@ func (app *App) setup() {
 	servicesWrapper.NotificationPrefs = services.NewNotificationPrefsService(repositories.NewNotificationPrefsRepository(db))
 
 	// Initialize Router
+	servicesWrapper.PushDevices = services.NewPushDeviceService(repositories.NewPushDeviceRepository(db))
+
 	r := router.InitializeRouter(servicesWrapper)
 
 	app.Config = *config
