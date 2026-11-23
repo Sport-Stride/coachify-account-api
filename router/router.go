@@ -179,6 +179,8 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		protected.GET("/invite-links", handlers.ListInviteLinks(services.InviteLinks))
 		protected.DELETE("/invite-links/:token", handlers.RevokeInviteLink(services.InviteLinks))
 		protected.POST("/invite-links/:token/redeem", RateLimit(30, time.Minute, userOrIPKey), handlers.RedeemInviteLink(services.InviteLinks))
+		// Public profile of a coach, for any signed-in user (no contact details)
+		protected.GET("/coaches/:coach_id/profile", handlers.GetCoachPublicProfile(services.CoachProfile))
 		protected.GET("/me/invites", handlers.ListMyInvites(services.InviteLinks))
 		protected.POST("/me/invites/:id/accept", handlers.AcceptMyInvite(services.InviteLinks))
 		protected.POST("/me/invites/:id/decline", handlers.DeclineMyInvite(services.InviteLinks))

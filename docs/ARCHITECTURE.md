@@ -92,6 +92,7 @@ The Coachify Account API is a user and account management microservice that hand
 |---|---|---|---|
 | PUT | `/user/update-user` | UpdateUser | Update own profile |
 | GET | `/user/me` | GetMe | Own profile, including private `personal` details |
+| GET | `/coaches/:coach_id/profile` | GetCoachPublicProfile | Public profile of a coach (any signed-in user) |
 | GET | `/coach/clients` | ListCoachClients | List coach's assigned clients |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
@@ -212,6 +213,13 @@ Keys live in `models/db/profile.go`: only add new ones, never rename or remove.
 Private details use the masks `personal.birth_date` (`YYYY-MM-DD`, from 1900-01-01 to today) and `personal.height_cm` (50 to 272). Empty or 0 clears the field; anything else invalid returns 400. `personal` is returned only to the user themself (login, OAuth, update response, `GET /user/me`), never by the unauthenticated lookup routes (`/user/get-user/:prefix`, `/user/get-user-by-id/:prefix`, `/user/get-user-by-email/:prefix`).
 
 | `GET` | `/user/me` | Own profile | none (identity from the JWT) | `MeUser`: the `PublicUser` fields plus `personal {birth_date, height_cm}` |
+
+#### Coach public profile (JWT Protected, any role)
+| Method | Path | Purpose | Request | Response |
+|--------|------|---------|---------|----------|
+| `GET` | `/coaches/:coach_id/profile` | A coach as clients see them | Path: coach external ID | `CoachPublicProfile {external_id, firstname, lastname, role, profile_picture, bio, city, specialties[], clients}` |
+
+`bio` is the user `description`, `city` is `address.city`, `specialties` comes from `metadata.specialties` (always an array). `clients` counts the distinct clients the coach follows: personal links, plus active gym clients assigned to them when `CLIENT_GYM_RELATIONS` is on; it is left out if the count fails. No email, phone, address or private data. 404 `coach not found` unless the user has a coaching role (`coach`, `nutritionist`, `gym_owner` with `GYM_OWNER_AS_COACH`) and is neither blocked, suspended, deactivated nor unconfirmed. Response time and program count belong to chat-api and workout-api.
 
 #### Coach-Client Management (JWT Protected, Coach Only)
 | Method | Path | Purpose | Request | Response |

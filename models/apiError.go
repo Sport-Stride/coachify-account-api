@@ -67,6 +67,7 @@ var (
 	ErrInvalidLevel                    = errors.New("invalid level")
 	ErrInvalidBirthDate                = errors.New("invalid birth date: expected YYYY-MM-DD, not in the future")
 	ErrInvalidHeight                   = errors.New("invalid height: expected centimetres between 50 and 272")
+	ErrCoachNotFound                   = errors.New("coach not found")
 	ErrMatriculeFiscaleAlreadyApproved = errors.New("matricule fiscale is already approved and cannot be resubmitted")
 	ErrMatriculeFiscaleInvalidStatus   = errors.New("invalid matricule fiscale status")
 	ErrCoachNotFiscallyVerified        = errors.New("payment cannot be processed: coach fiscal verification is incomplete")
