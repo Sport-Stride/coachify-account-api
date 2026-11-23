@@ -23,6 +23,8 @@ import (
 type Services struct {
 	AuthService             AuthService
 	CoachService            CoachService
+	// PushDevices is set by the app after InitServices (it needs its own repository).
+	PushDevices PushDeviceService
 	AdminService            AdminService
 	TeamService             TeamService
 	GymService              GymService

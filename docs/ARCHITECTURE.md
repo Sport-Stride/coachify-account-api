@@ -91,6 +91,8 @@ The Coachify Account API is a user and account management microservice that hand
 | Method | Path | Handler | Purpose |
 |---|---|---|---|
 | PUT | `/user/update-user` | UpdateUser | Update own profile |
+| POST | `/user/devices` | RegisterPushDevice | Register the caller's Expo push token (20/min) |
+| DELETE | `/user/devices/:token` | UnregisterPushDevice | Remove the caller's push token (sign-out) |
 | GET | `/coach/clients` | ListCoachClients | List coach's assigned clients |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
@@ -979,3 +981,12 @@ Codes: `FEATURE_DISABLED`, `CLIENT_FEATURE_DISABLED` (set by consumers), `QUOTA_
 | `INTERNAL_API_KEY` | (empty) | Shared secret for `/internal/*` (also sent to identifier, invitation, notification) |
 | `INTERNAL_API_KEY_REQUIRED` | `false` | `false`: a missing or wrong key is logged (`internal_key_missing`) and allowed; `true`: 401 |
 | `PAYMENT_API_KEY` | `INTERNAL_API_KEY` | `x-api-key` sent to payments `/internal/subscriptions/summary` (payments must run with the same key) |
+
+
+## Push devices (`push_devices`)
+
+Expo push tokens of signed-in apps, for the notification senders. Collection `push_devices`: `{token, user_id, platform, locale, created_at, updated_at}`, unique index on `token`, index on `user_id` + `updated_at`.
+
+- `POST /user/devices` `{"token": "ExponentPushToken[…]", "platform": "ios" | "android", "locale": "fr"}` → 204. The owner comes from the JWT. Re-registering a token moves it to the caller (same device, another account). Each user keeps their 10 most recently registered devices. Invalid token, platform or locale → 400.
+- `DELETE /user/devices/:token` (URL-encoded) → 204; deletes only the caller's own token, an unknown token is not an error.
+- `GET /internal/users/:id/devices` (x-api-key) → `{"devices": [{token, platform, locale, created_at, updated_at}]}`, most recent first, for the senders. Sending lives in notification-api.

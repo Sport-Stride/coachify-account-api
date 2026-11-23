@@ -105,6 +105,9 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 			// Admin-only user listing (handler enforces role)
 			userProtectedGroup.GET("", handlers.GetAllUsersPag(services.AuthService))
 			userProtectedGroup.PUT("/update-user", handlers.UpdateUser(services.AuthService))
+			// Expo push tokens of the caller's devices
+			userProtectedGroup.POST("/devices", RateLimit(20, time.Minute, userOrIPKey), handlers.RegisterPushDevice(services.PushDevices))
+			userProtectedGroup.DELETE("/devices/:token", handlers.UnregisterPushDevice(services.PushDevices))
 			// Change own password: 403 on wrong current password; rate limited per user against brute force
 			userProtectedGroup.POST("/change-password", RateLimit(5, 15*time.Minute, userOrIPKey), handlers.ChangePassword(services.AuthService))
 			// Delete authenticated user account
@@ -259,6 +262,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/release", handlers.ReleaseInternalUsage(services.EntitlementService))
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
 		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
+		internal.GET("/users/:id/devices", handlers.ListInternalPushDevices(services.PushDevices))
 		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 		internal.POST("/gym-access", handlers.InternalGymAccess(services.GymClients))

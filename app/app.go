@@ -233,6 +233,8 @@ func (app *App) setup() {
 	)
 
 	// Initialize Router
+	servicesWrapper.PushDevices = services.NewPushDeviceService(repositories.NewPushDeviceRepository(db))
+
 	r := router.InitializeRouter(servicesWrapper)
 
 	app.Config = *config
