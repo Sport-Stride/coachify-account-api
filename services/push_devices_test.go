@@ -21,6 +21,12 @@ type fakePushStore struct {
 	list    []db.PushDevice
 	err     error
 	trimErr error
+	removed []string
+}
+
+func (f *fakePushStore) DeleteTokens(_ context.Context, tokens []string) (int64, error) {
+	f.removed = append(f.removed, tokens...)
+	return int64(len(tokens)), f.err
 }
 
 func (f *fakePushStore) Upsert(_ context.Context, d db.PushDevice) error {
@@ -105,4 +111,28 @@ func TestPushDevices_List(t *testing.T) {
 	_, apiErr = services.NewPushDeviceService(st).List(context.Background(), "")
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+}
+
+func TestPushDevices_RemoveInvalid(t *testing.T) {
+	st := &fakePushStore{}
+	n, apiErr := services.NewPushDeviceService(st).RemoveInvalid(context.Background(), []string{goodToken})
+	require.Nil(t, apiErr)
+	assert.Equal(t, int64(1), n)
+	assert.Equal(t, []string{goodToken}, st.removed)
+
+	big := make([]string, services.MaxInvalidTokens+1)
+	for i := range big {
+		big[i] = goodToken
+	}
+	for name, tokens := range map[string][]string{"none": nil, "too many": big, "not expo": {goodToken, "abc"}} {
+		st := &fakePushStore{}
+		_, apiErr := services.NewPushDeviceService(st).RemoveInvalid(context.Background(), tokens)
+		require.NotNil(t, apiErr, name)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code, name)
+		assert.Empty(t, st.removed, name)
+	}
+
+	_, apiErr = services.NewPushDeviceService(&fakePushStore{err: errors.New("down")}).RemoveInvalid(context.Background(), []string{goodToken})
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
 }

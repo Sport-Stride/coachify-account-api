@@ -13,3 +13,13 @@ type RegisterDeviceRequest struct {
 type DevicesResponse struct {
 	Devices []db.PushDevice `json:"devices"`
 }
+
+// InvalidDevicesRequest is the POST /internal/devices/invalid body.
+type InvalidDevicesRequest struct {
+	Tokens []string `json:"tokens"`
+}
+
+// InvalidDevicesResponse counts the tokens deleted.
+type InvalidDevicesResponse struct {
+	Removed int64 `json:"removed"`
+}

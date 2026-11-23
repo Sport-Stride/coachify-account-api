@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,6 +24,7 @@ type fakePushDevices struct {
 	user, token string
 	req         api.RegisterDeviceRequest
 	list        []db.PushDevice
+	removed     []string
 	err         *models.ApiError
 }
 
@@ -33,6 +35,10 @@ func (f *fakePushDevices) Register(_ context.Context, userID string, req api.Reg
 func (f *fakePushDevices) Unregister(_ context.Context, userID, token string) *models.ApiError {
 	f.user, f.token = userID, token
 	return f.err
+}
+func (f *fakePushDevices) RemoveInvalid(_ context.Context, tokens []string) (int64, *models.ApiError) {
+	f.removed = tokens
+	return int64(len(tokens)), f.err
 }
 func (f *fakePushDevices) List(_ context.Context, userID string) ([]db.PushDevice, *models.ApiError) {
 	f.user = userID
@@ -50,6 +56,7 @@ func pushRouter(svc *fakePushDevices, userID string) *gin.Engine {
 	r.POST("/user/devices", auth, handlers.RegisterPushDevice(svc))
 	r.DELETE("/user/devices/:token", auth, handlers.UnregisterPushDevice(svc))
 	r.GET("/internal/users/:id/devices", handlers.ListInternalPushDevices(svc))
+	r.POST("/internal/devices/invalid", handlers.RemoveInvalidPushDevices(svc))
 	return r
 }
 
@@ -96,4 +103,15 @@ func TestListInternalPushDevices(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "u1", svc.user)
 	assert.JSONEq(t, `{"devices":[{"token":"`+pushToken+`","platform":"android","locale":"ar","created_at":"2026-11-23T12:00:00Z","updated_at":"2026-11-23T12:00:00Z"}]}`, w.Body.String())
+}
+
+func TestRemoveInvalidPushDevices(t *testing.T) {
+	svc := &fakePushDevices{}
+	w := send(pushRouter(svc, ""), http.MethodPost, "/internal/devices/invalid", `{"tokens":["ExponentPushToken[aaaaaaaaaaaaaaaaaaaa]"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, `{"removed":1}`, w.Body.String())
+	assert.Equal(t, []string{"ExponentPushToken[aaaaaaaaaaaaaaaaaaaa]"}, svc.removed)
+	assert.Equal(t, http.StatusBadRequest, send(pushRouter(svc, ""), http.MethodPost, "/internal/devices/invalid", `nope`).Code)
+	bad := &fakePushDevices{err: &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid token")}}
+	assert.Equal(t, http.StatusBadRequest, send(pushRouter(bad, ""), http.MethodPost, "/internal/devices/invalid", `{"tokens":["x"]}`).Code)
 }

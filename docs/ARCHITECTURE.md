@@ -998,6 +998,7 @@ Expo push tokens of signed-in apps, for the notification senders. Collection `pu
 
 - `POST /user/devices` `{"token": "ExponentPushToken[…]", "platform": "ios" | "android", "locale": "fr"}` → 204. The owner comes from the JWT. Re-registering a token moves it to the caller (same device, another account). Each user keeps their 10 most recently registered devices. Invalid token, platform or locale → 400.
 - `DELETE /user/devices/:token` (URL-encoded) → 204; deletes only the caller's own token, an unknown token is not an error.
+- `POST /internal/devices/invalid` (x-api-key) `{"tokens": [...1-1000]}` → `{"removed": n}`: deletes the tokens Expo reported as no longer registered (`DeviceNotRegistered`), whoever owns them. notification-api calls it after each send that found some.
 - `GET /internal/users/:id/devices` (x-api-key) → `{"devices": [{token, platform, locale, created_at, updated_at}]}`, most recent first, for the senders. Sending lives in notification-api.
 
 ### Environment variables

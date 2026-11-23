@@ -58,6 +58,15 @@ func (r *PushDeviceRepository) DeleteForUser(ctx context.Context, userID, token 
 	return err
 }
 
+// DeleteTokens removes the tokens whoever owns them (Expo reported them as no longer registered).
+func (r *PushDeviceRepository) DeleteTokens(ctx context.Context, tokens []string) (int64, error) {
+	res, err := r.collection.DeleteMany(ctx, bson.M{"token": bson.M{"$in": tokens}})
+	if err != nil {
+		return 0, err
+	}
+	return res.DeletedCount, nil
+}
+
 // TrimUser keeps the user's keep most recently registered devices and deletes the others.
 func (r *PushDeviceRepository) TrimUser(ctx context.Context, userID string, keep int64) error {
 	opts := options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetSkip(keep).SetProjection(bson.M{"token": 1})

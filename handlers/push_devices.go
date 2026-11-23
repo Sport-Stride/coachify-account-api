@@ -57,3 +57,21 @@ func ListInternalPushDevices(svc services.PushDeviceService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, api.DevicesResponse{Devices: devices})
 	}
 }
+
+// RemoveInvalidPushDevices serves POST /internal/devices/invalid (x-api-key): notification-api reports the tokens
+// Expo no longer accepts, and they are deleted.
+func RemoveInvalidPushDevices(svc services.PushDeviceService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req api.InvalidDevicesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+			return
+		}
+		n, apiErr := svc.RemoveInvalid(c.Request.Context(), req.Tokens)
+		if apiErr != nil {
+			respondApiError(c, apiErr)
+			return
+		}
+		c.JSON(http.StatusOK, api.InvalidDevicesResponse{Removed: n})
+	}
+}

@@ -265,6 +265,7 @@ func initializeRoutes(r *gin.Engine, services *services.Services) {
 		internal.POST("/entitlements/:user_id/check-quota", handlers.CheckInternalQuota(services.EntitlementService))
 		internal.GET("/users/:id/entitlements", handlers.GetInternalUserEntitlements(services.ContextEntitlements))
 		internal.GET("/users/:id/devices", handlers.ListInternalPushDevices(services.PushDevices))
+		internal.POST("/devices/invalid", handlers.RemoveInvalidPushDevices(services.PushDevices))
 		internal.POST("/authz/check",handlers.CheckInternalAuthz(services.GymPolicy))
 		internal.POST("/clients/relationships", handlers.InternalClientRelationships(services.GymClients))
 		internal.POST("/gym-access", handlers.InternalGymAccess(services.GymClients))

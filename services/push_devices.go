@@ -14,6 +14,9 @@ import (
 	"coachify-account-api/models/db"
 )
 
+// MaxInvalidTokens bounds one removal request (notification-api sends at most 100 users × 10 devices).
+const MaxInvalidTokens = 1000
+
 // MaxDevicesPerUser bounds the push tokens kept per user; the least recently registered go first.
 const MaxDevicesPerUser = 10
 
@@ -23,6 +26,7 @@ type PushDeviceStore interface {
 	ListByUser(ctx context.Context, userID string, limit int64) ([]db.PushDevice, error)
 	DeleteForUser(ctx context.Context, userID, token string) error
 	TrimUser(ctx context.Context, userID string, keep int64) error
+	DeleteTokens(ctx context.Context, tokens []string) (int64, error)
 }
 
 // PushDeviceService registers the Expo push tokens of signed-in apps and lists them for the senders.
@@ -30,6 +34,7 @@ type PushDeviceService interface {
 	Register(ctx context.Context, userID string, req api.RegisterDeviceRequest) *models.ApiError
 	Unregister(ctx context.Context, userID, token string) *models.ApiError
 	List(ctx context.Context, userID string) ([]db.PushDevice, *models.ApiError)
+	RemoveInvalid(ctx context.Context, tokens []string) (int64, *models.ApiError)
 }
 
 type pushDeviceService struct {
@@ -104,4 +109,24 @@ func (s *pushDeviceService) List(ctx context.Context, userID string) ([]db.PushD
 		return nil, pushStoreFailed("list", err)
 	}
 	return devices, nil
+}
+
+// RemoveInvalid deletes the tokens the push service reported as no longer registered (app uninstalled,
+// token expired), whoever owns them. Every token must be an Expo push token.
+func (s *pushDeviceService) RemoveInvalid(ctx context.Context, tokens []string) (int64, *models.ApiError) {
+	if len(tokens) == 0 || len(tokens) > MaxInvalidTokens {
+		return 0, &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("tokens must hold 1 to 1000 Expo push tokens")}
+	}
+	for _, t := range tokens {
+		if !expoPushToken.MatchString(t) {
+			return 0, errPushToken
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	n, err := s.store.DeleteTokens(ctx, tokens)
+	if err != nil {
+		return 0, pushStoreFailed("delete_invalid", err)
+	}
+	return n, nil
 }
