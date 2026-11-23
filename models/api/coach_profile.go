@@ -11,6 +11,9 @@ type CoachPublicProfile struct {
 	Bio            string   `json:"bio,omitempty"`
 	City           string   `json:"city,omitempty"`
 	Specialties    []string `json:"specialties"`
+	// ExperienceYears and Certification are what the coach entered; left out when unset.
+	ExperienceYears int    `json:"experience_years,omitempty"`
+	Certification   string `json:"certification,omitempty"`
 	// Clients is the number of clients the coach follows; left out when the count is unavailable.
 	Clients *int `json:"clients,omitempty"`
 }

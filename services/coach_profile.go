@@ -73,8 +73,12 @@ func (s *coachProfileService) GetPublicProfile(ctx context.Context, coachID stri
 	if user.UserAddress.City != nil {
 		profile.City = *user.UserAddress.City
 	}
-	if user.Metadata != nil && len(user.Metadata.Specialties) > 0 {
-		profile.Specialties = user.Metadata.Specialties
+	if user.Metadata != nil {
+		if len(user.Metadata.Specialties) > 0 {
+			profile.Specialties = user.Metadata.Specialties
+		}
+		profile.ExperienceYears = user.Metadata.ExperienceYears
+		profile.Certification = user.Metadata.Certification
 	}
 
 	if n, err := s.clients.CountFollowedClients(ctx, coachID, s.withGym); err != nil {

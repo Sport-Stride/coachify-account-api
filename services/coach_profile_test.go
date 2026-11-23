@@ -41,7 +41,7 @@ func profileCoach() *db.User {
 		UserEmail: "nom@gmail.com", UserPhoneNumber: "+21600000000", UserStatus: db.Active,
 		UserProfilePicture: "https://res.cloudinary.com/x/image/upload/p.jpg", UserDescription: "Bio",
 		UserAddress: db.Address{City: &city},
-		Metadata:    &db.UserMetadata{Specialties: []string{"strength", "running"}, Goal: "get_fit"},
+		Metadata:    &db.UserMetadata{Specialties: []string{"strength", "running"}, Goal: "get_fit", ExperienceYears: 8, Certification: "Diplôme d'État"},
 		Personal:    &db.PersonalInfo{BirthDate: "1990-01-01", HeightCm: 180},
 	}
 }
@@ -59,6 +59,8 @@ func TestCoachPublicProfile_Success(t *testing.T) {
 	assert.Equal(t, "Bio", p.Bio)
 	assert.Equal(t, "Sfax", p.City)
 	assert.Equal(t, []string{"strength", "running"}, p.Specialties)
+	assert.Equal(t, 8, p.ExperienceYears)
+	assert.Equal(t, "Diplôme d'État", p.Certification)
 	require.NotNil(t, p.Clients)
 	assert.Equal(t, 12, *p.Clients)
 	require.NotNil(t, clients.withGym)
