@@ -124,6 +124,7 @@ type ApiUser struct {
 	ConfirmCode            db.UserConfirmCode        `json:"-"`
 	ResetPasswordCode      *db.UserResetPasswordCode `json:"-"`
 	Metadata               *db.UserMetadata          `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	Personal               *db.PersonalInfo          `json:"personal,omitempty"`
 	MatriculeFiscale       string                    `json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus string                    `json:"matricule_fiscale_status,omitempty"`
 	IsHeadCoach            bool                      `json:"is_head_coach"`
@@ -178,6 +179,7 @@ type UserRequest struct {
 	Autologin          bool             `json:"autologin"`
 	VerificationStatus bool             `json:"verification_status"`
 	Metadata           *db.UserMetadata `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	Personal           *db.PersonalInfo `json:"personal,omitempty"`
 	UserAddress        Address          `json:"address,omitempty"`
 }
 
@@ -270,4 +272,10 @@ type PublicUser struct {
 	CreatedAt              time.Time        `json:"created_at"`
 	UpdatedAt              time.Time        `json:"updated_at"`
 	LastLogin              time.Time        `json:"last_login"`
+}
+
+// MeUser is the caller's own profile (GET /user/me): the public shape plus the private personal details.
+type MeUser struct {
+	PublicUser
+	Personal *db.PersonalInfo `json:"personal,omitempty"`
 }

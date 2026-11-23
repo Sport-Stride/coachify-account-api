@@ -312,6 +312,23 @@ func ChangePassword(wrapper services.AuthService) gin.HandlerFunc {
 	}
 }
 
+// GetMe serves the caller's own profile; the identity comes from the JWT only.
+func GetMe(wrapper services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		externalID := ctx.GetString("userID")
+		if externalID == "" {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		me, apiErr := wrapper.GetMe(ctx.Request.Context(), externalID)
+		if apiErr != nil {
+			ctx.JSON(apiErr.Code, gin.H{"error": apiErr.Error.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, me)
+	}
+}
+
 func RefreshToken(wrapper services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		request := new(api.RequestRefreshtoken)

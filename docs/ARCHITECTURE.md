@@ -91,6 +91,7 @@ The Coachify Account API is a user and account management microservice that hand
 | Method | Path | Handler | Purpose |
 |---|---|---|---|
 | PUT | `/user/update-user` | UpdateUser | Update own profile |
+| GET | `/user/me` | GetMe | Own profile, including private `personal` details |
 | GET | `/coach/clients` | ListCoachClients | List coach's assigned clients |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
@@ -197,6 +198,20 @@ CoachClient {
 | Method | Path | Purpose | Request | Response |
 |--------|------|---------|---------|----------|
 | `PUT` | `/user/update-user` | Update own user profile | `RequestUpdateUser` (user fields to update) | `ApiUser` (updated) |
+
+Onboarding answers go through the same route, with masks `metadata.specialties`, `metadata.goal` and `metadata.level`. Values are stable keys (the apps translate them); anything else returns 400. An empty value clears the field, duplicate specialties are dropped.
+
+| Field | Keys |
+|---|---|
+| `specialties` (coach, nutritionist) | `strength`, `weight_loss`, `fitness`, `nutrition`, `athletic_prep`, `running`, `online_coaching`, `yoga`, `injury_recovery`, `seniors` |
+| `goal` (client) | `lose_weight`, `build_muscle`, `get_fit`, `competition_prep` |
+| `level` (client) | `beginner`, `intermediate`, `advanced` |
+
+Keys live in `models/db/profile.go`: only add new ones, never rename or remove.
+
+Private details use the masks `personal.birth_date` (`YYYY-MM-DD`, from 1900-01-01 to today) and `personal.height_cm` (50 to 272). Empty or 0 clears the field; anything else invalid returns 400. `personal` is returned only to the user themself (login, OAuth, update response, `GET /user/me`), never by the unauthenticated lookup routes (`/user/get-user/:prefix`, `/user/get-user-by-id/:prefix`, `/user/get-user-by-email/:prefix`).
+
+| `GET` | `/user/me` | Own profile | none (identity from the JWT) | `MeUser`: the `PublicUser` fields plus `personal {birth_date, height_cm}` |
 
 #### Coach-Client Management (JWT Protected, Coach Only)
 | Method | Path | Purpose | Request | Response |
@@ -421,7 +436,8 @@ type User struct {
   UserDescription        string
   UserRole               string              // e.g., "Coach", "Client", "Admin"
   UserAddress            Address             // City, Country, Line1, Line2, PostalCode, State
-  Metadata               *UserMetadata       // HowHeardAboutUs, Profession, etc.
+  Metadata               *UserMetadata       // HowHeardAboutUs, Profession, Specialties, Goal, Level, etc.
+  Personal               *PersonalInfo       // BirthDate, HeightCm: private, self only
   
   // Timestamps
   UserCreatedAt          time.Time

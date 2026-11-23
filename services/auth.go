@@ -44,6 +44,7 @@ type AuthService interface {
 	ConfirmResetPassword(ctx *gin.Context, request *api.ConfirmResetPasswordRequest) *models.ApiError
 	ChangePassword(ctx context.Context, externalID string, request *api.ChangePasswordRequest) *models.ApiError
 	GetUserByExternalId(ctx context.Context, userId string) (*api.PublicUser, *models.ApiError)
+	GetMe(ctx context.Context, externalID string) (*api.MeUser, *models.ApiError)
 	RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError)
 	UpdateUser(ctx context.Context, req api.RequestUpdateUser) (*api.ApiUser, *models.ApiError)
 	GetAllUsersPag(api.SearchUser) ([]*api.PublicUser, int, *models.ApiError)
@@ -1323,6 +1324,18 @@ func (s AuthServiceImpl) GetUserByExternalId(ctx context.Context, userId string)
 	apiUser := mapping.ToPublicUserFromResponse(user)
 
 	return &apiUser, nil
+}
+
+// GetMe returns the caller's own profile, including the private personal details.
+func (s AuthServiceImpl) GetMe(ctx context.Context, externalID string) (*api.MeUser, *models.ApiError) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	user, err := s.userRepository.GetUserByExternalIdUpdate(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+	me := mapping.ToMeUser(user)
+	return &me, nil
 }
 
 func (s AuthServiceImpl) RefreshToken(ctx context.Context, email string, oldRefreshToken string) (string, *models.ApiError) {

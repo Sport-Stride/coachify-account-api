@@ -82,6 +82,7 @@ func newAPIRouter(s *apiSvcs, userID, role string) *gin.Engine {
 	pu.GET("", handlers.GetAllUsersPag(s.auth))
 	pu.PUT("/update-user", handlers.UpdateUser(s.auth))
 	pu.POST("/change-password", handlers.ChangePassword(s.auth))
+	pu.GET("/me", handlers.GetMe(s.auth))
 	pu.DELETE("", handlers.DeleteAuthenticatedUser(s.auth))
 	pu.PATCH("/matricule-fiscale", handlers.SubmitMatriculeFiscale(s.auth))
 	pu.DELETE("/tax-registration", handlers.WithdrawTaxRegistration(s.auth))

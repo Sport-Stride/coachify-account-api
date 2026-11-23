@@ -96,6 +96,15 @@ func (_m *AuthService) GetUserByExternalId(ctx context.Context, userId string) (
 	return r0, apiErrAt(ret, 1)
 }
 
+func (_m *AuthService) GetMe(ctx context.Context, externalID string) (*api.MeUser, *models.ApiError) {
+	ret := _m.Called(ctx, externalID)
+	var r0 *api.MeUser
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*api.MeUser)
+	}
+	return r0, apiErrAt(ret, 1)
+}
+
 func (_m *AuthService) RefreshToken(ctx context.Context, username string, oldRefreshToken string) (string, *models.ApiError) {
 	ret := _m.Called(ctx, username, oldRefreshToken)
 	return ret.String(0), apiErrAt(ret, 1)

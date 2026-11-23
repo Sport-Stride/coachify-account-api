@@ -159,3 +159,17 @@ func TestFormattedDateTime(t *testing.T) {
 	_, err := time.Parse("02/01/2006 15:04:05", FormattedDateTime())
 	assert.NoError(t, err)
 }
+
+func TestPersonalOnlyInSelfShapes(t *testing.T) {
+	u := &db.User{ExternalID: "u1", Personal: &db.PersonalInfo{BirthDate: "1995-04-12", HeightCm: 172}}
+
+	me := ToMeUser(u)
+	assert.Equal(t, u.Personal, me.Personal)
+	assert.Equal(t, "u1", me.ExternalID)
+	assert.Equal(t, u.Personal, ToApiUser(u).Personal, "login and update answer the user themself")
+
+	pub, err := json.Marshal(ToPublicUser(u))
+	assert.NoError(t, err)
+	assert.NotContains(t, string(pub), "personal", "lookup routes are unauthenticated")
+	assert.NotContains(t, string(pub), "birth_date")
+}

@@ -49,6 +49,8 @@ type User struct {
 	UserConfirmCode        *UserConfirmCode                `bson:"confirm_code"`
 	UserResetPasswordCode  *UserResetPasswordCode          `bson:"reset_password_code"`
 	UserAddress            Address                         `bson:"address,omitempty"`
+	// Personal is private: served only to the user (login, update, GET /user/me), never by lookup routes.
+	Personal                    *PersonalInfo                   `bson:"personal,omitempty"`
 	Metadata                    *UserMetadata                   `bson:"metadata,omitempty" json:"metadata,omitempty"`
 	MatriculeFiscale            string                          `bson:"matricule_fiscale,omitempty" json:"matricule_fiscale,omitempty"`
 	MatriculeFiscaleStatus      MatriculeFiscaleStatus          `bson:"matricule_fiscale_status" json:"matricule_fiscale_status"`
@@ -79,6 +81,16 @@ type UserMetadata struct {
 	WorkPlace       string   `bson:"work_place,omitempty" json:"work_place,omitempty"`
 	ClientRange     string   `bson:"client_range,omitempty" json:"client_range,omitempty"`
 	Offerings       []string `bson:"offerings,omitempty" json:"offerings,omitempty"`
+	// Onboarding answers, as keys from profile.go: specialties for coaches and nutritionists, goal and level for clients.
+	Specialties []string `bson:"specialties,omitempty" json:"specialties,omitempty"`
+	Goal        string   `bson:"goal,omitempty" json:"goal,omitempty"`
+	Level       string   `bson:"level,omitempty" json:"level,omitempty"`
+}
+
+// PersonalInfo holds the private body details of a user. Zero values mean "not set".
+type PersonalInfo struct {
+	BirthDate string `bson:"birth_date,omitempty" json:"birth_date,omitempty"` // YYYY-MM-DD
+	HeightCm  int    `bson:"height_cm,omitempty" json:"height_cm,omitempty"`
 }
 
 type SearchUser struct {
