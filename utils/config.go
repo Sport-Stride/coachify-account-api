@@ -43,6 +43,23 @@ type AppConfig struct {
 	Analytics                       AnalyticsConfig
 	InternalAPIKey                  string
 	InternalAPIKeyRequired          bool
+	Uploads                         UploadsConfig
+}
+
+// UploadsConfig holds the Cloudinary account used to sign direct uploads (POST /uploads/sign).
+// Uploads are disabled (503) while any of the three Cloudinary values is empty.
+type UploadsConfig struct {
+	CloudName string
+	APIKey    string
+	APISecret string
+	// QuotaEnforce (UPLOADS_QUOTA_ENFORCE, default off) refuses a signature when the file_manager quota denies it or
+	// cannot be read. Off, like the web upload route's report mode, a denial or an outage is logged and allowed.
+	QuotaEnforce bool
+}
+
+// Enabled reports whether direct uploads can be signed.
+func (u UploadsConfig) Enabled() bool {
+	return u.CloudName != "" && u.APIKey != "" && u.APISecret != ""
 }
 
 // AnalyticsConfig holds the analytics scope limits.
@@ -223,6 +240,13 @@ func LoadConfig() *AppConfig {
 			SeatOverflowGraceDays: getIntWithDefault("GYM_SEAT_OVERFLOW_GRACE_DAYS", 7),
 
 			MembershipPlansEnabled: viper.GetBool("GYM_MEMBERSHIP_PLANS_ENABLED"),
+		}
+
+		cfg.Uploads = UploadsConfig{
+			CloudName:    getStringWithDefault("CLOUDINARY_CLOUD_NAME", ""),
+			APIKey:       getStringWithDefault("CLOUDINARY_API_KEY", ""),
+			APISecret:    getStringWithDefault("CLOUDINARY_API_SECRET", ""),
+			QuotaEnforce: viper.GetBool("UPLOADS_QUOTA_ENFORCE"),
 		}
 
 		cfg.Analytics = AnalyticsConfig{

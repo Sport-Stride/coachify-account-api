@@ -23,6 +23,7 @@ import (
 type Services struct {
 	AuthService             AuthService
 	CoachService            CoachService
+	Uploads                 UploadService
 	AdminService            AdminService
 	TeamService             TeamService
 	GymService              GymService
@@ -309,6 +310,7 @@ func InitServices(config utils.AppConfig,
 	return &Services{
 		AuthService:             authService,
 		CoachService:            coachService,
+		Uploads:                 NewUploadService(config.Uploads, entitlementService),
 		AdminService:            NewAdminService(userRepo, coachRepo, adminAuditRepo, authService),
 		TeamService:             NewTeamService(userRepo, teamRepo, WithGymMembership(gymRepo), WithGymChat(gymChat), WithGymMembers(memberStore), WithReadCache(15*time.Second), WithCoachDepartures(departures)),
 		GymService:              gymService,
