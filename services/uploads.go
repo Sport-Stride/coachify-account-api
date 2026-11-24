@@ -24,6 +24,7 @@ var UploadPurposes = map[string]string{
 	"progress": "progress",
 	"meals":    "meals",
 	"library":  "library",
+	"files":    "files",
 }
 
 const (
@@ -35,9 +36,13 @@ const (
 	// stored at most 2048 px on the long side (the web route resizes to the same bound).
 	uploadFormats        = "jpg,jpeg,png,webp,heic,heif"
 	uploadTransformation = "c_limit,h_2048,w_2048"
+	// Videos (coach files only): stored as sent, at most MaxVideoUploadBytes.
+	MaxVideoUploadBytes = 100 << 20
+	videoFormats        = "mp4,mov,m4v,webm"
+	uploadKindVideo     = "video"
 )
 
-// UploadService signs direct image uploads to Cloudinary.
+// UploadService signs direct image uploads to Cloudinary, and video uploads for coach files.
 type UploadService interface {
 	Sign(ctx context.Context, userID string, req api.UploadSignRequest) (*api.UploadSignature, *models.ApiError)
 }
@@ -60,8 +65,9 @@ func NewUploadService(cfg utils.UploadsConfig, quota UploadQuota) UploadService 
 
 var (
 	errUploadsDisabled = &models.ApiError{Code: http.StatusServiceUnavailable, Error: errors.New("uploads not configured")}
-	errUploadPurpose   = &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid purpose: expected profile, progress, meals or library")}
-	errUploadSize      = &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid size: expected 1 byte to 20 MB")}
+	errUploadPurpose   = &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid purpose: expected profile, progress, meals, library or files")}
+	errUploadSize      = &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid size: expected 1 byte to 20 MB (100 MB for a video)")}
+	errUploadKind      = &models.ApiError{Code: http.StatusBadRequest, Error: errors.New("invalid kind: expected image, or video for files")}
 )
 
 // Sign returns the fields of a signed upload into users/<userID>/<folder>. The folder, the accepted formats and the
@@ -78,7 +84,15 @@ func (s *uploadService) Sign(ctx context.Context, userID string, req api.UploadS
 	if !ok {
 		return nil, errUploadPurpose
 	}
-	if req.Size <= 0 || req.Size > MaxUploadBytes {
+	video := req.Kind == uploadKindVideo
+	if (req.Kind != "" && req.Kind != "image" && !video) || (video && req.Purpose != "files") {
+		return nil, errUploadKind
+	}
+	limit := int64(MaxUploadBytes)
+	if video {
+		limit = MaxVideoUploadBytes
+	}
+	if req.Size <= 0 || req.Size > limit {
 		return nil, errUploadSize
 	}
 	if apiErr := s.consumeQuota(ctx, userID, req.Size); apiErr != nil {
@@ -92,6 +106,13 @@ func (s *uploadService) Sign(ctx context.Context, userID string, req api.UploadS
 		"timestamp":       strconv.FormatInt(now.Unix(), 10),
 		"transformation":  uploadTransformation,
 	}
+	resource := "image"
+	if video {
+		// A video keeps its own size and format (no resize transformation).
+		resource = "video"
+		params["allowed_formats"] = videoFormats
+		delete(params, "transformation")
+	}
 	fields := make(map[string]string, len(params)+2)
 	for k, v := range params {
 		fields[k] = v
@@ -99,7 +120,7 @@ func (s *uploadService) Sign(ctx context.Context, userID string, req api.UploadS
 	fields["api_key"] = s.cfg.APIKey
 	fields["signature"] = cloudinarySignature(params, s.cfg.APISecret)
 	return &api.UploadSignature{
-		UploadURL: "https://api.cloudinary.com/v1_1/" + s.cfg.CloudName + "/image/upload",
+		UploadURL: "https://api.cloudinary.com/v1_1/" + s.cfg.CloudName + "/" + resource + "/upload",
 		Fields:    fields,
 		ExpiresAt: now.Add(uploadSignatureTTL).Unix(),
 	}, nil

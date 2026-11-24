@@ -6,6 +6,8 @@ type UploadSignRequest struct {
 	Purpose string `json:"purpose"`
 	// Size is the file size in bytes, counted against the file_manager quota.
 	Size int64 `json:"size"`
+	// Kind is image (default) or video. Videos are accepted for the files purpose only.
+	Kind string `json:"kind,omitempty"`
 }
 
 // UploadSignature is what the client posts to Cloudinary as multipart fields, next to "file".
