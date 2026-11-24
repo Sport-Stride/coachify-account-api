@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,10 @@ func TestUploadSign_Refusals(t *testing.T) {
 		{"empty purpose", uploadCfg, "u1", api.UploadSignRequest{Size: 1}, http.StatusBadRequest},
 		{"zero size", uploadCfg, "u1", api.UploadSignRequest{Purpose: "profile"}, http.StatusBadRequest},
 		{"too large", uploadCfg, "u1", api.UploadSignRequest{Purpose: "profile", Size: MaxUploadBytes + 1}, http.StatusBadRequest},
+		{"video outside files", uploadCfg, "u1", api.UploadSignRequest{Purpose: "library", Size: 1, Kind: "video"}, http.StatusBadRequest},
+		{"unknown kind", uploadCfg, "u1", api.UploadSignRequest{Purpose: "files", Size: 1, Kind: "raw"}, http.StatusBadRequest},
+		{"video too large", uploadCfg, "u1", api.UploadSignRequest{Purpose: "files", Size: MaxVideoUploadBytes + 1, Kind: "video"}, http.StatusBadRequest},
+		{"image too large in files", uploadCfg, "u1", api.UploadSignRequest{Purpose: "files", Size: MaxUploadBytes + 1}, http.StatusBadRequest},
 	}
 	for _, c := range cases {
 		q := &fakeUploadQuota{}
@@ -127,4 +132,22 @@ func TestUploadSign_QuotaEnforced(t *testing.T) {
 	_, apiErr = newTestUploads(cfg, down).Sign(context.Background(), "u1", api.UploadSignRequest{Purpose: "meals", Size: 10})
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusServiceUnavailable, apiErr.Code)
+}
+
+func TestUploadSign_VideoForFiles(t *testing.T) {
+	q := &fakeUploadQuota{}
+	sig, apiErr := newTestUploads(uploadCfg, q).Sign(context.Background(), "u9", api.UploadSignRequest{Purpose: "files", Size: 50 << 20, Kind: "video"})
+	require.Nil(t, apiErr)
+	assert.True(t, strings.HasSuffix(sig.UploadURL, "/video/upload"))
+	assert.Equal(t, "users/u9/files", sig.Fields["folder"])
+	assert.Equal(t, videoFormats, sig.Fields["allowed_formats"])
+	assert.NotContains(t, sig.Fields, "transformation", "a video keeps its size")
+	signed := map[string]string{}
+	for k, v := range sig.Fields {
+		if k != "api_key" && k != "signature" {
+			signed[k] = v
+		}
+	}
+	assert.Equal(t, cloudinarySignature(signed, "s3cret"), sig.Fields["signature"])
+	assert.Equal(t, map[string]int64{"uploads": 1, "bytes": 50 << 20}, q.got[0].Deltas)
 }

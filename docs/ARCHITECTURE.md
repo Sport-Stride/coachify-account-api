@@ -100,7 +100,7 @@ The Coachify Account API is a user and account management microservice that hand
 | PUT | `/user/notification-prefs` | UpdateNotificationPrefs | Save push preferences (30/min) |
 | GET | `/coach/client` | GetCoachIDByClientID | Get coach for a given client |
 | DELETE | `/coach/client/:client_id` | DissociateCoachClient | Remove coach-client link |
-| POST | `/uploads/sign` | SignUpload | Signed direct image upload to Cloudinary (own folder, 30/min) |
+| POST | `/uploads/sign` | SignUpload | Signed direct image upload to Cloudinary (own folder, 30/min); videos for `files` |
 
 ---
 
@@ -1038,7 +1038,7 @@ Expo push tokens of signed-in apps, for the notification senders. Collection `pu
 
 For clients without a NextAuth session (the mobile app). JWT-protected, rate limited to 30 per minute per user.
 
-Request: `{"purpose": "profile" | "progress" | "meals" | "library", "size": <bytes, 1 to 20 MB>}`.
+Request: `{"purpose": "profile" | "progress" | "meals" | "library" | "files", "size": <bytes, 1 to 20 MB>, "kind": "image" | "video"}`. `kind` defaults to image; `video` is accepted for `files` only (a coach's files), up to 100 MB, signed for `<cloud>/video/upload` with formats mp4, mov, m4v, webm and no resize.
 
 Response: `{"upload_url": "https://api.cloudinary.com/v1_1/<cloud>/image/upload", "fields": {...}, "expires_at": <unix>}`. The client posts `fields` plus `file` as multipart to `upload_url` and keeps `secure_url` from Cloudinary's answer.
 
